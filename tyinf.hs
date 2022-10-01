@@ -31,6 +31,7 @@ import Data.Set as Set
 import Control.Exception
 import Control.Monad.State as St
 import Control.Exception (assert)
+import System.IO
 
 
 data Expr =
@@ -850,28 +851,38 @@ ty_inf expr =
 
 
 main :: IO ()
-main =
-  --let src = "bool fun x => (2)"
-  --let src = "int boola fun x => (2)"
-  --let src = "(alpha - beta) + gamma"
-  --let src = "b+a + 2"
-  --let src = "fun a () { b }"
-  --let src = "fun a (g as int) { b + a + 3 * 5; c + d }"
-  --let src = "fun a (g as int) { c + (b + a) }"
-  --let src = "fun a (g as int) { -c - ++d + (b - -a) }"
-  let src =
-        "fun a (g as int) { h as int; i as int; x + y }"
-  in
-    do
-      let tokens = conv2_tokens src
-      putStrLn $ "source:  " ++ (show src)
-      putStrLn $ "tokens:  " ++ (show tokens)
-      syn_forest <- return (do
-                               syn_tree <- (case (snd tokens) of
-                                              "" -> fst $ cons_par_tree (fst tokens) (True, True, True)
-                                              _ -> Nothing
-                                           )
-                               return [syn_tree]
-                           )
-      putStrLn $ "p-trees: " ++ (show syn_forest)
-      putStrLn $ "ty-inf:  " ++ (maybe "" show (ty_inf syn_forest))
+main = do
+  -- src = "bool fun x => (2)"
+  -- src = "int boola fun x => (2)"
+  -- src = "(alpha - beta) + gamma"
+  -- src = "b+a + 2"
+  -- src = "fun a () { b }"
+  -- src = "fun a (g as int) { b + a + 3 * 5; c + d }"
+  -- src = "fun a (g as int) { c + (b + a) }"
+  -- src = "fun a (g as int) { -c - ++d + (b - -a) }"
+  -- src = "fun a (g as int) { h as int; i as int; x + w; }"
+  h <- openFile "src.txt" ReadMode
+  src <- read_src h
+  
+  let tokens = conv2_tokens src
+  putStrLn $ "source:  " ++ (show src)
+  putStrLn $ "tokens:  " ++ (show tokens)
+  syn_forest <- return (do
+                           syn_tree <- (case (snd tokens) of
+                                           "" -> fst $ cons_par_tree (fst tokens) (True, True, True)
+                                           _ -> Nothing
+                                       )
+                           return [syn_tree]
+                       )
+  putStrLn $ "p-trees: " ++ (show syn_forest)
+  putStrLn $ "ty-inf:  " ++ (maybe "" show (ty_inf syn_forest))
+  
+    where
+      read_src :: Handle -> IO String
+      read_src h = do
+        eof <- hIsEOF h
+        if eof then return []
+          else do
+          str <- hGetLine h
+          str' <- read_src h
+          return $ str ++ str'
