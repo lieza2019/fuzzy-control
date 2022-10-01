@@ -516,8 +516,8 @@ par_fun_decl fun tokens =
       _ -> ((Syn_none, tokens), [Internal_error "Calling cons_var_decl with non variable constructor."])
 
 
-cons_par_tree :: [Tk_code] -> Bool -> (Maybe Syntree_node, [Tk_code])
-cons_par_tree tokens contp =
+cons_par_tree :: [Tk_code] -> (Bool, Bool, Bool) -> (Maybe Syntree_node, [Tk_code])
+cons_par_tree tokens (fun_declp, var_declp, par_contp) =
   let is_op t = (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_decre) || (t == Tk_incre)
       is_bin_op op = (op == Ope_add) || (op == Ope_sub) || (op == Ope_mul) || (op == Ope_div)
       is_gte_op ope1 ope2 = case ope1 of
@@ -550,7 +550,7 @@ cons_par_tree tokens contp =
         in
           case ope of
             Nothing -> (Right subexpr1, tokens)
-            Just ope' | is_bin_op ope' -> let r2 = cons_par_tree tokens' True
+            Just ope' | is_bin_op ope' -> let r2 = cons_par_tree tokens' (False, False, True)
                                           in
                                             case r2 of
                                               (Just subexpr2, tokens'') -> (case subexpr2 of
@@ -585,7 +585,7 @@ cons_par_tree tokens contp =
           Syn_fun_call fun_id app_args app_ty -> (case tokens of
                                                     [] -> (Right fun_app, tokens)
                                                     t:ts | is_op t -> (Right fun_app, tokens)
-                                                    _ -> (case cons_par_tree tokens False of
+                                                    _ -> (case cons_par_tree tokens (False, False, False) of
                                                             (Just arg, tokens') -> par_fun_call (Syn_fun_call fun_id (app_args ++ [arg]) app_ty) tokens'
                                                             (Nothing, tokens') -> (Right fun_app, tokens')
                                                          )
@@ -593,7 +593,7 @@ cons_par_tree tokens contp =
           _ -> (Left (Internal_error "Calling cons_var_decl with non variable constructor."), tokens)
   in
     let cont_par subexpr tokens =
-          if contp then case cons_expr subexpr tokens of
+          if par_contp then case cons_expr subexpr tokens of
                           (Right expr', tokens') -> (Just expr', tokens')
                           (Left err, tokens') -> (Nothing, tokens')
           else
@@ -601,7 +601,7 @@ cons_par_tree tokens contp =
     in     
       case tokens of
         [] -> (Nothing, [])
-        Tk_L_par:ts -> (case cons_par_tree ts True of
+        Tk_L_par:ts -> (case cons_par_tree ts (False, False, True) of
                           (Just expr, (Tk_R_par:ts')) -> cont_par (Syn_expr_par expr (expr_ty expr)) ts'
                           (_, ts') -> (Nothing, ts')
                        )
@@ -621,34 +621,38 @@ cons_par_tree tokens contp =
         Tk_true:ts -> cont_par (Syn_val (Val_bool True) Ty_bool) ts
         (Tk_nume n):ts -> cont_par (Syn_val (Val_int n) Ty_int) ts
         (Tk_str s):ts -> cont_par (Syn_val (Val_str s) Ty_string) ts
-        Tk_fun:(Tk_ident fun_id):ts ->
-          let fun = Syn_fun_def fun_id [] Syn_none Ty_abs
-          in
-            case par_fun_decl fun ts of
-              ((Syn_fun_def fun_id fun_args fun_body fun_ty, Tk_L_bra:ts'), errs) ->
-                case (do
-                         let (expr_par_trees, ts'') = parse_fun_body ts'
-                               where
-                                 parse_fun_body tokens =
-                                   case cons_par_tree tokens True of
-                                     (Just expr_par_tree, Tk_smcl:tokens') -> let (par_trees, tokens'') = parse_fun_body tokens'
-                                                                              in
-                                                                                (expr_par_tree:par_trees, tokens'')
-                                     (Just expr_par_tree, tokens') -> ([expr_par_tree], tokens')
-                                     (Nothing, tokens') -> ([], tokens')                                 
-                         let fun_body' = (case expr_par_trees of
-                                            [] -> fun_body
-                                            [expr] -> expr
-                                            exprs -> Syn_expr_seq exprs
-                                         )
-                         (fun', tokens') <- return (Syn_fun_def fun_id fun_args fun_body' fun_ty, ts'')
-                         return $ case tokens' of
-                                    Tk_R_bra:tokens'' -> (Just fun', tokens'')
-                                    _ -> (Nothing, tokens')
-                     ) of
-                  Just res -> res
-                  Nothing -> (Nothing, ts')
-              ((fun', tokens'), errs) -> (Nothing, tokens')
+        Tk_fun:ts -> if fun_declp then
+          case ts of
+            (Tk_ident fun_id):ts' -> 
+              let fun = Syn_fun_def fun_id [] Syn_none Ty_abs
+              in
+                case par_fun_decl fun ts' of
+                  ((Syn_fun_def fun_id fun_args fun_body fun_ty, Tk_L_bra:ts''), errs) ->
+                    case (do
+                             let (expr_par_trees, us) = parse_fun_body ts''
+                                   where
+                                     parse_fun_body tokens =
+                                       case cons_par_tree tokens (False, True, True) of
+                                         (Just expr_par_tree, Tk_smcl:tokens') -> let (par_trees, tokens'') = parse_fun_body tokens'
+                                                                                  in
+                                                                                    (expr_par_tree:par_trees, tokens'')
+                                         (Just expr_par_tree, tokens') -> ([expr_par_tree], tokens')
+                                         (Nothing, tokens') -> ([], tokens')
+                             let fun_body' = (case expr_par_trees of
+                                                [] -> fun_body
+                                                [expr] -> expr
+                                                exprs -> Syn_expr_seq exprs
+                                             )
+                             (fun', tokens') <- return (Syn_fun_def fun_id fun_args fun_body' fun_ty, us)
+                             return $ case tokens' of
+                                        Tk_R_bra:tokens'' -> (Just fun', tokens'')
+                                        _ -> (Nothing, tokens')
+                         ) of
+                      Just res -> res
+                      Nothing -> (Nothing, ts')
+                  ((_, tokens'), errs) -> (Nothing, tokens')
+            _:ts' -> (Nothing, ts')
+          else (Nothing, ts)
         {- (Tk_ident ident):ts ->
           let var = Syn_var ident Ty_abs
           in
@@ -659,16 +663,19 @@ cons_par_tree tokens contp =
                  ) of
               (Just code, tokens') -> (Just code, tokens')
               (Nothing, tokens') -> cont_par var tokens' -}
-        (Tk_ident ident):ts -> let var = Syn_var ident Ty_abs
+        (Tk_ident ident):ts -> let var = Syn_var ident Ty_abs                                
                                in
-                                 case cons_var_decl var ts of
-                                   ((Just var', tokens'), errs) -> (Just var', tokens')
-                                   ((Nothing, tokens'@(t:ts')), errs) | not (is_op t) -> let fun_app = Syn_fun_call ident [] Ty_abs
-                                                                                         in
-                                                                                           case par_fun_call fun_app tokens' of
-                                                                                             (Right (fun_app'@(Syn_fun_call fun_id app_args app_ty)), tokens'') -> cont_par fun_app' tokens''
-                                                                                             (Left err, tokens'') -> (Nothing, tokens'')
-                                   ((Nothing, tokens'), errs) -> cont_par var tokens'
+                                 if var_declp then
+                                   case cons_var_decl var ts of
+                                     ((Just var', tokens'), errs) -> (Just var', tokens')
+                                     ((Nothing, tokens'@(t:ts')), errs) | not (is_op t) -> let fun_app = Syn_fun_call ident [] Ty_abs 
+                                                                                           in
+                                                                                             case par_fun_call fun_app tokens' of
+                                                                                               (Right (fun_app'@(Syn_fun_call fun_id app_args app_ty)), tokens'') -> cont_par fun_app' tokens''
+                                                                                               (Left err, tokens'') -> (Nothing, tokens'')
+                                     ((Nothing, tokens'), errs) -> cont_par var tokens'
+                                 else
+                                   cont_par var ts
         _ -> (Nothing, tokens)
 
 
@@ -831,7 +838,7 @@ main =
   --let src = "fun a (g as int) { b + a + 3 * 5; c + d }"
   --let src = "fun a (g as int) { c + (b + a) }"
   --let src = "fun a (g as int) { -c - ++d + (b - -a) }"
-  let src = "fun a (g as int) { foo b + 3 + (e + 13) }"
+  let src = "fun a (g as int) { h as int; i as int; }"
   in
     do
       let tokens = conv2_tokens src
@@ -839,7 +846,7 @@ main =
       putStrLn $ "tokens:  " ++ (show tokens)
       syn_forest <- return (do
                                syn_tree <- (case (snd tokens) of
-                                              "" -> fst $ cons_par_tree (fst tokens) True
+                                              "" -> fst $ cons_par_tree (fst tokens) (True, True, True)
                                               _ -> Nothing
                                            )
                                return [syn_tree]
