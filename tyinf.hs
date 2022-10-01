@@ -637,7 +637,7 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
                                                                let ((var_decls, expr_par_trees), us) = parse_fun_body ts''
                                                                      where
                                                                        parse_fun_body :: [Tk_code] -> (([Syntree_node], [Syntree_node]), [Tk_code])
-                                                                       parse_fun_body tokens =
+                                                                       parse_fun_body tokens =                                                                         
                                                                          case cons_par_tree tokens (False, True, True) of
                                                                            (Just var_decl@(Syn_var_def _ _), Tk_smcl:tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
                                                                                                                                  in
