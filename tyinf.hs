@@ -397,7 +397,7 @@ data Val =
 
 data Syntree_node =
   Syn_ty_spec Type
-  | Syn_scope ([Syntree_node], [Syntree_node])
+  | Syn_scope ([Syntree_node], Syntree_node)
   | Syn_expr_par Syntree_node Type
   | Syn_fun_call String [Syntree_node] Type
   | Syn_fun_def String [Syntree_node] Syntree_node Type
@@ -627,32 +627,50 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
         Tk_fun:ts -> if fun_declp then
           case ts of
             (Tk_ident fun_id):ts' -> 
-              let fun = Syn_fun_def fun_id [] Syn_none Ty_abs
+              let fun = Syn_fun_def fun_id [] (Syn_scope ([], Syn_none)) Ty_abs
               in
                 case par_fun_decl fun ts' of
                   ((Syn_fun_def fun_id fun_args fun_body fun_ty, Tk_L_bra:ts''), errs) ->
-                    case (do
-                             let (expr_par_trees, us) = parse_fun_body ts''
-                                   where
-                                     parse_fun_body tokens =
-                                       case cons_par_tree tokens (False, True, True) of
-                                         (Just expr_par_tree, Tk_smcl:tokens') -> let (par_trees, tokens'') = parse_fun_body tokens'
-                                                                                  in
-                                                                                    (expr_par_tree:par_trees, tokens'')
-                                         (Just expr_par_tree, tokens') -> ([expr_par_tree], tokens')
-                                         (Nothing, tokens') -> ([], tokens')
-                             let fun_body' = (case expr_par_trees of
-                                                [] -> fun_body
-                                                [expr] -> expr
-                                                exprs -> Syn_expr_seq exprs
-                                             )
-                             (fun', tokens') <- return (Syn_fun_def fun_id fun_args fun_body' fun_ty, us)
-                             return $ case tokens' of
-                                        Tk_R_bra:tokens'' -> (Just fun', tokens'')
-                                        _ -> (Nothing, tokens')
-                         ) of
-                      Just res -> res
-                      Nothing -> (Nothing, ts')
+                    (case fun_body of
+                       (Syn_scope ([], Syn_none)) -> (case (do
+                                                               let ((var_decls, expr_par_trees), us) = parse_fun_body ts''
+                                                                     where
+                                                                       parse_fun_body :: [Tk_code] -> (([Syntree_node], [Syntree_node]), [Tk_code])
+                                                                       parse_fun_body tokens =
+                                                                         case cons_par_tree tokens (False, True, True) of
+                                                                           (Just var_decl@(Syn_var_def _ _), Tk_smcl:tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
+                                                                                                                                 in
+                                                                                                                                   ((var_decl:var_decls, expr_trees), tokens'')
+                                                                           (Just var_decl@(Syn_var_def _ _), tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
+                                                                                                                         in
+                                                                                                                           case var_decls of
+                                                                                                                             [] -> (([var_decl], expr_trees), tokens'')
+                                                                                                                             -- 以下は、本来ならばassertとして検知＆停止させるべきCASE
+                                                                                                                             _ -> (([var_decl], expr_trees), tokens'')
+                                                                           (Just expr_par_tree, Tk_smcl:tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
+                                                                                                                    in
+                                                                                                                      case var_decls of
+                                                                                                                        [] -> (([], expr_par_tree:expr_trees), tokens'')
+                                                                                                                        -- 以下は、本来ならばassertとして検知＆停止させるべきCASE
+                                                                                                                        _ -> (([], expr_par_tree:expr_trees), tokens'')
+                                                                           (Just expr_par_tree, tokens') -> (([], [expr_par_tree]), tokens')
+                                                                           (Nothing, tokens') -> (([], []), tokens')
+                                                               let fun_body' = (var_decls, (case expr_par_trees of
+                                                                                              [] -> Syn_none
+                                                                                              [expr] -> expr
+                                                                                              exprs -> Syn_expr_seq exprs
+                                                                                           )
+                                                                               )
+                                                               (fun', tokens') <- return (Syn_fun_def fun_id fun_args (Syn_scope fun_body') fun_ty, us)
+                                                               return $ case tokens' of
+                                                                 Tk_R_bra:tokens'' -> (Just fun', tokens'')
+                                                                 _ -> (Nothing, tokens')
+                                                           ) of
+                                                        Just res -> res
+                                                        Nothing -> (Nothing, ts')
+                                                     )
+                       _ -> (Nothing, ts')
+                    )
                   ((_, tokens'), errs) -> (Nothing, tokens')
             _:ts' -> (Nothing, ts')
           else (Nothing, ts)
@@ -670,7 +688,7 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
                                in
                                  if var_declp then
                                    case cons_var_decl var ts of
-                                     ((Just var', tokens'), errs) -> (Just var', tokens')
+                                     ((Just var_decl, tokens'), errs) -> (Just var_decl, tokens')
                                      ((Nothing, tokens'@(t:ts')), errs) | not (is_op t) -> let fun_app = Syn_fun_call ident [] Ty_abs 
                                                                                            in
                                                                                              case par_fun_call fun_app tokens' of
@@ -841,7 +859,8 @@ main =
   --let src = "fun a (g as int) { b + a + 3 * 5; c + d }"
   --let src = "fun a (g as int) { c + (b + a) }"
   --let src = "fun a (g as int) { -c - ++d + (b - -a) }"
-  let src = "fun a (g as int) { h as int; i as int; }"
+  let src =
+        "fun a (g as int) { h as int; i as int; x + y }"
   in
     do
       let tokens = conv2_tokens src
