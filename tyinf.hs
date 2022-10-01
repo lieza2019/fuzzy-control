@@ -397,9 +397,12 @@ data Val =
 
 data Syntree_node =
   Syn_ty_spec Type
+  | Syn_scope ([Syntree_node], [Syntree_node])
   | Syn_expr_par Syntree_node Type
   | Syn_fun_call String [Syntree_node] Type
   | Syn_fun_def String [Syntree_node] Syntree_node Type
+  | Syn_arg_def String Type
+  | Syn_var_def String Type
   | Syn_val Val Type
   | Syn_var String Type
   | Syn_expr_una Operation Syntree_node Type
@@ -457,8 +460,8 @@ cons_var_decl var tokens =
   case var of
     Syn_var var_id var_ty -> (case tokens of
                                 Tk_typed_as:ts -> (case par_type_decl tokens of
-                                                     (Right var_ty', ts') -> ((Just (Syn_var var_id var_ty'), ts'), [])
-                                                     (Left err, ts') -> ((Just (Syn_var var_id var_ty), ts'), [err])
+                                                     (Right var_ty', ts') -> ((Just (Syn_var_def var_id var_ty'), ts'), [])
+                                                     (Left err, ts') -> ((Just (Syn_var_def var_id var_ty), ts'), [err])
                                                   )
                                 _ -> ((Nothing, tokens), [])
                                 -- _ -> ((Syn_var var_id Ty_abs, tokens), [])
@@ -506,8 +509,8 @@ par_fun_decl fun tokens =
                                                             (Tk_ident arg_id):ts -> let arg = Syn_var arg_id Ty_abs
                                                                                     in
                                                                                       case cons_var_decl arg ts of
-                                                                                        ((Nothing, ts'), errs) -> (Just (Syn_var arg_id Ty_abs, ts'), errs)
-                                                                                        ((Just arg'@(Syn_var _ _), ts'), errs) -> (Just (arg', ts'), errs)
+                                                                                        ((Nothing, ts'), errs) -> (Just (Syn_arg_def arg_id Ty_abs, ts'), errs)
+                                                                                        ((Just (Syn_var_def arg_id arg_ty), ts'), errs) -> (Just (Syn_arg_def arg_id arg_ty, ts'), errs)
                                                                                         ((_, ts'), errs) -> (Just (Syn_none, ts'), errs)
                                                             _ -> (Nothing, [])
                                                     
