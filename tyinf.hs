@@ -448,13 +448,14 @@ data Val =
 data Syntree_node =
   Syn_ty_spec Type
   | Syn_scope ([Syntree_node], Syntree_node)
-  | Syn_expr_par Syntree_node Type
-  | Syn_fun_call String [Syntree_node] Type
   | Syn_fun_decl String [Syntree_node] Syntree_node Type
   | Syn_arg_def String Type
   | Syn_var_decl String Type
+  | Syn_cond_expr (Syntree_node, (Syntree_node, Maybe Syntree_node)) Type
   | Syn_val Val Type
   | Syn_var String Type
+  | Syn_expr_par Syntree_node Type
+  | Syn_fun_call String [Syntree_node] Type
   | Syn_expr_una Operation Syntree_node Type
   | Syn_expr_bin Operation (Syntree_node, Syntree_node) Type
   | Syn_expr_seq [Syntree_node]
@@ -665,6 +666,18 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
                           (Just expr, (Tk_R_par:ts')) -> cont_par (Syn_expr_par expr (expr_ty expr)) ts'
                           (_, ts') -> (Nothing, ts')
                        )
+        Tk_if:ts -> (case cons_par_tree ts (False, False, True) of
+                       (Just cond_expr, (Tk_then:ts')) -> (case cons_par_tree ts' (False, False, True) of
+                                                             (Just true_expr, (t'':ts'')) | t'' == Tk_else -> (case cons_par_tree ts'' (False, False, True) of
+                                                                                                                 (Just false_expr, tokens') ->
+                                                                                                                   (Just (Syn_cond_expr (cond_expr, (true_expr, Just false_expr)) Ty_abs), tokens')
+                                                                                                                 (_, tokens') -> (Nothing, tokens')
+                                                                                                              )
+                                                             (Just true_expr, tokens') -> (Just (Syn_cond_expr (cond_expr, (true_expr, Nothing)) Ty_abs), tokens')
+                                                             (_, tokens') -> (Nothing, tokens')
+                                                          )
+                       (_, tokens') -> (Nothing, tokens')
+                    )                                        
         Tk_decre:ts -> (case ts of
                           (Tk_ident ident):ts' -> cont_par (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs) ts'
                           _ -> (Nothing, ts)
