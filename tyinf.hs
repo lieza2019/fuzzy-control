@@ -542,7 +542,7 @@ par_fun_decl fun tokens =
                                                                                                                        in
                                                                                                                          ((Syn_fun_decl fun_id args' fun_body fun_ty', tokens'), arg_errs ++ fun_ty_errs)
                                                                                                       _ -> ((fun, ts'), (arg_errs ++ [Imcomplete_function_declaration]))
-                                                                                                   )
+                                                                                                   ) 
                                                                     )
                                                        where
                                                          cons_args_decl :: [Tk_code] -> (([Syntree_node], [Tk_code]), [Error_codes])
