@@ -47,23 +47,27 @@ data Tk_code =
   | Tk_nume Integer
   | Tk_str String
   | Tk_typed_as
+  | Tk_if
+  | Tk_then
+  | Tk_else
+  | Tk_decre
+  | Tk_incre
   | Tk_slash
   | Tk_star
   | Tk_shaft
   | Tk_cross
+  | Tk_asgn
+  | Tk_equ
   | Tk_smcl
   | Tk_L_bra
   | Tk_L_par
   | Tk_R_bra
   | Tk_R_par
-  | Tk_impl
   | Tk_fun
   | Tk_bool
   | Tk_int
   | Tk_true
   | Tk_false
-  | Tk_decre
-  | Tk_incre
   | Tk_ident String
   deriving (Eq, Ord, Show)
 
@@ -75,28 +79,33 @@ data Quo_stat =
 
 data Par_stat =
   Par_ini
-  | Par_impl_1
+  | Par_asgn_1
+  | Par_equ_1
   -- | Par_L_par
   -- | Par_R_par
   | Par_str
   | Par_nume Integer
-  | Par_keyword_true_1
-  | Par_keyword_true_2
-  | Par_keyword_true_3
   | Par_keyword_as_1
+  | Par_keyword_bool_1
+  | Par_keyword_bool_2
+  | Par_keyword_bool_3
+  | Par_keyword_decre_1
+  | Par_keyword_else_1
+  | Par_keyword_else_2
+  | Par_keyword_else_3
   | Par_keyword_fun_false_1
   | Par_keyword_fun_2
   | Par_keyword_false_2
   | Par_keyword_false_3
   | Par_keyword_false_4
-  | Par_keyword_bool_1
-  | Par_keyword_bool_2
-  | Par_keyword_bool_3
-  | Par_keyword_int_1
+  | Par_keyword_if_int_1
   | Par_keyword_int_2
-  | Par_keyword_decre_1
   | Par_keyword_incre_1
-  | Par_incre
+  | Par_keyword_then_true_1
+  | Par_keyword_then_2
+  | Par_keyword_then_3
+  | Par_keyword_true_2
+  | Par_keyword_true_3
   | Par_acc Tk_code
   | Par_err
   deriving (Eq, Ord, Show)
@@ -120,6 +129,7 @@ is_delim c =
     '+' -> True
     '"' -> True
     ';' -> True
+    ':' -> True
     _ -> False
 
 is_digit c =
@@ -177,17 +187,19 @@ parse_mata = do
             --Par_keyword_true_1 -> ((Par_acc (Tk_ident "t"), Nothing), "")
             --Par_keyword_true_2 -> ((Par_acc (Tk_ident "tr"), Nothing), "")
             --Par_keyword_true_3 -> ((Par_acc (Tk_ident "tru"), Nothing), "")
-            --_ -> ((Par_err, quo_stat), "")  -- including case of Par_impl_1
-            Par_impl_1 -> ((Par_err, quo_stat), "")
+            --_ -> ((Par_err, quo_stat), "")  -- including case of Par_equ_1
+            Par_asgn_1 -> ((Par_err, quo_stat), "")
+            Par_equ_1 -> ((Par_err, quo_stat), "")
             _ -> (crnt_stat, "")
             
         state_trans (stat@(par_stat, quo_stat), src@(c:cs)) =
           case par_stat of
             Par_ini | (c == 'a') -> ((Par_keyword_as_1, quo_stat), cs)
-            Par_ini | (c == 'f') -> ((Par_keyword_fun_false_1, quo_stat), cs)
             Par_ini | (c == 'b') -> ((Par_keyword_bool_1, quo_stat), cs)
-            Par_ini | (c == 'i') -> ((Par_keyword_int_1, quo_stat), cs)
-            Par_ini | (c == 't') -> ((Par_keyword_true_1, quo_stat), cs)
+            Par_ini | (c == 'e') -> ((Par_keyword_else_1, quo_stat), cs)
+            Par_ini | (c == 'f') -> ((Par_keyword_fun_false_1, quo_stat), cs)
+            Par_ini | (c == 'i') -> ((Par_keyword_if_int_1, quo_stat), cs)
+            Par_ini | (c == 't') -> ((Par_keyword_then_true_1, quo_stat), cs)
             Par_ini | (is_delim c) -> if (is_blank c) then (stat, cs)
                                       else case par_delim_chr c quo_stat of
                                              (Par_err, quo_stat') -> ((Par_err, quo_stat'), src)
@@ -199,7 +211,10 @@ parse_mata = do
                                      else
                                        ((Par_err, quo_stat), src)
                        )
-            Par_impl_1 | (c == '>') -> ((Par_acc Tk_impl, quo_stat), cs)
+
+            Par_asgn_1 | (c == '=') -> ((Par_acc Tk_asgn, quo_stat), cs)
+            Par_equ_1 | (c == '=') -> ((Par_acc Tk_equ, quo_stat), cs)
+            
             Par_str -> (case quo_stat of
                           Just (No_quoted str) -> if (is_alnum c) then ((Par_str, Just (No_quoted (str ++ [c]))), cs)
                                                   else ((Par_acc (Tk_ident str), Nothing), src)
@@ -223,6 +238,20 @@ parse_mata = do
             Par_keyword_as_1 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("a" ++ [c]))), cs)
                                 else ((Par_acc (Tk_ident "a"), Nothing), src)
             
+            Par_keyword_else_1 | (c == 'l') -> ((Par_keyword_else_2, quo_stat), cs)
+            Par_keyword_else_1 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("e" ++ [c]))), cs)
+                                  else ((Par_acc (Tk_ident "e"), Nothing), src)
+            Par_keyword_else_2 | (c == 's') -> ((Par_keyword_else_3, quo_stat), cs)
+            Par_keyword_else_2 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("el" ++ [c]))), cs)
+                                  else ((Par_acc (Tk_ident "el"), Nothing), src)
+            Par_keyword_else_3 | (c == 'e') -> (case cs of
+                                                  [] -> ((Par_acc Tk_else, quo_stat), "")
+                                                  c':cs' | (is_delim c') -> ((Par_acc Tk_else, quo_stat), cs)
+                                                  _ -> ((Par_str, Just (No_quoted "else")), cs)
+                                               )
+            Par_keyword_else_3 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("els" ++ [c]))), cs)
+                                  else ((Par_acc (Tk_ident "els"), Nothing), src)
+            
             Par_keyword_fun_false_1 | (c == 'u') -> ((Par_keyword_fun_2, quo_stat), cs)
             Par_keyword_fun_false_1 | (c == 'a') -> ((Par_keyword_false_2, quo_stat), cs)
             Par_keyword_fun_false_1 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("f" ++ [c]))), cs)
@@ -235,9 +264,14 @@ parse_mata = do
             Par_keyword_fun_2 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("fu" ++ [c]))), cs)
                                  else ((Par_acc (Tk_ident "fu"), Nothing), src)
             
-            Par_keyword_int_1 | (c == 'n') -> ((Par_keyword_int_2, quo_stat), cs)
-            Par_keyword_int_1 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("i" ++ [c]))), cs)
-                                 else ((Par_acc (Tk_ident "i"), Nothing), src)
+            Par_keyword_if_int_1 | (c == 'f') -> (case cs of
+                                                    [] -> ((Par_acc Tk_if, quo_stat), "")
+                                                    c':cs' | (is_delim c') -> ((Par_acc Tk_if, quo_stat), cs)
+                                                    _ -> ((Par_str, Just (No_quoted "if")), cs)
+                                                 )
+            Par_keyword_if_int_1 | (c == 'n') -> ((Par_keyword_int_2, quo_stat), cs)
+            Par_keyword_if_int_1 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("i" ++ [c]))), cs)
+                                    else ((Par_acc (Tk_ident "i"), Nothing), src)
             Par_keyword_int_2 | (c == 't') -> (case cs of
                                                  [] -> ((Par_acc Tk_int, quo_stat), "")
                                                  c':cs' | (is_delim c') -> ((Par_acc Tk_int, quo_stat), cs)
@@ -260,9 +294,20 @@ parse_mata = do
             Par_keyword_bool_3 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("boo" ++ [c]))), cs)
                                   else ((Par_acc (Tk_ident "boo"), Nothing), src)
             
-            Par_keyword_true_1 | (c == 'r') -> ((Par_keyword_true_2, quo_stat), cs)
-            Par_keyword_true_1 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("t" ++ [c]))), cs)
-                                  else ((Par_acc (Tk_ident "t"), Nothing), src)
+            Par_keyword_then_true_1 | (c == 'h') -> ((Par_keyword_then_2, quo_stat), cs)
+            Par_keyword_then_true_1 | (c == 'r') -> ((Par_keyword_true_2, quo_stat), cs)
+            Par_keyword_then_true_1 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("t" ++ [c]))), cs)
+                                       else ((Par_acc (Tk_ident "t"), Nothing), src)
+            Par_keyword_then_2 | (c == 'e') -> ((Par_keyword_then_3, quo_stat), cs)
+            Par_keyword_then_2 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("th" ++ [c]))), cs)
+                                  else ((Par_acc (Tk_ident "th"), Nothing), src)
+            Par_keyword_then_3 | (c == 'n') -> (case cs of
+                                                  [] -> ((Par_acc Tk_then, quo_stat), "")
+                                                  c':cs' | (is_delim c') -> ((Par_acc Tk_then, quo_stat), cs)
+                                                  _ -> ((Par_str, Just (No_quoted "then")), cs)
+                                               )
+            Par_keyword_then_3 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("the" ++ [c]))), cs)
+                                  else ((Par_acc (Tk_ident "the"), Nothing), src)
             Par_keyword_true_2 | (c == 'u') -> ((Par_keyword_true_3, quo_stat), cs)
             Par_keyword_true_2 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("tr" ++ [c]))), cs)
                                   else ((Par_acc (Tk_ident "tr"), Nothing), src)
@@ -301,7 +346,7 @@ parse_mata = do
           where
             par_delim_chr c crnt_quo_stat =
               case c of
-                '=' -> (Par_impl_1, crnt_quo_stat)
+                '=' -> (Par_equ_1, crnt_quo_stat)
                 '{' -> (Par_acc Tk_L_bra, crnt_quo_stat)
                 '(' -> (Par_acc Tk_L_par, crnt_quo_stat)
                 '}' -> (Par_acc Tk_R_bra, crnt_quo_stat)
@@ -312,8 +357,9 @@ parse_mata = do
                 '-' -> (Par_keyword_decre_1, crnt_quo_stat)
                 --'+' -> (Par_acc Tk_cross, crnt_quo_stat)
                 '+' -> (Par_keyword_incre_1, crnt_quo_stat)
-                '"' -> (Par_str, Just (Double_quoted ""))                
-                ';' -> (Par_acc Tk_smcl, crnt_quo_stat)                
+                '"' -> (Par_str, Just (Double_quoted ""))
+                ';' -> (Par_acc Tk_smcl, crnt_quo_stat)
+                ':' -> (Par_asgn_1, crnt_quo_stat)
                 _ -> (Par_err, crnt_quo_stat)
 
 
@@ -336,9 +382,11 @@ parse_exec stat@(par_stat, quo_stat) src =
       Par_keyword_bool_1 -> (([Par_acc (Tk_ident "b")], quo_stat), "")
       Par_keyword_bool_2 -> (([Par_acc (Tk_ident "bo")], quo_stat), "")
       Par_keyword_bool_3 -> (([Par_acc (Tk_ident "boo")], quo_stat), "")
-      Par_keyword_int_1 -> (([Par_acc (Tk_ident "i")], quo_stat), "")
+      Par_keyword_if_int_1 -> (([Par_acc (Tk_ident "i")], quo_stat), "")
       Par_keyword_int_2 -> (([Par_acc (Tk_ident "in")], quo_stat), "")
-      Par_keyword_true_1 -> (([Par_acc (Tk_ident "t")], quo_stat), "")
+      Par_keyword_then_true_1 -> (([Par_acc (Tk_ident "t")], quo_stat), "")
+      Par_keyword_then_2 -> (([Par_acc (Tk_ident "th")], quo_stat), "")
+      Par_keyword_then_3 -> (([Par_acc (Tk_ident "the")], quo_stat), "")
       Par_keyword_true_2 -> (([Par_acc (Tk_ident "tr")], quo_stat), "")
       Par_keyword_true_3 -> (([Par_acc (Tk_ident "tru")], quo_stat), "")
       Par_acc _ -> (([], quo_stat), "")
@@ -381,7 +429,8 @@ data Type =
   deriving (Eq, Show)
 
 data Operation =
-  Ope_decre
+  Ope_asgn
+  | Ope_decre
   | Ope_incre
   | Ope_neg
   | Ope_add
@@ -401,9 +450,9 @@ data Syntree_node =
   | Syn_scope ([Syntree_node], Syntree_node)
   | Syn_expr_par Syntree_node Type
   | Syn_fun_call String [Syntree_node] Type
-  | Syn_fun_def String [Syntree_node] Syntree_node Type
+  | Syn_fun_decl String [Syntree_node] Syntree_node Type
   | Syn_arg_def String Type
-  | Syn_var_def String Type
+  | Syn_var_decl String Type
   | Syn_val Val Type
   | Syn_var String Type
   | Syn_expr_una Operation Syntree_node Type
@@ -416,6 +465,7 @@ data Error_codes =
   Unknown_token_detected
   | Imcomplete_function_declaration
   | Imcomplete_type_specifier
+  | Illegal_left_expression_for_assignment
   | Illegal_type_specified Tk_code
   | Illegal_operands Operation Syntree_node
   | Internal_error String
@@ -461,8 +511,8 @@ cons_var_decl var tokens =
   case var of
     Syn_var var_id var_ty -> (case tokens of
                                 Tk_typed_as:ts -> (case par_type_decl tokens of
-                                                     (Right var_ty', ts') -> ((Just (Syn_var_def var_id var_ty'), ts'), [])
-                                                     (Left err, ts') -> ((Just (Syn_var_def var_id var_ty), ts'), [err])
+                                                     (Right var_ty', ts') -> ((Just (Syn_var_decl var_id var_ty'), ts'), [])
+                                                     (Left err, ts') -> ((Just (Syn_var_decl var_id var_ty), ts'), [err])
                                                   )
                                 _ -> ((Nothing, tokens), [])
                                 -- _ -> ((Syn_var var_id Ty_abs, tokens), [])
@@ -481,48 +531,48 @@ par_fun_decl fun tokens =
           _ -> ((Ty_abs, tokens), [])
   in
     case fun of
-      Syn_fun_def fun_id args fun_body fun_ty -> (case tokens of
-                                                    Tk_L_par:Tk_R_par:ts -> let ((fun_ty', tokens'), errs) = par_fun_type ts
-                                                                            in
-                                                                              ((Syn_fun_def fun_id [] fun_body fun_ty', tokens'), errs)
-                                                    Tk_L_par:ts -> (case cons_args_decl ts of
-                                                                      ((args', ts'), arg_errs) -> (case ts' of
-                                                                                                     Tk_R_par:ts'' -> let ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts''
-                                                                                                                      in
-                                                                                                                        ((Syn_fun_def fun_id args' fun_body fun_ty', tokens'), arg_errs ++ fun_ty_errs)
-                                                                                                     _ -> ((fun, ts'), (arg_errs ++ [Imcomplete_function_declaration]))
-                                                                                                  )
-                                                                   )
-                                                      where
-                                                        cons_args_decl :: [Tk_code] -> (([Syntree_node], [Tk_code]), [Error_codes])
-                                                        cons_args_decl tokens =
-                                                          case par_arg tokens of
-                                                            (Nothing, errs) -> (([], tokens), errs)
-                                                            (Just (arg, tokens'),errs) -> (case tokens' of
-                                                                                             Tk_smcl:ts' -> ((arg:args, tokens''), errs ++ errs')
-                                                                                               where
-                                                                                                 ((args, tokens''), errs') = cons_args_decl ts'
-                                                                                             _ -> (([arg], tokens'), errs)
-                                                                                          )
-                                                        par_arg :: [Tk_code] -> (Maybe (Syntree_node, [Tk_code]), [Error_codes])
-                                                        par_arg tokens =
-                                                          case tokens of
-                                                            (Tk_ident arg_id):ts -> let arg = Syn_var arg_id Ty_abs
-                                                                                    in
-                                                                                      case cons_var_decl arg ts of
-                                                                                        ((Nothing, ts'), errs) -> (Just (Syn_arg_def arg_id Ty_abs, ts'), errs)
-                                                                                        ((Just (Syn_var_def arg_id arg_ty), ts'), errs) -> (Just (Syn_arg_def arg_id arg_ty, ts'), errs)
-                                                                                        ((_, ts'), errs) -> (Just (Syn_none, ts'), errs)
-                                                            _ -> (Nothing, [])
-                                                    
-                                                    _ -> ((fun, tokens), [Imcomplete_function_declaration])
-                                                 )
+      Syn_fun_decl fun_id args fun_body fun_ty -> (case tokens of
+                                                     Tk_L_par:Tk_R_par:ts -> let ((fun_ty', tokens'), errs) = par_fun_type ts
+                                                                             in
+                                                                               ((Syn_fun_decl fun_id [] fun_body fun_ty', tokens'), errs)
+                                                     Tk_L_par:ts -> (case cons_args_decl ts of
+                                                                       ((args', ts'), arg_errs) -> (case ts' of
+                                                                                                      Tk_R_par:ts'' -> let ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts''
+                                                                                                                       in
+                                                                                                                         ((Syn_fun_decl fun_id args' fun_body fun_ty', tokens'), arg_errs ++ fun_ty_errs)
+                                                                                                      _ -> ((fun, ts'), (arg_errs ++ [Imcomplete_function_declaration]))
+                                                                                                   )
+                                                                    )
+                                                       where
+                                                         cons_args_decl :: [Tk_code] -> (([Syntree_node], [Tk_code]), [Error_codes])
+                                                         cons_args_decl tokens =
+                                                           case par_arg tokens of
+                                                             (Nothing, errs) -> (([], tokens), errs)
+                                                             (Just (arg, tokens'),errs) -> (case tokens' of
+                                                                                              Tk_smcl:ts' -> ((arg:args, tokens''), errs ++ errs')
+                                                                                                where
+                                                                                                  ((args, tokens''), errs') = cons_args_decl ts'
+                                                                                              _ -> (([arg], tokens'), errs)
+                                                                                           )
+                                                         par_arg :: [Tk_code] -> (Maybe (Syntree_node, [Tk_code]), [Error_codes])
+                                                         par_arg tokens =
+                                                           case tokens of
+                                                             (Tk_ident arg_id):ts -> let arg = Syn_var arg_id Ty_abs
+                                                                                     in
+                                                                                       case cons_var_decl arg ts of
+                                                                                         ((Nothing, ts'), errs) -> (Just (Syn_arg_def arg_id Ty_abs, ts'), errs)
+                                                                                         ((Just (Syn_var_decl arg_id arg_ty), ts'), errs) -> (Just (Syn_arg_def arg_id arg_ty, ts'), errs)
+                                                                                         ((_, ts'), errs) -> (Just (Syn_none, ts'), errs)
+                                                             _ -> (Nothing, [])
+                                                     
+                                                     _ -> ((fun, tokens), [Imcomplete_function_declaration])
+                                                  )
       _ -> ((Syn_none, tokens), [Internal_error "Calling cons_var_decl with non variable constructor."])
 
 
 cons_par_tree :: [Tk_code] -> (Bool, Bool, Bool) -> (Maybe Syntree_node, [Tk_code])
 cons_par_tree tokens (fun_declp, var_declp, par_contp) =
-  let is_op t = (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_decre) || (t == Tk_incre)
+  let is_op t = (t == Tk_decre) || (t == Tk_incre) || (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_asgn)
       is_bin_op op = (op == Ope_add) || (op == Ope_sub) || (op == Ope_mul) || (op == Ope_div)
       is_gte_op ope1 ope2 = case ope1 of
                           Ope_add -> (case ope2 of
@@ -554,6 +604,11 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
         in
           case ope of
             Nothing -> (Right subexpr1, tokens)
+            Just ope' | ope' == Ope_asgn -> let left = cons_par_tree tokens' (False, False, True)
+                                            in
+                                              case left of
+                                                (Just left_expr, tokens'') -> (Right (Syn_expr_bin Ope_asgn (subexpr1, left_expr) Ty_abs), tokens'')
+                                                (Nothing, tokens'') -> (Left Illegal_left_expression_for_assignment, tokens'')
             Just ope' | is_bin_op ope' -> let r2 = cons_par_tree tokens' (False, False, True)
                                           in
                                             case r2 of
@@ -572,6 +627,7 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
               
         where
           fetch_ope tokens = case tokens of
+                               (Tk_asgn:ts) -> (Just Ope_asgn, ts)
                                (Tk_slash:ts) -> (Just Ope_div, ts)
                                (Tk_star:ts) -> (Just Ope_mul, ts)
                                (Tk_shaft:ts) -> (Just Ope_sub, ts)
@@ -628,21 +684,21 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
         Tk_fun:ts -> if fun_declp then
           case ts of
             (Tk_ident fun_id):ts' -> 
-              let fun = Syn_fun_def fun_id [] (Syn_scope ([], Syn_none)) Ty_abs
+              let fun = Syn_fun_decl fun_id [] (Syn_scope ([], Syn_none)) Ty_abs
               in
                 case par_fun_decl fun ts' of
-                  ((Syn_fun_def fun_id fun_args fun_body fun_ty, Tk_L_bra:ts''), errs) ->
+                  ((Syn_fun_decl fun_id fun_args fun_body fun_ty, Tk_L_bra:ts''), errs) ->
                     (case fun_body of
                        (Syn_scope ([], Syn_none)) -> (case (do
                                                                let ((var_decls, expr_par_trees), us) = parse_fun_body ts''
                                                                      where
                                                                        parse_fun_body :: [Tk_code] -> (([Syntree_node], [Syntree_node]), [Tk_code])
-                                                                       parse_fun_body tokens =                                                                         
+                                                                       parse_fun_body tokens =
                                                                          case cons_par_tree tokens (False, True, True) of
-                                                                           (Just var_decl@(Syn_var_def _ _), Tk_smcl:tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
+                                                                           (Just var_decl@(Syn_var_decl _ _), Tk_smcl:tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
                                                                                                                                  in
                                                                                                                                    ((var_decl:var_decls, expr_trees), tokens'')
-                                                                           (Just var_decl@(Syn_var_def _ _), tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
+                                                                           (Just var_decl@(Syn_var_decl _ _), tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
                                                                                                                          in
                                                                                                                            case var_decls of
                                                                                                                              [] -> (([var_decl], expr_trees), tokens'')
@@ -662,7 +718,7 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
                                                                                               exprs -> Syn_expr_seq exprs
                                                                                            )
                                                                                )
-                                                               (fun', tokens') <- return (Syn_fun_def fun_id fun_args (Syn_scope fun_body') fun_ty, us)
+                                                               (fun', tokens') <- return (Syn_fun_decl fun_id fun_args (Syn_scope fun_body') fun_ty, us)
                                                                return $ case tokens' of
                                                                  Tk_R_bra:tokens'' -> (Just fun', tokens'')
                                                                  _ -> (Nothing, tokens')
@@ -675,16 +731,6 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
                   ((_, tokens'), errs) -> (Nothing, tokens')
             _:ts' -> (Nothing, ts')
           else (Nothing, ts)
-        {- (Tk_ident ident):ts ->
-          let var = Syn_var ident Ty_abs
-          in
-            case (case cons_var_decl var ts of
-                    Just (Right v_decl, tokens') -> (Just v_decl, tokens')
-                    Just (Left err, tokens') -> (Nothing, tokens')
-                    Nothing -> (Nothing, ts)
-                 ) of
-              (Just code, tokens') -> (Just code, tokens')
-              (Nothing, tokens') -> cont_par var tokens' -}
         (Tk_ident ident):ts -> let var = Syn_var ident Ty_abs                                
                                in
                                  if var_declp then
@@ -709,7 +755,7 @@ expr_ty expr =
   case expr of
     Syn_expr_par _ ty -> ty
     Syn_fun_call _ _ ty -> ty
-    Syn_fun_def _ _ _ ty -> ty
+    Syn_fun_decl _ _ _ ty -> ty
     Syn_val _ ty -> ty
     Syn_var _ ty -> ty
     Syn_expr_una _ _ ty -> ty
