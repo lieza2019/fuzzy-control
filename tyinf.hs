@@ -765,16 +765,22 @@ type Fresh_tvar = (Type, Integer)
 ty_abst :: (Syntree_node, Fresh_tvar) -> (Syntree_node, Fresh_tvar)
 ty_abst (expr, prev_tvar) =
   (case expr of
-     Syn_expr_par expr' Ty_abs -> let (expr_abs, prev_tvar') = ty_abst (expr', succ_fresh prev_tvar)
+     Syn_arg_def arg_id Ty_abs -> let latest = succ_fresh prev_tvar
+                                  in
+                                    (Syn_arg_def arg_id (fst latest), latest)
+     Syn_var var_id Ty_abs -> let latest = succ_fresh prev_tvar
+                              in
+                                (Syn_var var_id (fst latest), latest)
+     Syn_expr_par expr' Ty_abs -> let (expr_abs, prev_tvar') = ty_abst (expr', prev_tvar)
                                       latest = succ_fresh prev_tvar'
                                   in
                                     (Syn_expr_par expr_abs (fst latest), latest)
-     Syn_expr_una ope_una expr' Ty_abs -> let (expr_abs, prev_tvar') = ty_abst (expr', succ_fresh prev_tvar)
+     Syn_expr_una ope_una expr' Ty_abs -> let (expr_abs, prev_tvar') = ty_abst (expr', prev_tvar)
                                               latest = succ_fresh prev_tvar'
                                           in
                                             (Syn_expr_una ope_una expr_abs (fst latest), latest)
-     Syn_expr_bin ope_bin (expr1, expr2) Ty_abs -> let (expr1_abs, prev_tvar') = ty_abst (expr1, succ_fresh prev_tvar)
-                                                       (expr2_abs, prev_tvar'') = ty_abst (expr2, succ_fresh prev_tvar')
+     Syn_expr_bin ope_bin (expr1, expr2) Ty_abs -> let (expr1_abs, prev_tvar') = ty_abst (expr1, prev_tvar)
+                                                       (expr2_abs, prev_tvar'') = ty_abst (expr2, prev_tvar')
                                                        latest = succ_fresh prev_tvar''
                                                    in
                                                      (Syn_expr_bin ope_bin (expr1_abs, expr2_abs) (fst latest), latest)
@@ -783,29 +789,64 @@ ty_abst (expr, prev_tvar) =
                                                   in
                                                     (Syn_expr_call fun_id [] (fst latest), latest)
                                             _ -> let (args_abs, prev_tvar') = abs_args args prev_tvar
-                                                     (fun_ty, latest) = abs_funty (args_abs, prev_tvar')
+                                                     latest = succ_fresh prev_tvar'
                                                  in
-                                                   (Syn_expr_call fun_id args_abs fun_ty, latest)
+                                                   (Syn_expr_call fun_id args_abs (fst latest), latest)
                                               where
-                                                abs_args :: [Syntree_node] -> Fresh_tvar -> ([Syntree_node], Fresh_tvar)
-                                                abs_args args prev_tvar =
-                                                  case args of
-                                                    [] -> ([], prev_tvar)
-                                                    a:as -> let (a', prev_tvar') = ty_abst (a, prev_tvar)
-                                                                (as', prev_tvar'') = abs_args as prev_tvar'
-                                                            in
-                                                              (a':as', prev_tvar'')
-                                                
-                                                abs_funty :: ([Syntree_node], Fresh_tvar) -> (Type, Fresh_tvar)
-                                                abs_funty (args, prev_tvar) =
-                                                  let prev_tvar' = succ_fresh prev_tvar
-                                                  in
-                                                    Prelude.foldl (\(Ty_fun tys, prev_tv) -> (\_ -> let prev_ty' = succ_fresh prev_tv
-                                                                                                    in
-                                                                                                      (Ty_fun (tys ++ [(fst prev_ty')]), prev_ty')
-                                                                                             )
-                                                                  ) (Ty_fun [(fst prev_tvar')], prev_tvar') args
+                                                abs_args = abs_decls
                                          )
+     Syn_cond_expr (cond_expr, (true_expr, false_expr)) Ty_abs -> let (cond_expr', prev_tvar') = ty_abst (cond_expr, prev_tvar)
+                                                                      (true_expr', prev_tvar'') = ty_abst (true_expr, prev_tvar')
+                                                                  in
+                                                                    case false_expr of
+                                                                      Just f_expr_body -> let (f_expr_body', latest) = ty_abst (f_expr_body, prev_tvar'')
+                                                                                              latest' = succ_fresh latest
+                                                                                          in
+                                                                                            (Syn_cond_expr (cond_expr', (true_expr', Just f_expr_body')) (fst latest'), latest')
+                                                                      Nothing -> let latest = succ_fresh prev_tvar''
+                                                                                 in
+                                                                                   (Syn_cond_expr (cond_expr', (true_expr', Nothing)) (fst latest), latest)
+     Syn_fun_decl fun_id args fun_body Ty_abs  -> (case args of
+                                                     [] -> let (body_abs, prev_tvar') = ty_abst (fun_body, prev_tvar)
+                                                               latest = succ_fresh prev_tvar'
+                                                           in
+                                                             (Syn_fun_decl fun_id [] body_abs (fst latest), latest)
+                                                     _ -> let (args_abs, prev_tvar') = abs_decls args prev_tvar
+                                                              (body_abs, prev_tvar'') = ty_abst (fun_body, prev_tvar')
+                                                              (fun_ty, latest) = abs_funty (args_abs, prev_tvar'')
+                                                          in
+                                                            (Syn_fun_decl fun_id args_abs body_abs fun_ty, latest)
+                                                       where
+                                                         abs_funty :: ([Syntree_node], Fresh_tvar) -> (Type, Fresh_tvar)
+                                                         abs_funty (args, prev_tvar) =
+                                                           let from_args = Prelude.foldl (\(tys, prev_tv) -> (\_ -> let prev_ty' = succ_fresh prev_tv
+                                                                                                                    in
+                                                                                                                      (tys ++ [(fst prev_ty')], prev_ty')
+                                                                                                             )
+                                                                                         ) ([], prev_tvar) args
+                                                           in
+                                                             case from_args of
+                                                               (ty_args, prev_tvar') -> (Ty_fun (ty_args ++ [(fst latest)]), latest)
+                                                                 where
+                                                                   latest = succ_fresh prev_tvar'
+                                                  )
+     Syn_var_decl var_id Ty_abs -> let latest = succ_fresh prev_tvar
+                                   in
+                                     (Syn_var_decl var_id (fst latest), latest)
+     Syn_expr_seq exprs -> (case exprs of
+                              [] -> (Syn_expr_seq [], prev_tvar)
+                              e:es -> let (e', prev_tvar') = ty_abst (e, prev_tvar)
+                                          (es', latest) = abs_exprs es prev_tvar'
+                                      in
+                                        (Syn_expr_seq (e':es'), latest)
+                                where
+                                  abs_exprs = abs_decls
+                           )
+     Syn_scope (decls, body) -> let (decls', prev_tvar') = abs_decls decls prev_tvar
+                                    (body', latest) = ty_abst (body, prev_tvar')
+                                in
+                                  (Syn_scope (decls', body'), latest)
+     _ -> (expr, prev_tvar)
   )
   where
     first_fresh :: Fresh_tvar
@@ -815,6 +856,15 @@ ty_abst (expr, prev_tvar) =
       (Ty_var $ "t_" ++ show (last_id + 1), last_id + 1)
       where
         last_id = (snd prev)
+    
+    abs_decls :: [Syntree_node] -> Fresh_tvar -> ([Syntree_node], Fresh_tvar)
+    abs_decls args prev_tvar =
+      case args of
+        [] -> ([], prev_tvar)
+        a:as -> let (a', prev_tvar') = ty_abst (a, prev_tvar)
+                    (as', prev_tvar'') = abs_decls as prev_tvar'
+                in
+                  (a':as', prev_tvar'')
 
 
 data Ty_env =
