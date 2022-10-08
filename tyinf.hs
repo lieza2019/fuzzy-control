@@ -28,7 +28,7 @@
 
 import Data.Map as M
 import Data.Set as Set
-import Control.Exception
+import Control.Exception as Except
 import Control.Monad.State as St
 import Control.Exception (assert)
 import System.IO
@@ -422,7 +422,8 @@ data Type =
   | Ty_int
   | Ty_var String
   | Ty_pair (Type, Type)
-  | Ty_fun (Type, Type)
+  -- | Ty_fun (Type, Type)
+  | Ty_fun [Type]
   | Ty_abs
   | Ty_btm
   | Ty_unknown
@@ -455,7 +456,7 @@ data Syntree_node =
   | Syn_val Val Type
   | Syn_var String Type
   | Syn_expr_par Syntree_node Type
-  | Syn_fun_call String [Syntree_node] Type
+  | Syn_expr_call String [Syntree_node] Type
   | Syn_expr_una Operation Syntree_node Type
   | Syn_expr_bin Operation (Syntree_node, Syntree_node) Type
   | Syn_expr_seq [Syntree_node]
@@ -536,14 +537,13 @@ par_fun_decl fun tokens =
                                                      Tk_L_par:Tk_R_par:ts -> let ((fun_ty', tokens'), errs) = par_fun_type ts
                                                                              in
                                                                                ((Syn_fun_decl fun_id [] fun_body fun_ty', tokens'), errs)
-                                                     Tk_L_par:ts -> (case cons_args_decl ts of
-                                                                       ((args', ts'), arg_errs) -> (case ts' of
-                                                                                                      Tk_R_par:ts'' -> let ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts''
-                                                                                                                       in
-                                                                                                                         ((Syn_fun_decl fun_id args' fun_body fun_ty', tokens'), arg_errs ++ fun_ty_errs)
-                                                                                                      _ -> ((fun, ts'), (arg_errs ++ [Imcomplete_function_declaration]))
-                                                                                                   ) 
-                                                                    )
+                                                     Tk_L_par:ts -> let ((args', ts'), arg_errs) = cons_args_decl ts
+                                                                    in
+                                                                      case ts' of
+                                                                        Tk_R_par:ts'' -> ((Syn_fun_decl fun_id args' fun_body fun_ty', tokens'), arg_errs ++ fun_ty_errs)
+                                                                          where
+                                                                            ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts''
+                                                                        _ -> ((fun, ts'), (arg_errs ++ [Imcomplete_function_declaration]))
                                                        where
                                                          cons_args_decl :: [Tk_code] -> (([Syntree_node], [Tk_code]), [Error_codes])
                                                          cons_args_decl tokens =
@@ -643,14 +643,14 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
       
       par_fun_call fun_app tokens =
         case fun_app of
-          Syn_fun_call fun_id app_args app_ty -> (case tokens of
-                                                    [] -> (Right fun_app, tokens)
-                                                    t:ts | is_op t -> (Right fun_app, tokens)
-                                                    _ -> (case cons_par_tree tokens (False, False, False) of
-                                                            (Just arg, tokens') -> par_fun_call (Syn_fun_call fun_id (app_args ++ [arg]) app_ty) tokens'
-                                                            (Nothing, tokens') -> (Right fun_app, tokens')
-                                                         )
-                                                 )
+          Syn_expr_call fun_id app_args app_ty -> (case tokens of
+                                                     [] -> (Right fun_app, tokens)
+                                                     t:ts | is_op t -> (Right fun_app, tokens)
+                                                     _ -> (case cons_par_tree tokens (False, False, False) of
+                                                             (Just arg, tokens') -> par_fun_call (Syn_expr_call fun_id (app_args ++ [arg]) app_ty) tokens'
+                                                             (Nothing, tokens') -> (Right fun_app, tokens')
+                                                          )
+                                                  )
           _ -> (Left (Internal_error "Calling cons_var_decl with non variable constructor."), tokens)
   in
     let cont_par subexpr tokens =
@@ -749,15 +749,72 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
                                  if var_declp then
                                    case cons_var_decl var ts of
                                      ((Just var_decl, tokens'), errs) -> (Just var_decl, tokens')
-                                     ((Nothing, tokens'@(t:ts')), errs) | not (is_op t) -> let fun_app = Syn_fun_call ident [] Ty_abs 
+                                     ((Nothing, tokens'@(t:ts')), errs) | not (is_op t) -> let fun_app = Syn_expr_call ident [] Ty_abs 
                                                                                            in
                                                                                              case par_fun_call fun_app tokens' of
-                                                                                               (Right (fun_app'@(Syn_fun_call fun_id app_args app_ty)), tokens'') -> cont_par fun_app' tokens''
+                                                                                               (Right (fun_app'@(Syn_expr_call fun_id app_args app_ty)), tokens'') -> cont_par fun_app' tokens''
                                                                                                (Left err, tokens'') -> (Nothing, tokens'')
                                      ((Nothing, tokens'), errs) -> cont_par var tokens'
                                  else
                                    cont_par var ts
         _ -> (Nothing, tokens)
+
+
+type Fresh_tvar = (Type, Integer)
+
+ty_abst :: (Syntree_node, Fresh_tvar) -> (Syntree_node, Fresh_tvar)
+ty_abst (expr, prev_tvar) =
+  (case expr of
+     Syn_expr_par expr' Ty_abs -> let (expr_abs, prev_tvar') = ty_abst (expr', succ_fresh prev_tvar)
+                                      latest = succ_fresh prev_tvar'
+                                  in
+                                    (Syn_expr_par expr_abs (fst latest), latest)
+     Syn_expr_una ope_una expr' Ty_abs -> let (expr_abs, prev_tvar') = ty_abst (expr', succ_fresh prev_tvar)
+                                              latest = succ_fresh prev_tvar'
+                                          in
+                                            (Syn_expr_una ope_una expr_abs (fst latest), latest)
+     Syn_expr_bin ope_bin (expr1, expr2) Ty_abs -> let (expr1_abs, prev_tvar') = ty_abst (expr1, succ_fresh prev_tvar)
+                                                       (expr2_abs, prev_tvar'') = ty_abst (expr2, succ_fresh prev_tvar')
+                                                       latest = succ_fresh prev_tvar''
+                                                   in
+                                                     (Syn_expr_bin ope_bin (expr1_abs, expr2_abs) (fst latest), latest)
+     Syn_expr_call fun_id args Ty_abs -> (case args of
+                                            [] -> let latest = succ_fresh prev_tvar
+                                                  in
+                                                    (Syn_expr_call fun_id [] (fst latest), latest)
+                                            _ -> let (args_abs, prev_tvar') = abs_args args prev_tvar
+                                                     (fun_ty, latest) = abs_funty (args_abs, prev_tvar')
+                                                 in
+                                                   (Syn_expr_call fun_id args_abs fun_ty, latest)
+                                              where
+                                                abs_args :: [Syntree_node] -> Fresh_tvar -> ([Syntree_node], Fresh_tvar)
+                                                abs_args args prev_tvar =
+                                                  case args of
+                                                    [] -> ([], prev_tvar)
+                                                    a:as -> let (a', prev_tvar') = ty_abst (a, prev_tvar)
+                                                                (as', prev_tvar'') = abs_args as prev_tvar'
+                                                            in
+                                                              (a':as', prev_tvar'')
+                                                
+                                                abs_funty :: ([Syntree_node], Fresh_tvar) -> (Type, Fresh_tvar)
+                                                abs_funty (args, prev_tvar) =
+                                                  let prev_tvar' = succ_fresh prev_tvar
+                                                  in
+                                                    Prelude.foldl (\(Ty_fun tys, prev_tv) -> (\_ -> let prev_ty' = succ_fresh prev_tv
+                                                                                                    in
+                                                                                                      (Ty_fun (tys ++ [(fst prev_ty')]), prev_ty')
+                                                                                             )
+                                                                  ) (Ty_fun [(fst prev_tvar')], prev_tvar') args
+                                         )
+  )
+  where
+    first_fresh :: Fresh_tvar
+    first_fresh = (Ty_var $ "t_" ++ (show 1), 1)
+    succ_fresh :: Fresh_tvar -> Fresh_tvar
+    succ_fresh prev =
+      (Ty_var $ "t_" ++ show (last_id + 1), last_id + 1)
+      where
+        last_id = (snd prev)
 
 
 data Ty_env =
@@ -767,7 +824,7 @@ data Ty_env =
 expr_ty expr =
   case expr of
     Syn_expr_par _ ty -> ty
-    Syn_fun_call _ _ ty -> ty
+    Syn_expr_call _ _ ty -> ty
     Syn_fun_decl _ _ _ ty -> ty
     Syn_val _ ty -> ty
     Syn_var _ ty -> ty
@@ -886,6 +943,7 @@ ty_inf expr =
         if (is_subty ty_1 ty_2) then Just ty_2
         else
           if (is_subty ty_2 ty_1) then Just ty_1 else Nothing
+    
     merge_env :: Ty_env -> Ty_env -> Maybe Ty_env
     merge_env env_1 env_2 =
       case env_2 of
@@ -907,6 +965,9 @@ ty_inf expr =
                                 )
                         return ((id, ty) : e1'')
                     ) (Just env1_body) env2_body
+    
+
+    
 
 
 main :: IO ()
