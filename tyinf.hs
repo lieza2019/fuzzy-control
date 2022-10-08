@@ -463,6 +463,23 @@ data Syntree_node =
   | Syn_none
   deriving (Eq, Show)
 
+expr_ty :: Syntree_node -> Type
+expr_ty expr =
+  case expr of
+    Syn_ty_spec ty -> ty
+    Syn_fun_decl _ _ _ ty -> ty
+    Syn_arg_def _ ty -> ty
+    Syn_var_decl _ ty -> ty
+    Syn_cond_expr _ ty -> ty
+    Syn_val _ ty -> ty
+    Syn_var _  ty -> ty
+    Syn_expr_par _ ty -> ty
+    Syn_expr_call _ _ ty -> ty
+    Syn_expr_una _ _ ty -> ty
+    Syn_expr_bin _ _ ty -> ty
+    _ -> Ty_unknown
+
+
 data Error_codes =
   Unknown_token_detected
   | Imcomplete_function_declaration
@@ -762,80 +779,95 @@ cons_par_tree tokens (fun_declp, var_declp, par_contp) =
 
 type Fresh_tvar = (Type, Integer)
 
-ty_abst :: (Syntree_node, Fresh_tvar) -> (Syntree_node, Fresh_tvar)
-ty_abst (expr, prev_tvar) =
+first_flesh_tvar :: Fresh_tvar
+first_flesh_tvar = (Ty_var $ "t_" ++ (show 0), 0)
+
+succ_flesh_tvar :: Fresh_tvar -> Fresh_tvar
+succ_flesh_tvar prev =
+  (Ty_var $ "t_" ++ show (last_id + 1), last_id + 1)
+  where
+    last_id = (snd prev)
+
+
+curve_tvars :: (Syntree_node, Fresh_tvar) -> (Syntree_node, Fresh_tvar)
+curve_tvars (expr, prev_tvar) =
   (case expr of
-     Syn_arg_def arg_id Ty_abs -> let latest = succ_fresh prev_tvar
+     Syn_arg_def arg_id Ty_abs -> let latest = succ_flesh_tvar prev_tvar
                                   in
                                     (Syn_arg_def arg_id (fst latest), latest)
-     Syn_var var_id Ty_abs -> let latest = succ_fresh prev_tvar
+     Syn_var var_id Ty_abs -> let latest = succ_flesh_tvar prev_tvar
                               in
                                 (Syn_var var_id (fst latest), latest)
-     Syn_expr_par expr' Ty_abs -> let (expr_abs, prev_tvar') = ty_abst (expr', prev_tvar)
-                                      latest = succ_fresh prev_tvar'
+     Syn_expr_par expr' Ty_abs -> let (expr_abs, prev_tvar') = curve_tvars (expr', prev_tvar)
+                                      latest = succ_flesh_tvar prev_tvar'
                                   in
                                     (Syn_expr_par expr_abs (fst latest), latest)
-     Syn_expr_una ope_una expr' Ty_abs -> let (expr_abs, prev_tvar') = ty_abst (expr', prev_tvar)
-                                              latest = succ_fresh prev_tvar'
+     Syn_expr_una ope_una expr' Ty_abs -> let (expr_abs, prev_tvar') = curve_tvars (expr', prev_tvar)
+                                              latest = succ_flesh_tvar prev_tvar'
                                           in
                                             (Syn_expr_una ope_una expr_abs (fst latest), latest)
-     Syn_expr_bin ope_bin (expr1, expr2) Ty_abs -> let (expr1_abs, prev_tvar') = ty_abst (expr1, prev_tvar)
-                                                       (expr2_abs, prev_tvar'') = ty_abst (expr2, prev_tvar')
-                                                       latest = succ_fresh prev_tvar''
+     Syn_expr_bin ope_bin (expr1, expr2) Ty_abs -> let (expr1_abs, prev_tvar') = curve_tvars (expr1, prev_tvar)
+                                                       (expr2_abs, prev_tvar'') = curve_tvars (expr2, prev_tvar')
+                                                       latest = succ_flesh_tvar prev_tvar''
                                                    in
                                                      (Syn_expr_bin ope_bin (expr1_abs, expr2_abs) (fst latest), latest)
      Syn_expr_call fun_id args Ty_abs -> (case args of
-                                            [] -> let latest = succ_fresh prev_tvar
+                                            [] -> let latest = succ_flesh_tvar prev_tvar
                                                   in
                                                     (Syn_expr_call fun_id [] (fst latest), latest)
                                             _ -> let (args_abs, prev_tvar') = abs_args args prev_tvar
-                                                     latest = succ_fresh prev_tvar'
+                                                     latest = succ_flesh_tvar prev_tvar'
                                                  in
                                                    (Syn_expr_call fun_id args_abs (fst latest), latest)
                                               where
                                                 abs_args = abs_decls
                                          )
-     Syn_cond_expr (cond_expr, (true_expr, false_expr)) Ty_abs -> let (cond_expr', prev_tvar') = ty_abst (cond_expr, prev_tvar)
-                                                                      (true_expr', prev_tvar'') = ty_abst (true_expr, prev_tvar')
+     Syn_cond_expr (cond_expr, (true_expr, false_expr)) Ty_abs -> let (cond_expr', prev_tvar') = curve_tvars (cond_expr, prev_tvar)
+                                                                      (true_expr', prev_tvar'') = curve_tvars (true_expr, prev_tvar')
                                                                   in
                                                                     case false_expr of
-                                                                      Just f_expr_body -> let (f_expr_body', latest) = ty_abst (f_expr_body, prev_tvar'')
-                                                                                              latest' = succ_fresh latest
+                                                                      Just f_expr_body -> let (f_expr_body', latest) = curve_tvars (f_expr_body, prev_tvar'')
+                                                                                              latest' = succ_flesh_tvar latest
                                                                                           in
                                                                                             (Syn_cond_expr (cond_expr', (true_expr', Just f_expr_body')) (fst latest'), latest')
-                                                                      Nothing -> let latest = succ_fresh prev_tvar''
+                                                                      Nothing -> let latest = succ_flesh_tvar prev_tvar''
                                                                                  in
                                                                                    (Syn_cond_expr (cond_expr', (true_expr', Nothing)) (fst latest), latest)
-     Syn_fun_decl fun_id args fun_body Ty_abs  -> (case args of
-                                                     [] -> let (body_abs, prev_tvar') = ty_abst (fun_body, prev_tvar)
-                                                               latest = succ_fresh prev_tvar'
+     Syn_fun_decl fun_id args fun_body fun_ty  -> (case args of
+                                                     [] -> let (body_abs, prev_tvar') = curve_tvars (fun_body, prev_tvar)
+                                                               latest = succ_flesh_tvar prev_tvar'
                                                            in
                                                              (Syn_fun_decl fun_id [] body_abs (fst latest), latest)
                                                      _ -> let (args_abs, prev_tvar') = abs_decls args prev_tvar
-                                                              (body_abs, prev_tvar'') = ty_abst (fun_body, prev_tvar')
-                                                              (fun_ty, latest) = abs_funty (args_abs, prev_tvar'')
+                                                              (body_abs, prev_tvar'') = curve_tvars (fun_body, prev_tvar')
+                                                              (fun_ty', latest) = abs_funty (args_abs, fun_ty) prev_tvar''
                                                           in
-                                                            (Syn_fun_decl fun_id args_abs body_abs fun_ty, latest)
+                                                            (Syn_fun_decl fun_id args_abs body_abs fun_ty', latest)
                                                        where
-                                                         abs_funty :: ([Syntree_node], Fresh_tvar) -> (Type, Fresh_tvar)
-                                                         abs_funty (args, prev_tvar) =
-                                                           let from_args = Prelude.foldl (\(tys, prev_tv) -> (\_ -> let prev_ty' = succ_fresh prev_tv
-                                                                                                                    in
-                                                                                                                      (tys ++ [(fst prev_ty')], prev_ty')
+                                                         abs_funty :: ([Syntree_node], Type) -> Fresh_tvar -> (Type, Fresh_tvar)
+                                                         abs_funty (args, fun_ty) prev_tvar =
+                                                           let from_args = Prelude.foldl (\(tys, prev_tv) -> (\a -> case expr_ty a of
+                                                                                                                      Ty_abs -> let prev_tv' = succ_flesh_tvar prev_tv
+                                                                                                                                in
+                                                                                                                                  (tys ++ [(fst prev_tv')], prev_tv')
+                                                                                                                      (a_ty@_) -> (tys ++ [a_ty], prev_tv)
                                                                                                              )
                                                                                          ) ([], prev_tvar) args
                                                            in
                                                              case from_args of
-                                                               (ty_args, prev_tvar') -> (Ty_fun (ty_args ++ [(fst latest)]), latest)
-                                                                 where
-                                                                   latest = succ_fresh prev_tvar'
+                                                               (ty_args, prev_tvar') -> (case fun_ty of
+                                                                                           Ty_abs -> (Ty_fun (ty_args ++ [(fst latest)]), latest)
+                                                                                             where
+                                                                                               latest = succ_flesh_tvar prev_tvar'
+                                                                                           _ -> (Ty_fun (ty_args ++ [fun_ty]), prev_tvar')
+                                                                                        )
                                                   )
-     Syn_var_decl var_id Ty_abs -> let latest = succ_fresh prev_tvar
+     Syn_var_decl var_id Ty_abs -> let latest = succ_flesh_tvar prev_tvar
                                    in
                                      (Syn_var_decl var_id (fst latest), latest)
      Syn_expr_seq exprs -> (case exprs of
                               [] -> (Syn_expr_seq [], prev_tvar)
-                              e:es -> let (e', prev_tvar') = ty_abst (e, prev_tvar)
+                              e:es -> let (e', prev_tvar') = curve_tvars (e, prev_tvar)
                                           (es', latest) = abs_exprs es prev_tvar'
                                       in
                                         (Syn_expr_seq (e':es'), latest)
@@ -843,25 +875,17 @@ ty_abst (expr, prev_tvar) =
                                   abs_exprs = abs_decls
                            )
      Syn_scope (decls, body) -> let (decls', prev_tvar') = abs_decls decls prev_tvar
-                                    (body', latest) = ty_abst (body, prev_tvar')
+                                    (body', latest) = curve_tvars (body, prev_tvar')
                                 in
                                   (Syn_scope (decls', body'), latest)
      _ -> (expr, prev_tvar)
   )
   where
-    first_fresh :: Fresh_tvar
-    first_fresh = (Ty_var $ "t_" ++ (show 1), 1)
-    succ_fresh :: Fresh_tvar -> Fresh_tvar
-    succ_fresh prev =
-      (Ty_var $ "t_" ++ show (last_id + 1), last_id + 1)
-      where
-        last_id = (snd prev)
-    
     abs_decls :: [Syntree_node] -> Fresh_tvar -> ([Syntree_node], Fresh_tvar)
     abs_decls args prev_tvar =
       case args of
         [] -> ([], prev_tvar)
-        a:as -> let (a', prev_tvar') = ty_abst (a, prev_tvar)
+        a:as -> let (a', prev_tvar') = curve_tvars (a, prev_tvar)
                     (as', prev_tvar'') = abs_decls as prev_tvar'
                 in
                   (a':as', prev_tvar'')
@@ -870,17 +894,6 @@ ty_abst (expr, prev_tvar) =
 data Ty_env =
   Ty_env [(String, Type)]
   deriving (Eq, Show)
-
-expr_ty expr =
-  case expr of
-    Syn_expr_par _ ty -> ty
-    Syn_expr_call _ _ ty -> ty
-    Syn_fun_decl _ _ _ ty -> ty
-    Syn_val _ ty -> ty
-    Syn_var _ ty -> ty
-    Syn_expr_una _ _ ty -> ty
-    Syn_expr_bin _ _ ty -> ty
-    _ -> Ty_unknown
 
 ty_inf :: Maybe [Syntree_node] -> Maybe (Ty_env, Syntree_node)
 ty_inf expr =
@@ -1015,9 +1028,6 @@ ty_inf expr =
                                 )
                         return ((id, ty) : e1'')
                     ) (Just env1_body) env2_body
-    
-
-    
 
 
 main :: IO ()
@@ -1039,14 +1049,39 @@ main = do
   putStrLn $ "tokens:  " ++ (show tokens)
   syn_forest <- return (do
                            syn_tree <- (case (snd tokens) of
-                                           "" -> fst $ cons_par_tree (fst tokens) (True, True, True)
-                                           _ -> Nothing
+                                          "" -> let (syn_tree, tokens') = cons_par_tree (fst tokens) (True, True, True)
+                                                in
+                                                  case syn_tree of
+                                                    Just s_tree -> Just (s_tree:(cons_par_trees tokens'))
+                                                    _ -> Nothing
+                                            where
+                                              cons_par_trees [] = []
+                                              cons_par_trees (t:ts) =
+                                                let (syn_tree, ts') = cons_par_tree ts (True, True, True)
+                                                in
+                                                  case syn_tree of
+                                                    Just s_tree -> s_tree:(cons_par_trees ts')
+                                                    _ -> []
+                                          _ -> Nothing
                                        )
-                           return [syn_tree]
+                           return syn_tree
                        )
   putStrLn $ "p-trees: " ++ (show syn_forest)
-  putStrLn $ "ty-inf:  " ++ (maybe "" show (ty_inf syn_forest))
   
+  putStr "ty-abs:  "
+  ty_abs <- return $ case syn_forest of
+                       Just syns -> let (forest_abs, _) = Prelude.foldl (\(stmts, prev_tv) -> (\stmt -> let (stmt_abs, prev_tv') = curve_tvars (stmt, prev_tv)
+                                                                                                        in
+                                                                                                          (stmts ++ [stmt_abs], prev_tv')
+                                                                                              )
+                                                                        ) ([], first_flesh_tvar) syns
+                                    in
+                                      forest_abs
+                       _ -> []
+  mapM_ putStrLn $ Prelude.map show ty_abs
+  
+  putStrLn $ "ty-inf:  " ++ (maybe "" show (ty_inf syn_forest))
+    
     where
       read_src :: Handle -> IO String
       read_src h = do
