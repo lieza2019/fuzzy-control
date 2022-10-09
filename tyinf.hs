@@ -116,16 +116,18 @@ sym_leave_scope symtbl cat =
       sym_update symtbl cat sym_tbl'
   )
 
-sym_enter_scope :: Symtbl -> Sym_category -> Symtbl
+sym_enter_scope :: Maybe Symtbl -> Sym_category -> Symtbl
 sym_enter_scope symtbl cat =
   ras_trace "in sym_enter_scope" (
-  let sym_tbl = sym_categorize symtbl cat
-  in
-    let sym_tbl' = case sym_tbl of
-                     Scope_empty -> Scope_add (0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, Sym_empty) Scope_empty
-                     Scope_add (lv, sym_anon_ident, _) _ -> Scope_add (lv + 1, sym_anon_ident, Sym_empty) sym_tbl
-    in
-      sym_update symtbl cat sym_tbl'
+  case symtbl of
+    Just s_tbl -> let sym_tbl = sym_categorize s_tbl cat      
+                  in
+                    let sym_tbl' = case sym_tbl of
+                                     Scope_empty -> Scope_add (0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, Sym_empty) Scope_empty
+                                     Scope_add (lv, sym_anon_ident, _) _ -> Scope_add (lv + 1, sym_anon_ident, Sym_empty) sym_tbl
+                    in
+                      sym_update s_tbl cat sym_tbl'
+    Nothing -> Symtbl {sym_typedef = Scope_empty, sym_record = Scope_empty, sym_func = Scope_empty, sym_decl = Scope_empty}
   )
 
 
@@ -136,7 +138,7 @@ sym_new_anonid_var symtbl cat (prfx, sfix, sep) =
       sym_tbl = sym_categorize symtbl cat
   in
     let sym_tbl' = (case sym_tbl of
-                      Scope_empty -> sym_categorize (sym_enter_scope symtbl cat) cat
+                      Scope_empty -> sym_categorize (sym_enter_scope (Just symtbl) cat) cat
                       Scope_add _ _ -> sym_tbl
                    )
     in
@@ -155,7 +157,7 @@ sym_new_anonid_rec symtbl cat (prfx, sfix, sep) =
       sym_tbl = sym_categorize symtbl cat
   in
     let sym_tbl' = (case sym_tbl of
-                      Scope_empty -> sym_categorize (sym_enter_scope symtbl cat) cat
+                      Scope_empty -> sym_categorize (sym_enter_scope (Just symtbl) cat) cat
                       Scope_add _ _ -> sym_tbl
                    )
     in
