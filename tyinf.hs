@@ -736,6 +736,7 @@ data Error_codes =
   | Illegal_type_specified Tk_code
   | Illegal_operands Operation Syntree_node
   | Symbol_redifinition
+  | Illegal_symbol_declaration
   | Unknown_token_detected
   deriving (Eq, Ord, Show)
 
@@ -773,7 +774,7 @@ cons_var_decl symtbl var tokens =
                                                   )
                                   where
                                     sym_regist' = sym_regist False symtbl Sym_cat_decl
-
+                                
                                 -- _ -> ((Syn_var var_id Ty_abs, tokens), [])
                                 _ -> let var_decl = Syn_var_decl var_id var_ty
                                          (symtbl', err_symreg) = sym_regist False symtbl Sym_cat_decl var_decl
@@ -786,8 +787,8 @@ cons_var_decl symtbl var tokens =
     _ -> ((Just Syn_none, symtbl, tokens), [Internal_error "Calling cons_var_decl with non variable constructor."])
 
 
-par_fun_decl :: Syntree_node -> [Tk_code] -> ((Syntree_node, [Tk_code]), [Error_codes])
-par_fun_decl fun tokens =
+par_fun_decl :: Symtbl -> Syntree_node -> [Tk_code] -> ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
+par_fun_decl symtbl fun tokens =
   let par_fun_type tokens =
         case tokens of
           Tk_typed_as:ts -> (case par_type_decl tokens  of
@@ -799,40 +800,78 @@ par_fun_decl fun tokens =
     case fun of
       Syn_fun_decl fun_id args fun_body fun_ty -> (case tokens of
                                                      Tk_L_par:Tk_R_par:ts -> let ((fun_ty', tokens'), errs) = par_fun_type ts
+                                                                                 fun_decl = Syn_fun_decl fun_id args fun_body fun_ty'
+                                                                                 (symtbl', err_symreg) = sym_regist' fun_decl
+                                                                                 errs' = case err_symreg of
+                                                                                           Just e_sym -> errs ++ [e_sym]
+                                                                                           Nothing -> errs
                                                                              in
-                                                                               ((Syn_fun_decl fun_id [] fun_body fun_ty', tokens'), errs)
-                                                     Tk_L_par:ts -> let ((args', ts'), arg_errs) = cons_args_decl ts
+                                                                               ((fun_decl, symtbl', tokens'), errs')
+                                                     Tk_L_par:ts -> let ((args', ts'), symtbl', arg_errs) = cons_args_decl symtbl ts
                                                                     in
                                                                       case ts' of
-                                                                        Tk_R_par:ts'' -> ((Syn_fun_decl fun_id args' fun_body fun_ty', tokens'), arg_errs ++ fun_ty_errs)
+                                                                        Tk_R_par:ts'' -> let fun_decl = Syn_fun_decl fun_id (args ++ args') fun_body fun_ty'
+                                                                                             (symtbl'', err_symreg) = sym_regist'' fun_decl
+                                                                                             errs' = case err_symreg of
+                                                                                                       Just e_sym -> errs ++ [e_sym]
+                                                                                                       Nothing -> errs
+                                                                                         in
+                                                                                           ((fun_decl, symtbl'', tokens'), errs')
                                                                           where
                                                                             ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts''
-                                                                        _ -> ((fun, ts'), (arg_errs ++ [Imcomplete_function_declaration]))
+                                                                            sym_regist'' = sym_regist False symtbl' Sym_cat_decl
+                                                                            errs = arg_errs ++ fun_ty_errs
+                                                                        
+                                                                        _ -> let fun_decl = Syn_fun_decl fun_id (args ++ args') fun_body fun_ty'
+                                                                                 (symtbl'', err_symreg) = sym_regist'' fun_decl
+                                                                                 errs' = case err_symreg of
+                                                                                           Just e_sym -> errs ++ [e_sym]
+                                                                                           Nothing -> errs
+                                                                             in
+                                                                               ((fun_decl, symtbl'', tokens'), errs')
+                                                                          where
+                                                                            ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts'
+                                                                            sym_regist'' = sym_regist False symtbl' Sym_cat_decl
+                                                                            errs = arg_errs ++ [Imcomplete_function_declaration] ++ fun_ty_errs
                                                        where
-                                                         cons_args_decl :: [Tk_code] -> (([Syntree_node], [Tk_code]), [Error_codes])
-                                                         cons_args_decl tokens =
-                                                           case par_arg tokens of
-                                                             (Nothing, errs) -> (([], tokens), errs)
-                                                             (Just (arg, tokens'),errs) -> (case tokens' of
-                                                                                              Tk_smcl:ts' -> ((arg:args, tokens''), errs ++ errs')
-                                                                                                where
-                                                                                                  ((args, tokens''), errs') = cons_args_decl ts'
-                                                                                              _ -> (([arg], tokens'), errs)
-                                                                                           )
-                                                         par_arg :: [Tk_code] -> (Maybe (Syntree_node, [Tk_code]), [Error_codes])
-                                                         par_arg tokens =
+                                                         cons_args_decl :: Symtbl -> [Tk_code] -> (([Syntree_node], [Tk_code]), Symtbl, [Error_codes])
+                                                         cons_args_decl symtbl tokens =
+                                                           case par_arg symtbl tokens of
+                                                             (Nothing, symtbl', errs) -> (([], tokens), symtbl', errs)
+                                                             (Just (arg, tokens'), symtbl', errs) -> (case tokens' of
+                                                                                                        Tk_smcl:ts' -> ((arg:args, tokens''), symtbl'', errs ++ errs')
+                                                                                                          where
+                                                                                                            ((args, tokens''), symtbl'', errs') = cons_args_decl symtbl' ts'
+                                                                                                        _ -> (([arg], tokens'), symtbl', errs)
+                                                                                                     )
+                                                         par_arg :: Symtbl -> [Tk_code] -> (Maybe (Syntree_node, [Tk_code]), Symtbl, [Error_codes])
+                                                         par_arg symtbl tokens =
                                                            case tokens of
-                                                             (Tk_ident arg_id):ts -> let arg = Syn_var arg_id Ty_abs
-                                                                                     in
-                                                                                       case cons_var_decl arg ts of
-                                                                                         ((Nothing, ts'), errs) -> (Just (Syn_arg_def arg_id Ty_abs, ts'), errs)
-                                                                                         ((Just (Syn_var_decl arg_id arg_ty), ts'), errs) -> (Just (Syn_arg_def arg_id arg_ty, ts'), errs)
-                                                                                         ((_, ts'), errs) -> (Just (Syn_none, ts'), errs)
-                                                             _ -> (Nothing, [])
-                                                     
-                                                     _ -> ((fun, tokens), [Imcomplete_function_declaration])
+                                                             (Tk_ident arg_id):ts ->
+                                                               let arg = Syn_var arg_id Ty_abs
+                                                               in
+                                                                 case cons_var_decl symtbl arg ts of
+                                                                   ((Nothing, symtbl', ts'), errs) -> (Just (Syn_arg_def arg_id Ty_abs, ts'), symtbl', errs)
+                                                                   ((Just (Syn_var_decl arg_id arg_ty), symtbl', ts'), errs) -> (Just (Syn_arg_def arg_id arg_ty, ts'), symtbl', errs)
+                                                                   ((_, symtbl', ts'), errs) -> (Just (Syn_none, ts'), symtbl', errs)
+                                                             _ -> (Nothing, symtbl, [])
+                                                         
+                                                         
+                                                     _ -> let fun_decl = Syn_fun_decl fun_id args fun_body fun_ty'
+                                                              (symtbl', err_symreg) = sym_regist' fun_decl
+                                                              errs' = case err_symreg of
+                                                                        Just e_sym -> errs ++ [e_sym]
+                                                                        Nothing -> errs
+                                                          in
+                                                            ((fun_decl, symtbl', tokens'), errs')
+                                                       where
+                                                         ((fun_ty', tokens'), fun_ty_errs) = par_fun_type tokens
+                                                         errs =  [Imcomplete_function_declaration] ++ fun_ty_errs
                                                   )
-      _ -> ((Syn_none, tokens), [Internal_error "Calling cons_var_decl with non variable constructor."])
+        where
+          sym_regist' = sym_regist False symtbl Sym_cat_decl
+      
+      _ -> ((Syn_none, symtbl, tokens), [Internal_error "Calling cons_var_decl with non variable constructor."])
 
 
 cons_par_tree :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> (Maybe Syntree_node, Symtbl, [Tk_code])
@@ -864,32 +903,32 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
                                         Ope_div -> True
                                         -- _ -> False
                                      )
-      cons_expr subexpr1 tokens =
+      cons_expr symtbl subexpr1 tokens =
         let (ope, tokens') = fetch_ope tokens
         in
           case ope of
-            Nothing -> (Right subexpr1, tokens)
+            Nothing -> (Right subexpr1, symtbl, tokens)
             Just ope' | ope' == Ope_asgn -> let left = cons_par_tree symtbl tokens' (False, False, True)
                                             in
                                               case left of
-                                                (Just left_expr, tokens'') -> (Right (Syn_expr_bin Ope_asgn (subexpr1, left_expr) Ty_abs), tokens'')
-                                                (Nothing, tokens'') -> (Left Illegal_left_expression_for_assignment, tokens'')
+                                                (Just left_expr, symtbl', tokens'') -> (Right (Syn_expr_bin Ope_asgn (subexpr1, left_expr) Ty_abs), symtbl', tokens'')
+                                                (Nothing, symtbl', tokens'') -> (Left Illegal_left_expression_for_assignment, symtbl', tokens'')
             Just ope' | is_bin_op ope' -> let r2 = cons_par_tree symtbl tokens' (False, False, True)
                                           in
                                             case r2 of
-                                              (Just subexpr2, tokens'') -> (case subexpr2 of
-                                                                              Syn_val _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), tokens'')
-                                                                              Syn_var _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), tokens'')
-                                                                              Syn_expr_bin bin_ope (expr_1, expr_2) _ ->
-                                                                                if is_gte_op ope' bin_ope then
-                                                                                  (Right (Syn_expr_bin bin_ope ((leftmost_innermst subexpr1 ope' expr_1), expr_2) Ty_abs), tokens'')
-                                                                                else
-                                                                                  (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), tokens'')
-                                                                              _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), tokens'')
-                                                                           )
-                                              (Nothing, tokens'') -> (Left (Illegal_operands ope' Syn_none), tokens'')
-            _ -> (Left (Internal_error "Invalid operator detecded, in cons_expr."), tokens)
-              
+                                              (Just subexpr2, symtbl', tokens'') -> (case subexpr2 of
+                                                                                       Syn_val _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
+                                                                                       Syn_var _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
+                                                                                       Syn_expr_bin bin_ope (expr_1, expr_2) _ ->
+                                                                                         if is_gte_op ope' bin_ope then
+                                                                                           (Right (Syn_expr_bin bin_ope ((leftmost_innermst subexpr1 ope' expr_1), expr_2) Ty_abs), symtbl', tokens'')
+                                                                                         else
+                                                                                           (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
+                                                                                       _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
+                                                                                    )
+                                              (Nothing, symtbl', tokens'') -> (Left (Illegal_operands ope' Syn_none), symtbl', tokens'')
+            _ -> (Left (Internal_error "Invalid operator detecded, in cons_expr."), symtbl, tokens)
+        
         where
           fetch_ope tokens = case tokens of
                                (Tk_asgn:ts) -> (Just Ope_asgn, ts)
@@ -905,22 +944,23 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
               Syn_expr_bin ope_o (expr_o1@(Syn_expr_bin ope_o1 _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o (leftmost_innermst expr_li bin_ope expr_o1, expr_o2) Ty_abs
               _ -> Syn_expr_bin bin_ope (expr_li, expr0) Ty_abs
       
-      par_fun_call fun_app tokens =
+      par_fun_call symtbl fun_app tokens =
         case fun_app of
           Syn_expr_call fun_id app_args app_ty -> (case tokens of
-                                                     [] -> (Right fun_app, tokens)
-                                                     t:ts | is_op t -> (Right fun_app, tokens)
+                                                     [] -> (Right fun_app, symtbl, tokens)
+                                                     t:ts | is_op t -> (Right fun_app, symtbl, tokens)
                                                      _ -> (case cons_par_tree symtbl tokens (False, False, False) of
-                                                             (Just arg, tokens') -> par_fun_call (Syn_expr_call fun_id (app_args ++ [arg]) app_ty) tokens'
-                                                             (Nothing, tokens') -> (Right fun_app, tokens')
+                                                             (Just arg, symtbl', tokens') -> par_fun_call symtbl' (Syn_expr_call fun_id (app_args ++ [arg]) app_ty) tokens'
+                                                             (Nothing, symtbl', tokens') -> (Right fun_app, symtbl', tokens')
                                                           )
                                                   )
-          _ -> (Left (Internal_error "Calling cons_var_decl with non variable constructor."), tokens)
+          _ -> (Left (Internal_error "Calling cons_var_decl with non variable constructor."), symtbl, tokens)
   in
     let cont_par symtbl subexpr tokens =
-          if par_contp then case cons_expr subexpr tokens of
-                          (Right expr', tokens') -> (Just expr', symtbl, tokens')
-                          (Left err, tokens') -> (Nothing, symtbl, tokens')
+          if par_contp then (case cons_expr symtbl subexpr tokens of
+                               (Right expr', symtbl', tokens') -> (Just expr', symtbl', tokens')
+                               (Left err, symtbl', tokens') -> (Nothing, symtbl', tokens')
+                            )
           else
             (Just subexpr, symtbl, tokens)
     in     
@@ -939,7 +979,7 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                                                    (Just (Syn_cond_expr (cond_expr, (true_expr, Just false_expr)) Ty_abs), symtbl'', tokens')
                                                                                  (_, symtbl'', tokens') -> (Nothing, symtbl'', tokens')
                                                                               )
-                  (Just true_expr, syntbl'', tokens') -> (Just (Syn_cond_expr (cond_expr, (true_expr, Nothing)) Ty_abs), symtbl'', tokens')
+                  (Just true_expr, symtbl'', tokens') -> (Just (Syn_cond_expr (cond_expr, (true_expr, Nothing)) Ty_abs), symtbl'', tokens')
                   (_, symtbl'', tokens') -> (Nothing, symtbl'', tokens')
                )
              (_, symtbl', tokens') -> (Nothing, symtbl', tokens')
@@ -965,51 +1005,57 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
             (Tk_ident fun_id):ts' -> 
               let fun = Syn_fun_decl fun_id [] (Syn_scope ([], Syn_none)) Ty_abs
               in
-                case par_fun_decl fun ts' of
-                  ((Syn_fun_decl fun_id fun_args fun_body fun_ty, Tk_L_bra:ts''), errs) ->
+                case par_fun_decl symtbl fun ts' of
+                  ((Syn_fun_decl fun_id fun_args fun_body fun_ty, symtbl', (Tk_L_bra:ts'')), errs) ->
                     (case fun_body of
                        (Syn_scope ([], Syn_none)) -> (case (do
-                                                               let ((var_decls, expr_par_trees), us) = parse_fun_body ts''
+                                                               let ((var_decls, expr_par_trees), symtbl'', us, errs) = parse_fun_body symtbl' ts''
                                                                      where
-                                                                       parse_fun_body :: [Tk_code] -> (([Syntree_node], [Syntree_node]), [Tk_code])
-                                                                       parse_fun_body tokens =
+                                                                       parse_fun_body :: Symtbl -> [Tk_code] -> (([Syntree_node], [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
+                                                                       parse_fun_body symtbl tokens =
                                                                          case cons_par_tree symtbl tokens (False, True, True) of
-                                                                           (Just var_decl@(Syn_var_decl _ _), Tk_smcl:tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
-                                                                                                                                 in
-                                                                                                                                   ((var_decl:var_decls, expr_trees), tokens'')
-                                                                           (Just var_decl@(Syn_var_decl _ _), tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
-                                                                                                                         in
-                                                                                                                           case var_decls of
-                                                                                                                             [] -> (([var_decl], expr_trees), tokens'')
-                                                                                                                             -- 以下は、本来ならばassertとして検知＆停止させるべきCASE
-                                                                                                                             _ -> (([var_decl], expr_trees), tokens'')
-                                                                           (Just expr_par_tree, Tk_smcl:tokens') -> let ((var_decls, expr_trees), tokens'') = parse_fun_body tokens'
-                                                                                                                    in
-                                                                                                                      case var_decls of
-                                                                                                                        [] -> (([], expr_par_tree:expr_trees), tokens'')
-                                                                                                                        -- 以下は、本来ならばassertとして検知＆停止させるべきCASE
-                                                                                                                        _ -> (([], expr_par_tree:expr_trees), tokens'')
-                                                                           (Just expr_par_tree, tokens') -> (([], [expr_par_tree]), tokens')
-                                                                           (Nothing, tokens') -> (([], []), tokens')
+                                                                           (Just var_decl@(Syn_var_decl _ _), symtbl', (Tk_smcl:tokens')) ->
+                                                                             let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
+                                                                             in
+                                                                               ((var_decl:var_decls, expr_trees), symtbl'', tokens'', errs)
+                                                                           (Just var_decl@(Syn_var_decl _ _), symtbl', tokens') ->
+                                                                             let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
+                                                                             in
+                                                                               case var_decls of
+                                                                                 [] -> (([var_decl], expr_trees), symtbl'', tokens'', errs)
+                                                                                 _ -> (([var_decl], expr_trees), symtbl'', tokens'', [Illegal_symbol_declaration] ++ errs)
+                                                                           (Just expr_par_tree, symtbl', Tk_smcl:tokens') ->
+                                                                             let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
+                                                                             in
+                                                                               case var_decls of
+                                                                                 [] -> (([], expr_par_tree:expr_trees), symtbl'', tokens'', errs)
+                                                                                 _ -> (([], expr_par_tree:expr_trees), symtbl'', tokens'', errs ++ [Illegal_symbol_declaration])
+                                                                           (Just expr_par_tree, symtbl', tokens') ->
+                                                                             let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
+                                                                             in
+                                                                               case (var_decls, expr_trees) of
+                                                                                 ([], []) -> (([], [expr_par_tree]), symtbl'', tokens'', errs)
+                                                                                 _ -> (([], [expr_par_tree]), symtbl'', tokens'', errs ++ [Illegal_symbol_declaration])
+                                                                           (Nothing, symtbl', tokens') -> (([], []), symtbl', tokens', [])
                                                                let fun_body' = (var_decls, (case expr_par_trees of
                                                                                               [] -> Syn_none
                                                                                               [expr] -> expr
                                                                                               exprs -> Syn_expr_seq exprs
                                                                                            )
                                                                                )
-                                                               (fun', tokens') <- return (Syn_fun_decl fun_id fun_args (Syn_scope fun_body') fun_ty, us)
+                                                               let (fun', tokens') = (Syn_fun_decl fun_id fun_args (Syn_scope fun_body') fun_ty, us)
                                                                return $ case tokens' of
-                                                                 Tk_R_bra:tokens'' -> (Just fun', tokens'')
-                                                                 _ -> (Nothing, tokens')
+                                                                 Tk_R_bra:tokens'' -> (Just fun', symtbl'', tokens'')
+                                                                 _ -> (Nothing, symtbl'', tokens')
                                                            ) of
                                                         Just res -> res
-                                                        Nothing -> (Nothing, ts')
+                                                        Nothing -> (Nothing, symtbl', ts')
                                                      )
-                       _ -> (Nothing, ts')
+                       _ -> (Nothing, symtbl', ts')
                     )
-                  ((_, tokens'), errs) -> (Nothing, tokens')
-            _:ts' -> (Nothing, ts')
-          else (Nothing, ts)
+                  ((_, symtbl',tokens'), errs) -> (Nothing, symtbl', tokens')
+            _:ts' -> (Nothing, symtbl, ts')
+          else (Nothing, symtbl, ts)
         (Tk_ident ident):ts -> let var = Syn_var ident Ty_abs                                
                                in
                                  if var_declp then
