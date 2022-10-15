@@ -395,6 +395,8 @@ data Par_stat =
   | Par_keyword_then_3
   | Par_keyword_true_2
   | Par_keyword_true_3
+  | Par_keyword_var_1
+  | Par_keyword_var_2
   | Par_acc Tk_code
   | Par_err
   deriving (Eq, Ord, Show)
@@ -472,6 +474,8 @@ parse_mata = do
             Par_ini | (c == 'f') -> ((Par_keyword_fun_false_1, quo_stat), cs)
             Par_ini | (c == 'i') -> ((Par_keyword_if_int_1, quo_stat), cs)
             Par_ini | (c == 't') -> ((Par_keyword_then_true_1, quo_stat), cs)
+            Par_ini | (c == 'v') -> ((Par_keyword_var_1, quo_stat), cs)
+            
             Par_ini | (is_delim c) -> if (is_blank c) then (stat, cs)
                                       else case par_delim_chr c quo_stat of
                                              (Par_err, quo_stat') -> ((Par_err, quo_stat'), src)
@@ -604,6 +608,17 @@ parse_mata = do
                                                )
             Par_keyword_false_4 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("fals" ++ [c]))), cs)
                                   else ((Par_acc (Tk_ident "fals"), Nothing), src)
+
+            Par_keyword_var_1 | (c == 'a') -> ((Par_keyword_var_2, quo_stat), cs)
+            Par_keyword_var_1 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("v" ++ [c]))), cs)
+                                 else ((Par_acc (Tk_ident "v"), Nothing), src)
+            Par_keyword_var_2 | (c == 'r') -> (case cs of
+                                                 [] -> ((Par_acc Tk_var, quo_stat), "")
+                                                 c':cs' | (is_delim c') -> ((Par_acc Tk_var, quo_stat), cs)
+                                                 _ -> ((Par_str, Just (No_quoted "var")), cs)
+                                              )   
+            Par_keyword_var_2 -> if (is_alnum c) then ((Par_str, Just (No_quoted ("va" ++ [c]))), cs)
+                                 else ((Par_acc (Tk_ident "va"), Nothing), src)
             
             Par_acc (Tk_nume _) -> ((Par_ini, quo_stat), src)
             Par_acc _ -> if (is_delim c) then
