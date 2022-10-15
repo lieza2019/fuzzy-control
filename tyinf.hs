@@ -273,6 +273,8 @@ walk_on_scope sym_cluster (ident, entity) =
       Sym_empty -> Nothing
   )
 
+
+{-
 sym_regist :: Bool -> Symtbl -> Sym_category -> Syntree_node -> (Symtbl, Maybe Error_codes)
 sym_regist ovwt symtbl cat entity =
   ras_trace "in sym_regist" (
@@ -296,6 +298,27 @@ sym_regist ovwt symtbl cat entity =
           Syn_var_decl var_id _ -> reg_sym sym_tbl (var_id, Sym_entry {sym_ident = var_id, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
     in
       ((sym_update symtbl cat sym_tbl'), err)
+  ) -}
+
+sym_regist :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> (Symtbl, Maybe Error_codes)
+sym_regist ovwt symtbl cat (ident, entity) =
+  ras_trace "in sym_regist" (
+  let reg_sym sym_tbl (ident, sym) =
+        case sym_tbl of
+          Scope_empty -> ((Scope_add (0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, (Sym_add sym Sym_empty)) Scope_empty), Nothing)            
+          Scope_add (lv, anon_idents, syms) sym_tbls -> (case syms of
+                                                           Sym_empty -> ((Scope_add (lv, anon_idents, (Sym_add sym Sym_empty)) sym_tbls), Nothing)
+                                                           Sym_add s_node _ -> (case walk_on_scope syms (ident, (sym_attr_entity . sym_attr) s_node) of
+                                                                                  Just e -> if (not ovwt) then (sym_tbl, Just Symbol_redifinition)
+                                                                                            else ((Scope_add (lv, anon_idents, (Sym_add sym syms)) sym_tbls), Nothing)
+                                                                                  Nothing -> ((Scope_add (lv, anon_idents, (Sym_add sym syms)) sym_tbls), Nothing)
+                                                                               )
+                                                        )
+      sym_tbl = sym_categorize symtbl cat
+  in
+    let (sym_tbl', err) = reg_sym sym_tbl (ident, Sym_entry {sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
+    in
+      ((sym_update symtbl cat sym_tbl'), err)
   )
 
 
@@ -312,6 +335,7 @@ data Tk_code =
   | Tk_nume Integer
   | Tk_str String
   | Tk_typed_as
+  | Tk_var
   | Tk_if
   | Tk_then
   | Tk_else
@@ -758,14 +782,14 @@ cons_var_decl symtbl var tokens =
     Syn_var var_id var_ty -> (case tokens of
                                 Tk_typed_as:ts -> (case par_type_decl tokens of
                                                      (Right var_ty', ts') -> let var_decl = Syn_var_decl var_id var_ty'
-                                                                                 (symtbl', err_symreg) = sym_regist' var_decl
+                                                                                 (symtbl', err_symreg) = sym_regist' (var_id, var_decl)
                                                                                  err = case err_symreg of
                                                                                    Just e_reg  -> [e_reg]
                                                                                    Nothing -> []
                                                                              in
                                                                                ((Just var_decl, symtbl', ts'), err)
                                                      (Left err, ts') -> let var_decl = Syn_var_decl var_id var_ty
-                                                                            (symtbl', err_symreg) = sym_regist' var_decl
+                                                                            (symtbl', err_symreg) = sym_regist' (var_id, var_decl)
                                                                             err' = case err_symreg of
                                                                                      Just e_reg -> err ++ [e_reg]
                                                                                      Nothing -> err
@@ -776,13 +800,14 @@ cons_var_decl symtbl var tokens =
                                     sym_regist' = sym_regist False symtbl Sym_cat_decl
                                 
                                 -- _ -> ((Syn_var var_id Ty_abs, tokens), [])
-                                _ -> let var_decl = Syn_var_decl var_id var_ty
-                                         (symtbl', err_symreg) = sym_regist False symtbl Sym_cat_decl var_decl
+                                {- _ -> let var_decl = Syn_var_decl var_id var_ty
+                                         (symtbl', err_symreg) = sym_regist False symtbl Sym_cat_decl (var_id, var_decl)
                                          err = case err_symreg of
                                            Just e_reg  -> [e_reg]
                                            Nothing -> []
                                      in
-                                       ((Just var_decl, symtbl', tokens), err)
+                                       ((Just var_decl, symtbl', tokens), err) -}
+                                _ -> ((Nothing, symtbl, tokens), [])
                              )
     _ -> ((Just Syn_none, symtbl, tokens), [Internal_error "Calling cons_var_decl with non variable constructor."])
 
@@ -801,7 +826,7 @@ par_fun_decl symtbl fun tokens =
       Syn_fun_decl fun_id args fun_body fun_ty -> (case tokens of
                                                      Tk_L_par:Tk_R_par:ts -> let ((fun_ty', tokens'), errs) = par_fun_type ts
                                                                                  fun_decl = Syn_fun_decl fun_id args fun_body fun_ty'
-                                                                                 (symtbl', err_symreg) = sym_regist' fun_decl
+                                                                                 (symtbl', err_symreg) = sym_regist' (fun_id, fun_decl)
                                                                                  errs' = case err_symreg of
                                                                                            Just e_reg -> errs ++ [e_reg]
                                                                                            Nothing -> errs
@@ -811,7 +836,7 @@ par_fun_decl symtbl fun tokens =
                                                                     in
                                                                       case ts' of
                                                                         Tk_R_par:ts'' -> let fun_decl = Syn_fun_decl fun_id (args ++ args') fun_body fun_ty'
-                                                                                             (symtbl'', err_symreg) = sym_regist'' fun_decl
+                                                                                             (symtbl'', err_symreg) = sym_regist'' (fun_id, fun_decl)
                                                                                              errs' = case err_symreg of
                                                                                                        Just e_reg -> errs ++ [e_reg]
                                                                                                        Nothing -> errs
@@ -823,7 +848,7 @@ par_fun_decl symtbl fun tokens =
                                                                             errs = arg_errs ++ fun_ty_errs
                                                                         
                                                                         _ -> let fun_decl = Syn_fun_decl fun_id (args ++ args') fun_body fun_ty'
-                                                                                 (symtbl'', err_symreg) = sym_regist'' fun_decl
+                                                                                 (symtbl'', err_symreg) = sym_regist'' (fun_id, fun_decl)
                                                                                  errs' = case err_symreg of
                                                                                            Just e_reg -> errs ++ [e_reg]
                                                                                            Nothing -> errs
@@ -858,7 +883,7 @@ par_fun_decl symtbl fun tokens =
                                                          
                                                          
                                                      _ -> let fun_decl = Syn_fun_decl fun_id args fun_body fun_ty'
-                                                              (symtbl', err_symreg) = sym_regist' fun_decl
+                                                              (symtbl', err_symreg) = sym_regist' (fun_id, fun_decl)
                                                               errs' = case err_symreg of
                                                                         Just e_reg -> errs ++ [e_reg]
                                                                         Nothing -> errs
@@ -1007,8 +1032,8 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
               in
                 case par_fun_decl symtbl fun ts' of
                   ((fun@(Syn_fun_decl fun_id fun_args fun_body fun_ty), symtbl', (Tk_L_bra:ts'')), errs) -> do
-                    let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl fun
-                    let (new_scope, errs_argreg) = Prelude.foldl (\(symtbl, errs) -> \arg@(Syn_arg_def arg_id _) -> case sym_regist False symtbl Sym_cat_decl arg of
+                    let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id, fun)
+                    let (new_scope, errs_argreg) = Prelude.foldl (\(symtbl, errs) -> \arg@(Syn_arg_def arg_id _) -> case sym_regist False symtbl Sym_cat_decl (arg_id, arg) of
                                                                                                                       (symtbl', Just e_reg) -> (symtbl', errs ++ [e_reg])
                                                                                                                       (symtbl', Nothing) -> (symtbl', errs)
                                                                  ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) fun_args
@@ -1074,7 +1099,7 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                                                        (Right (fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl'', tokens'') ->
                                                                                          cont_par symtbl'' fun_app' tokens''
                                                                                        (Left err, symtbl'', tokens'') -> (Nothing, symtbl'', tokens'')
-                                     ((Nothing, symtbl', tokens'), errs) -> cont_par symtbl' var tokens'
+                                     ((_, symtbl', tokens'), errs) -> cont_par symtbl' var tokens'
                                  else
                                    cont_par symtbl var ts
         _ -> (Nothing, symtbl, tokens)
