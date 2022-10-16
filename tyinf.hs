@@ -998,10 +998,20 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
       par_fun_call symtbl fun_app tokens =
         case fun_app of
           Syn_expr_call fun_id app_args app_ty -> (case tokens of
-                                                     [] -> (Right fun_app, symtbl, tokens)
+                                                     [] -> (Right fun_app, symtbl, [])
                                                      t:ts | is_op t -> (Right fun_app, symtbl, tokens)
                                                      _ -> (case cons_par_tree symtbl tokens (False, False, False) of
-                                                             (Just arg, symtbl', tokens') -> par_fun_call symtbl' (Syn_expr_call fun_id (app_args ++ [arg]) app_ty) tokens'
+                                                             (Just arg, symtbl', tokens') ->
+                                                               let (app_args', symtbl'', tokens'', errs) = (case arg of
+                                                                                                              Syn_expr_call ident args' ty -> ((Syn_var ident ty):args', symtbl', tokens', [])
+                                                                                                              _ -> (case par_fun_call symtbl' (Syn_expr_call fun_id [] app_ty) tokens' of
+                                                                                                                      (Right (Syn_expr_call _ args' _), stbl'', ts'') ->
+                                                                                                                        ((arg:args'), stbl'', ts'', [])
+                                                                                                                      (Left err, stbl'', ts'') -> ([arg], stbl'', ts'', [err])
+                                                                                                                   )
+                                                                                                           )
+                                                               in
+                                                                 (Right (Syn_expr_call fun_id app_args' app_ty), symtbl'', tokens'')
                                                              (Nothing, symtbl', tokens') -> (Right fun_app, symtbl', tokens')
                                                           )
                                                   )
