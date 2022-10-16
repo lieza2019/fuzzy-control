@@ -1069,6 +1069,7 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                     in
                                                       case tokens' of
                                                         Tk_R_bra:tokens'' -> (Just fun', new_scope', tokens'')
+                                                        --_ -> (Nothing, new_scope', Tk_R_bra:tokens')
                                                         _ -> (Nothing, new_scope', tokens')
                         where
                           parse_fun_body :: Symtbl -> [Tk_code] -> (([Syntree_node], [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
@@ -1443,6 +1444,9 @@ main = do
                                       forest_abs
                        _ -> []
   mapM_ putStrLn $ Prelude.map show ty_abs
+  
+  putStr "simtbl:  "
+  putStrLn $ show (sym_decl symtbl')
   
   putStrLn $ "ty-inf:  " ++ (maybe "" show (ty_inf syn_forest))
     
