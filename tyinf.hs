@@ -787,7 +787,7 @@ par_type_decl tokens =
     Tk_typed_as:ts -> (case ts of
                          Tk_bool:ts' -> (Right Ty_bool, ts')
                          Tk_int:ts' -> (Right Ty_int, ts')
-                         t:ts' -> (Left [Illegal_type_specified t], ts')
+                         t:ts' -> (Left [Illegal_type_specified t], ts)
                       )
     _ -> (Left [Internal_error "Calling cons_var_decl with non variable constructor."], tokens)
 
@@ -1420,7 +1420,7 @@ main = do
                                                           _ -> (Nothing, symtbl', tokens')
                                                   where
                                                     cons_par_trees symtbl [] = ([], symtbl, [])
-                                                    cons_par_trees symtbl ts =
+                                                    cons_par_trees symtbl (Tk_smcl:ts) =
                                                       let (syn_tree, symtbl', ts') = cons_par_tree symtbl ts (True, True, True)
                                                       in
                                                         case syn_tree of
@@ -1428,6 +1428,7 @@ main = do
                                                                          in
                                                                            (s_tree:s_trees, symtbl'', ts'')
                                                           _ -> ([], symtbl', ts')
+                                                    cons_par_trees symtbl ts = ([], symtbl, ts)
                                                 _ -> (Nothing, symtbl, tokens)
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
   
