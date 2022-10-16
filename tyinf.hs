@@ -814,15 +814,15 @@ cons_var_decl symtbl var tokens =
                                   where
                                     sym_regist' = sym_regist False symtbl Sym_cat_decl
                                 
-                                -- _ -> ((Syn_var var_id Ty_abs, tokens), [])
-                                {- _ -> let var_decl = Syn_var_decl var_id var_ty
+                                -- _ -> ((Nothing, symtbl, tokens), [])
+                                _ -> let var_decl = Syn_var_decl var_id var_ty
                                          (symtbl', err_symreg) = sym_regist False symtbl Sym_cat_decl (var_id, var_decl)
                                          err = case err_symreg of
                                            Just e_reg  -> [e_reg]
                                            Nothing -> []
                                      in
-                                       ((Just var_decl, symtbl', tokens), err) -}
-                                _ -> ((Nothing, symtbl, tokens), [])
+                                       ((Just var_decl, symtbl', tokens), err)
+                                
                              )
     _ -> ((Just Syn_none, symtbl, tokens), [Internal_error "Calling cons_var_decl with non variable constructor."])
 
@@ -1100,11 +1100,29 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
                       
                       _ -> (Nothing, new_scope, ts')
                   ((_, symtbl',tokens'), errs) -> (Nothing, symtbl', tokens')
-            _:ts' -> (Nothing, symtbl, ts')
+            _ -> (Nothing, symtbl, ts)
           else (Nothing, symtbl, ts)
-        (Tk_ident ident):ts -> let var = Syn_var ident Ty_abs                                
+        Tk_var:ts -> if var_declp then
+                       case ts of
+                         (Tk_ident ident):ts' -> let var = Syn_var ident Ty_abs
+                                                 in
+                                                   case cons_var_decl symtbl var ts' of
+                                                     ((Just var_decl, symtbl', tokens'), errs) -> (Just var_decl, symtbl', tokens')
+                                                     ((_, symtbl', tokens'), errs) -> (Nothing, symtbl', tokens')
+                         _ -> (Nothing, symtbl, ts)
+                     else
+                       (Nothing, symtbl, ts)
+        (Tk_ident ident):ts -> let var = Syn_var ident Ty_abs
                                in
-                                 if var_declp then
+                                 case ts of
+                                   tokens'@(t:ts') | not (is_op t) -> let fun_app = Syn_expr_call ident [] Ty_abs
+                                                                      in
+                                                                        case par_fun_call symtbl fun_app tokens' of
+                                                                          (Right (fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl', tokens'') -> cont_par symtbl' fun_app' tokens''
+                                                                          (Left err, symtbl', tokens'') -> (Nothing, symtbl', tokens'')
+                                   _ -> cont_par symtbl var ts
+                                 
+                                 {- if var_declp then
                                    case cons_var_decl symtbl var ts of
                                      ((Just var_decl, symtbl', tokens'), errs) -> (Just var_decl, symtbl', tokens')
                                      ((Nothing, symtbl', tokens'@(t:ts')), errs) | not (is_op t) ->
@@ -1116,7 +1134,8 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                                                        (Left err, symtbl'', tokens'') -> (Nothing, symtbl'', tokens'')
                                      ((_, symtbl', tokens'), errs) -> cont_par symtbl' var tokens'
                                  else
-                                   cont_par symtbl var ts
+                                   cont_par symtbl var ts -}
+                                 
         _ -> (Nothing, symtbl, tokens)
 
 
@@ -1387,30 +1406,30 @@ main = do
   h <- openFile "src.txt" ReadMode
   src <- read_src h
   
-  let tokens = conv2_tokens src
+  let (tokens, src_remains) = conv2_tokens src
   putStrLn $ "source:  " ++ (show src)
-  putStrLn $ "tokens:  " ++ (show tokens)
+  putStrLn $ "tokens:  " ++ (show (tokens, src_remains))
   symtbl <- return $ sym_enter_scope Nothing Sym_cat_decl
-  (syn_forest, symtbl')  <- return $ case (snd tokens) of
-                                       "" -> let (syn_tree, symtbl', tokens') = cons_par_tree symtbl (fst tokens) (True, True, True)
-                                             in
-                                               case syn_tree of
-                                                 Just s_tree -> let (s_trees, symtbl'') = cons_par_trees symtbl' tokens'
-                                                                in
-                                                                  (Just (s_tree:s_trees), symtbl'')
-                                                 _ -> (Nothing, symtbl')
-                                         where
-                                           cons_par_trees symtbl [] = ([], symtbl)
-                                           cons_par_trees symtbl (t:ts) =
-                                             let (syn_tree, symtbl', ts') = cons_par_tree symtbl ts (True, True, True)
-                                             in
-                                               case syn_tree of
-                                                 Just s_tree -> let (s_trees, symtbl'') = cons_par_trees symtbl' ts'
-                                                                in
-                                                                  (s_tree:s_trees, symtbl'')
-                                                 _ -> ([], symtbl')
-                                       _ -> (Nothing, symtbl)
-  putStrLn $ "p-trees: " ++ (show syn_forest)
+  (syn_forest, symtbl', tokens')  <- return $ case src_remains of
+                                                "" -> let (syn_tree, symtbl', tokens') = cons_par_tree symtbl tokens (True, True, True)
+                                                      in
+                                                        case syn_tree of
+                                                          Just s_tree -> let (s_trees, symtbl'', tokens'') = cons_par_trees symtbl' tokens'
+                                                                         in
+                                                                           (Just (s_tree:s_trees), symtbl'', tokens'')
+                                                          _ -> (Nothing, symtbl', tokens')
+                                                  where
+                                                    cons_par_trees symtbl [] = ([], symtbl, [])
+                                                    cons_par_trees symtbl ts =
+                                                      let (syn_tree, symtbl', ts') = cons_par_tree symtbl ts (True, True, True)
+                                                      in
+                                                        case syn_tree of
+                                                          Just s_tree -> let (s_trees, symtbl'', ts'') = cons_par_trees symtbl' ts'
+                                                                         in
+                                                                           (s_tree:s_trees, symtbl'', ts'')
+                                                          _ -> ([], symtbl', ts')
+                                                _ -> (Nothing, symtbl, tokens)
+  putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
   
   putStr "ty-abs:  "
   ty_abs <- return $ case syn_forest of
