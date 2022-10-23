@@ -776,7 +776,7 @@ syn_node_typeof expr =
 data Error_codes =
   Internal_error String
   | Illtyped_constant
-  | Type_constraint_mismatched
+  | Type_constraint_mismatched String
   | Imcomplete_function_declaration
   | Imcomplete_type_specifier
   | Illegal_left_expression_for_assignment
@@ -1317,6 +1317,7 @@ ty_unif :: [Equation] -> Maybe [Subst]
 ty_unif equations =
   case equations of
     [] -> Just []
+    (ty_lhs, ty_rhs):es  | ty_lhs == ty_rhs -> ty_unif es
     (Ty_var tvar_id, ty_rhs):es -> merge_subst (ty_unif es) (Just [(tvar_id, ty_rhs)])
     (ty_lhs, Ty_var tvar_id):es -> merge_subst (ty_unif es) (Just [(tvar_id, ty_lhs)])
     (Ty_pair(ty_1st_lhs, ty_2nd_lhs), ty_rhs):es -> case ty_rhs of
@@ -1346,6 +1347,32 @@ ty_inf symtbl expr =
                                 else Left ((Ty_env [], expr), symtbl, [Illtyped_constant])
     Syn_val (Val_str s) ty_s -> if (ty_s == Ty_string) then Right ((Ty_env [], expr), symtbl, [])
                                 else Left ((Ty_env [], expr), symtbl, [Illtyped_constant])
+    Syn_var v_id v_ty -> case sym_lkup_var_decl symtbl v_id of
+                           Just (Sym_attrib { sym_attr_entity = v_attr }, symtbl') ->
+                             (case v_attr of
+                                 Syn_var v_id' v_ty_decl | v_id == v_id' -> let equ = [(v_ty, v_ty_decl)]
+                                                                            in
+                                                                              case ty_unif equ of
+                                                                                Just s -> (case ty_subst s equ of
+                                                                                             [(v_ty', _)] -> Right ((Ty_env [(v_id, v_ty')], expr), symtbl', [])
+                                                                                             _ -> Left ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
+                                                                                               where
+                                                                                                 errmsg = "symbol table inconsistent, for " ++ v_id
+                                                                                          )
+                                                                                Nothing -> Left ((Ty_env [(v_id, v_ty)], expr), symtbl', [Type_constraint_mismatched errmsg])
+                                                                                  where
+                                                                                    errmsg = "type of " ++ v_id ++ " does'nt agree with its declaration."
+                                 _ -> Left ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
+                                   where
+                                     errmsg = "ill-registration detected on symbol tablem, for " ++ v_id
+                             )
+                           Nothing -> let (symtbl', reg_err) = sym_regist False symtbl Sym_cat_decl (v_id, expr)
+                                      in
+                                        case reg_err of
+                                          Nothing -> Right ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
+                                          Just err -> Left ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
+                                            where
+                                              errmsg = "failed to regist on symbol table, for " ++ v_id
     
     Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> do
       ((env_cond, cond_expr_inf), symtbl_c, cond_err) <- ty_inf symtbl cond_expr
@@ -1383,7 +1410,9 @@ ty_inf symtbl expr =
                   chk_and_merge env1_bindings env2_bindings = Prelude.foldl (\e1s -> \(id, ty) -> do
                                                                                 e1s' <- e1s
                                                                                 e1s'' <- (case Prelude.lookup id e1s' of
-                                                                                            Just _ -> Left Type_constraint_mismatched
+                                                                                            Just _ -> Left (Type_constraint_mismatched errmsg)
+                                                                                              where
+                                                                                                errmsg = ""
                                                                                             Nothing -> Right e1s'
                                                                                          )
                                                                                 return ((id, ty) : e1s'')
