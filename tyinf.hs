@@ -756,8 +756,8 @@ data Syntree_node =
   | Syn_none
   deriving (Eq, Ord, Show)
 
-expr_ty :: Syntree_node -> Type
-expr_ty expr =
+syn_node_typeof :: Syntree_node -> Type
+syn_node_typeof expr =
   case expr of
     Syn_ty_spec ty -> ty
     Syn_fun_decl _ _ _ ty -> ty
@@ -775,6 +775,8 @@ expr_ty expr =
 
 data Error_codes =
   Internal_error String
+  | Illtyped_constant
+  | Type_constraint_mismatched
   | Imcomplete_function_declaration
   | Imcomplete_type_specifier
   | Illegal_left_expression_for_assignment
@@ -1028,7 +1030,7 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
       case tokens of
         [] -> (Nothing, symtbl, [])
         Tk_L_par:ts -> (case cons_par_tree symtbl ts (False, False, True) of
-                          (Just expr, symtbl', (Tk_R_par:ts')) -> cont_par symtbl' (Syn_expr_par expr (expr_ty expr)) ts'
+                          (Just expr, symtbl', (Tk_R_par:ts')) -> cont_par symtbl' (Syn_expr_par expr (syn_node_typeof expr)) ts'
                           (_, symtbl',ts') -> (Nothing, symtbl', ts')
                        )
         Tk_if:ts ->
@@ -1187,8 +1189,8 @@ succ_flesh_tvar prev =
     last_id = (snd prev)
 
 
-curve_tvars :: (Syntree_node, Fresh_tvar) -> (Syntree_node, Fresh_tvar)
-curve_tvars (expr, prev_tvar) =
+ty_curve :: (Syntree_node, Fresh_tvar) -> (Syntree_node, Fresh_tvar)
+ty_curve (expr, prev_tvar) =
   (case expr of
      Syn_arg_def arg_id Ty_abs -> let latest = succ_flesh_tvar prev_tvar
                                   in
@@ -1196,16 +1198,16 @@ curve_tvars (expr, prev_tvar) =
      Syn_var var_id Ty_abs -> let latest = succ_flesh_tvar prev_tvar
                               in
                                 (Syn_var var_id (fst latest), latest)
-     Syn_expr_par expr' Ty_abs -> let (expr_abs, prev_tvar') = curve_tvars (expr', prev_tvar)
+     Syn_expr_par expr' Ty_abs -> let (expr_abs, prev_tvar') = ty_curve (expr', prev_tvar)
                                       latest = succ_flesh_tvar prev_tvar'
                                   in
                                     (Syn_expr_par expr_abs (fst latest), latest)
-     Syn_expr_una ope_una expr' Ty_abs -> let (expr_abs, prev_tvar') = curve_tvars (expr', prev_tvar)
+     Syn_expr_una ope_una expr' Ty_abs -> let (expr_abs, prev_tvar') = ty_curve (expr', prev_tvar)
                                               latest = succ_flesh_tvar prev_tvar'
                                           in
                                             (Syn_expr_una ope_una expr_abs (fst latest), latest)
-     Syn_expr_bin ope_bin (expr1, expr2) Ty_abs -> let (expr1_abs, prev_tvar') = curve_tvars (expr1, prev_tvar)
-                                                       (expr2_abs, prev_tvar'') = curve_tvars (expr2, prev_tvar')
+     Syn_expr_bin ope_bin (expr1, expr2) Ty_abs -> let (expr1_abs, prev_tvar') = ty_curve (expr1, prev_tvar)
+                                                       (expr2_abs, prev_tvar'') = ty_curve (expr2, prev_tvar')
                                                        latest = succ_flesh_tvar prev_tvar''
                                                    in
                                                      (Syn_expr_bin ope_bin (expr1_abs, expr2_abs) (fst latest), latest)
@@ -1220,11 +1222,11 @@ curve_tvars (expr, prev_tvar) =
                                               where
                                                 abs_args = abs_decls
                                          )
-     Syn_cond_expr (cond_expr, (true_expr, false_expr)) Ty_abs -> let (cond_expr', prev_tvar') = curve_tvars (cond_expr, prev_tvar)
-                                                                      (true_expr', prev_tvar'') = curve_tvars (true_expr, prev_tvar')
+     Syn_cond_expr (cond_expr, (true_expr, false_expr)) Ty_abs -> let (cond_expr', prev_tvar') = ty_curve (cond_expr, prev_tvar)
+                                                                      (true_expr', prev_tvar'') = ty_curve (true_expr, prev_tvar')
                                                                   in
                                                                     case false_expr of
-                                                                      Just f_expr_body -> let (f_expr_body', latest) = curve_tvars (f_expr_body, prev_tvar'')
+                                                                      Just f_expr_body -> let (f_expr_body', latest) = ty_curve (f_expr_body, prev_tvar'')
                                                                                               latest' = succ_flesh_tvar latest
                                                                                           in
                                                                                             (Syn_cond_expr (cond_expr', (true_expr', Just f_expr_body')) (fst latest'), latest')
@@ -1232,19 +1234,19 @@ curve_tvars (expr, prev_tvar) =
                                                                                  in
                                                                                    (Syn_cond_expr (cond_expr', (true_expr', Nothing)) (fst latest), latest)
      Syn_fun_decl fun_id args fun_body fun_ty  -> (case args of
-                                                     [] -> let (body_abs, prev_tvar') = curve_tvars (fun_body, prev_tvar)
+                                                     [] -> let (body_abs, prev_tvar') = ty_curve (fun_body, prev_tvar)
                                                                latest = succ_flesh_tvar prev_tvar'
                                                             in
                                                              (Syn_fun_decl fun_id [] body_abs (fst latest), latest)
                                                      _ -> let (args_abs, prev_tvar') = abs_decls args prev_tvar
-                                                              (body_abs, prev_tvar'') = curve_tvars (fun_body, prev_tvar')
+                                                              (body_abs, prev_tvar'') = ty_curve (fun_body, prev_tvar')
                                                               (fun_ty', latest) = abs_funty (args_abs, fun_ty) prev_tvar''
                                                           in
                                                             (Syn_fun_decl fun_id args_abs body_abs fun_ty', latest)
                                                        where
                                                          abs_funty :: ([Syntree_node], Type) -> Fresh_tvar -> (Type, Fresh_tvar)
                                                          abs_funty (args, fun_ty) prev_tvar =
-                                                           let from_args = Prelude.foldl (\(tys, prev_tv) -> (\a -> case expr_ty a of
+                                                           let from_args = Prelude.foldl (\(tys, prev_tv) -> (\a -> case syn_node_typeof a of
                                                                                                                       Ty_abs -> let prev_tv' = succ_flesh_tvar prev_tv
                                                                                                                                 in
                                                                                                                                   (tys ++ [(fst prev_tv')], prev_tv')
@@ -1265,7 +1267,7 @@ curve_tvars (expr, prev_tvar) =
                                      (Syn_var_decl var_id (fst latest), latest)
      Syn_expr_seq exprs -> (case exprs of
                               [] -> (Syn_expr_seq [], prev_tvar)
-                              e:es -> let (e', prev_tvar') = curve_tvars (e, prev_tvar)
+                              e:es -> let (e', prev_tvar') = ty_curve (e, prev_tvar)
                                           (es', latest) = abs_exprs es prev_tvar'
                                       in
                                         (Syn_expr_seq (e':es'), latest)
@@ -1273,7 +1275,7 @@ curve_tvars (expr, prev_tvar) =
                                   abs_exprs = abs_decls
                            )
      Syn_scope (decls, body) -> let (decls', prev_tvar') = abs_decls decls prev_tvar
-                                    (body', latest) = curve_tvars (body, prev_tvar')
+                                    (body', latest) = ty_curve (body, prev_tvar')
                                 in
                                   (Syn_scope (decls', body'), latest)
      _ -> (expr, prev_tvar)
@@ -1283,18 +1285,113 @@ curve_tvars (expr, prev_tvar) =
     abs_decls args prev_tvar =
       case args of
         [] -> ([], prev_tvar)
-        a:as -> let (a', prev_tvar') = curve_tvars (a, prev_tvar)
+        a:as -> let (a', prev_tvar') = ty_curve (a, prev_tvar)
                     (as', prev_tvar'') = abs_decls as prev_tvar'
                 in
                   (a':as', prev_tvar'')
+
+
+type Equation = (Type, Type)
+type Subst = (String, Type)
+  
+ty_subst :: Subst -> [Equation] -> [Equation]
+ty_subst subst [] = []
+ty_subst (subst@(tvar_id, ty_mapsto)) es = Prelude.map (\(e_lhs, e_rhs) -> (rewrite subst e_lhs, rewrite subst e_rhs)) es
+  where
+    rewrite :: (String, Type) -> Type -> Type
+    rewrite (id, ty) ty_expr =
+      case ty_expr of
+        Ty_top -> ty_expr
+        Ty_bool -> ty_expr
+        Ty_string -> ty_expr
+        Ty_int -> ty_expr              
+        Ty_var v_id -> if v_id == id then ty else ty_expr
+        Ty_pair (ty_expr1, ty_expr2) -> Ty_pair (rewrite (id, ty) ty_expr1, rewrite (id, ty) ty_expr2)
+        Ty_fun ty_args -> Ty_fun $ Prelude.map (rewrite (id, ty)) ty_args
+        Ty_abs -> ty_expr
+        Ty_btm -> ty_expr
+        Ty_unknown -> ty_expr
+
+
+ty_unif :: [Equation] -> Maybe [Subst]
+ty_unif equations =
+  case equations of
+    [] -> Just []
+    (Ty_var tvar_id, ty_rhs):es -> merge_subst (ty_unif es) (Just [(tvar_id, ty_rhs)])
+    (ty_lhs, Ty_var tvar_id):es -> merge_subst (ty_unif es) (Just [(tvar_id, ty_lhs)])
+    (Ty_pair(ty_1st_lhs, ty_2nd_lhs), ty_rhs):es -> case ty_rhs of
+                                                      Ty_pair (ty_1st_rhs, ty_2nd_rhs) -> ty_unif ((ty_1st_lhs, ty_1st_rhs):(ty_2nd_lhs, ty_2nd_rhs):es)
+                                                      _ -> Nothing
+  where
+    merge_subst :: Maybe [Subst] -> Maybe [Subst] -> Maybe [Subst]
+    merge_subst subst1 subst2 =
+      case subst1 of
+        Just s1 -> (case subst2 of
+                      Just s2 -> Just (s1 ++ s2)
+                      Nothing -> Nothing
+                   )
+        Nothing -> Nothing
 
 
 data Ty_env =
   Ty_env [(String, Type)]
   deriving (Eq, Show)
 
-ty_inf :: Maybe [Syntree_node] -> Maybe (Ty_env, Syntree_node)
-ty_inf expr =
+ty_inf :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
+ty_inf symtbl expr =
+  case expr of
+    Syn_val (Val_bool b) ty_b -> if ty_b == Ty_bool then Right ((Ty_env [], expr), symtbl, [])
+                                 else Left ((Ty_env [], expr), symtbl, [Illtyped_constant])
+    Syn_val (Val_int n) ty_n -> if (ty_n == Ty_int) then Right ((Ty_env [], expr), symtbl, [])
+                                else Left ((Ty_env [], expr), symtbl, [Illtyped_constant])
+    Syn_val (Val_str s) ty_s -> if (ty_s == Ty_string) then Right ((Ty_env [], expr), symtbl, [])
+                                else Left ((Ty_env [], expr), symtbl, [Illtyped_constant])
+    
+    Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> do
+      ((env_cond, cond_expr_inf), symtbl_c, cond_err) <- ty_inf symtbl cond_expr
+      ((env_true, true_expr_inf), symtbl_ct, true_err) <- ty_inf symtbl_c true_expr
+      ((env_merged_ct, true_expr_inf'), symtbl_ct', true_err') <- (case merge_env env_cond env_true of
+                                                                     Left err -> Left ((env_true, true_expr_inf), symtbl_ct, (true_err ++ [err]))
+                                                                     Right env_merged -> Right ((env_merged, true_expr_inf), symtbl_ct, true_err)
+                                                                  )
+      ((env_merged_ctf, if_expr_inf), symtbl', if_expr_err') <- (case false_expr of
+                                                                   Nothing -> Right ((env_merged_ct, Syn_cond_expr (cond_expr_inf, (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
+                                                                                     symtbl_ct', true_err')
+                                                                   Just f_expr -> do
+                                                                     ((env_false, false_expr_inf), symtbl_ctf, false_err) <- ty_inf symtbl_ct' f_expr
+                                                                     case merge_env env_merged_ct env_false of
+                                                                       Left err -> Left ((env_false, false_expr_inf), symtbl_ctf, (false_err ++ [err]))
+                                                                       Right env_merged -> Right ((env_merged,
+                                                                                                   Syn_cond_expr (cond_expr_inf, (true_expr_inf', Just false_expr_inf)) (syn_node_typeof false_expr_inf)),
+                                                                                                  symtbl_ctf, false_err)
+                                                                )
+      return ((env_merged_ctf, if_expr_inf), symtbl', if_expr_err')
+        
+        where
+          merge_env :: Ty_env -> Ty_env -> Either Error_codes Ty_env
+          merge_env env_1 env_2 =
+            case env_2 of
+              Ty_env [] -> Right env_1
+              Ty_env env2_bindings -> (case env_1 of
+                                         Ty_env [] -> Right env_2
+                                         Ty_env env1_bindings -> (case chk_and_merge env1_bindings env2_bindings of
+                                                                    Right merged_bindings -> Right (Ty_env merged_bindings)
+                                                                    Left err -> Left err
+                                                                 )
+                                      )
+                where
+                  chk_and_merge env1_bindings env2_bindings = Prelude.foldl (\e1s -> \(id, ty) -> do
+                                                                                e1s' <- e1s
+                                                                                e1s'' <- (case Prelude.lookup id e1s' of
+                                                                                            Just _ -> Left Type_constraint_mismatched
+                                                                                            Nothing -> Right e1s'
+                                                                                         )
+                                                                                return ((id, ty) : e1s'')
+                                                                            ) (Right env1_bindings) env2_bindings
+
+
+ty_inf1 :: Maybe [Syntree_node] -> Maybe (Ty_env, Syntree_node)
+ty_inf1 expr =
   --{(var_id, var_ty)} |- var_id : var_ty, s.t. "var_ty var_id" in declration form
   case expr of
     Just ((c@(Syn_val (Val_bool b) ty_b)):es) -> if (ty_b == Ty_bool) then Just (Ty_env [], c) else Nothing
@@ -1302,7 +1399,7 @@ ty_inf expr =
     Just ((c@(Syn_val (Val_str s) ty_s)):es) -> if (ty_s == Ty_string) then Just (Ty_env [], c) else Nothing
     Just ((v@(Syn_var var_id var_ty)):es) -> Just (Ty_env [(var_id, var_ty)], v)
     Just ((Syn_expr_una ope exp _):es) -> do
-      (env, typng) <- ty_inf (Just [exp])
+      (env, typng) <- ty_inf1 (Just [exp])
       ty' <- (case typng of
                 Syn_val _ ty -> Just ty
                 Syn_var _ ty -> Just ty
@@ -1312,8 +1409,8 @@ ty_inf expr =
              )
       return (env, Syn_expr_una ope exp ty')
     Just ((Syn_expr_bin ope (exp_l, exp_r) _):es) -> do
-      (Ty_env env_l, typng_l) <- ty_inf (Just [exp_l])
-      (Ty_env env_r, typng_r) <- ty_inf (Just [exp_r])
+      (Ty_env env_l, typng_l) <- ty_inf1 (Just [exp_l])
+      (Ty_env env_r, typng_r) <- ty_inf1 (Just [exp_r])
       ty' <- (case typng_l of
                 Syn_val _ ty_l -> (case typng_r of
                                      Syn_val _ ty_r -> gct ty_l ty_r
@@ -1470,7 +1567,7 @@ main = do
   
   putStr "ty-abs:  "
   ty_abs <- return $ case syn_forest of
-                       Just syns -> let (forest_abs, _) = Prelude.foldl (\(stmts, prev_tv) -> (\stmt -> let (stmt_abs, prev_tv') = curve_tvars (stmt, prev_tv)
+                       Just syns -> let (forest_abs, _) = Prelude.foldl (\(stmts, prev_tv) -> (\stmt -> let (stmt_abs, prev_tv') = ty_curve (stmt, prev_tv)
                                                                                                         in
                                                                                                           (stmts ++ [stmt_abs], prev_tv')
                                                                                               )
@@ -1483,7 +1580,7 @@ main = do
   putStr "simtbl:  "
   putStrLn $ show (sym_func symtbl')
   
-  putStrLn $ "ty-inf:  " ++ (maybe "" show (ty_inf syn_forest))
+  putStrLn $ "ty-inf:  " ++ (maybe "" show (ty_inf1 syn_forest))
     
     where
       read_src :: Handle -> IO String
