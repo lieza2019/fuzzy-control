@@ -713,13 +713,26 @@ data Type =
   | Ty_int
   | Ty_var String
   | Ty_pair (Type, Type)
-  -- | Ty_fun (Type, Type)
   | Ty_fun [Type]
   | Ty_abs
   | Ty_btm
   | Ty_prom Type Type
   | Ty_unknown
   deriving (Eq, Ord, Show)
+
+ty_ftv :: Type -> [Type]
+ty_ftv ty_expr =
+  case ty_expr of
+    Ty_var _ -> [ty_expr]
+    Ty_pair (t_exp1, t_exp2) -> (ty_ftv t_exp1) ++ (ty_ftv t_exp2)
+    Ty_fun args -> (case args of
+                      [] -> []
+                      [ty_ret] -> ty_ftv ty_ret
+                      (Ty_fun args'):as -> (ty_ftv (Ty_fun args')) ++ (ty_ftv (Ty_fun as))
+                      a:as -> Set.toList $ Set.difference (Set.fromList $ ty_ftv (Ty_fun as)) (Set.fromList (ty_ftv a))
+                   )
+    Ty_prom _ t_exp' -> ty_ftv t_exp'
+    _ -> [] -- for Ty_top, Ty_bool, Ty_string, Ty_int, Ty_abs, Ty_btm and Ty_unknown
 
 ty_gct :: Type -> Type -> Maybe Type
 ty_gct ty_1 ty_2 =  
@@ -1379,24 +1392,33 @@ ty_subst subst ty_expr =
             Ty_unknown -> ty_expr
 
 ty_unif :: [Equation] -> Maybe [Subst]
-ty_unif equations =
-  case equations of
+ty_unif equs =
+  case equs of
     [] -> Just []
-    (ty_lhs, ty_rhs):es | ty_lhs == ty_rhs -> ty_unif es
-    (Ty_var tvar_id, ty_rhs):es -> merge_subst (Just [(tvar_id, ty_rhs)]) (ty_unif es)
-    (ty_lhs, Ty_var tvar_id):es -> merge_subst (Just [(tvar_id, ty_lhs)]) (ty_unif es)
-    (Ty_pair(ty_1st_lhs, ty_2nd_lhs), ty_rhs):es -> case ty_rhs of
-                                                      Ty_pair (ty_1st_rhs, ty_2nd_rhs) -> ty_unif ((ty_1st_lhs, ty_1st_rhs):(ty_2nd_lhs, ty_2nd_rhs):es)
-                                                      _ -> Nothing
-  where
-    merge_subst :: Maybe [Subst] -> Maybe [Subst] -> Maybe [Subst]
-    merge_subst subst1 subst2 =
-      case subst1 of
-        Just s1 -> (case subst2 of
-                      Just s2 -> Just (s1 ++ s2)
-                      Nothing -> Nothing
-                   )
-        Nothing -> Nothing
+    _ -> (case rewrite equs [] of
+            Just ([], substs) -> Just substs
+            _ -> Nothing
+         )
+      where
+        rewrite :: [Equation] -> [Subst] -> Maybe ([Equation], [Subst])
+        rewrite equs substs =
+          case equs of
+            [] -> Just ([], substs)
+            (e_lhs, e_rhs):es | e_lhs == e_rhs -> rewrite es substs
+            (tv@(Ty_var tvar_id), e_rhs):es | Set.member tv (Set.fromList (ty_ftv e_rhs)) -> let s = (tvar_id, e_rhs)
+                                                                                                 equs' = Prelude.map (\(lhs, rhs) -> ((ty_subst [s] lhs), (ty_subst [s] rhs))) equs
+                                                                                                 substs' = Prelude.map (\(tv_id, ty_mapsto) -> (tv_id, (ty_subst [s] ty_mapsto))) substs
+                                                                                             in
+                                                                                               rewrite equs' (substs ++ [s])
+            (e_lhs, tv@(Ty_var tvar_id)):es | Set.member tv (Set.fromList (ty_ftv e_lhs)) -> let s = (tvar_id, e_lhs)
+                                                                                                 equs' = Prelude.map (\(lhs, rhs) -> ((ty_subst [s] lhs), (ty_subst [s] rhs))) equs
+                                                                                                 substs' = Prelude.map (\(tv_id, ty_mapsto) -> (tv_id, (ty_subst [s] ty_mapsto))) substs
+                                                                                             in
+                                                                                               rewrite equs' (substs ++ [s])
+            (Ty_pair(e1_lhs, e1_rhs), rhs):es -> (case rhs of
+                                                    Ty_pair (e2_lhs, e2_rhs) -> rewrite ((e1_lhs, e2_lhs):(e1_rhs, e2_rhs):es) substs
+                                                    _ -> Nothing
+                                                 )
 
 
 data Ty_env =
