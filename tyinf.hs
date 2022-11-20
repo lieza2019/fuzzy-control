@@ -846,7 +846,7 @@ syn_node_promote expr ty_prom =
     _ -> expr -- Syn_none
 
 syn_node_subst :: [Subst] -> Syntree_node -> Syntree_node
-syn_node_subst expr subst =
+syn_node_subst subst expr =
   case expr of   
     Syn_ty_spec ty -> Syn_ty_spec (ty_subst subst ty)
     Syn_scope (decls, body) -> Syn_scope ((Prelude.map (syn_node_subst subst) decls), syn_node_subst subst body)
@@ -855,8 +855,8 @@ syn_node_subst expr subst =
     Syn_arg_def arg_id ty -> Syn_arg_def arg_id (ty_subst subst ty)
     Syn_rec_decl rec_id ty -> Syn_rec_decl rec_id (ty_subst subst ty)
     Syn_var_decl var_id ty -> Syn_var_decl var_id (ty_subst subst ty)
-    Syn_cond_expr (expr_cond, (expr_true, expr_false)) ty -> let expr_cond' = syn_node_subst expr_cond subst expr_cond
-                                                                 expr_true' = syn_node_subst expr_true subst expr_true
+    Syn_cond_expr (expr_cond, (expr_true, expr_false)) ty -> let expr_cond' = syn_node_subst subst expr_cond
+                                                                 expr_true' = syn_node_subst subst expr_true
                                                                  expr_false' = case expr_false of
                                                                                  Nothing -> Nothing
                                                                                  Just f_expr -> Just (syn_node_subst subst f_expr)
@@ -1478,6 +1478,13 @@ ty_overlap_env env1 env2 =
                                                                                 _ -> pairing vs
 
 
+ty_add_env :: Ty_env -> Ty_env -> Ty_env
+ty_add_env env_1 env_2 =
+  case env_1 of
+    Ty_env [] -> env_2
+    Ty_env es1 -> case env_2 of
+                    Ty_env es2 -> Ty_env (es1 ++ es2)
+
 ty_merge_env :: Ty_env -> Ty_env -> Maybe Ty_env
 ty_merge_env env_1 env_2 =
   case env_2 of
@@ -1543,11 +1550,11 @@ ty_inf symtbl expr =
                                                              in
                                                                case ty_unif [equ_cond] of
                                                                  Just u_expr_c -> Right (((ty_subst_env u_expr_c env_cond), (syn_node_subst u_expr_c cond_expr_inf)), symtbl_c, cond_err)
-                                                                 Nothing -> Left ((env_cond, cond_env_inf), symtbl_ct, [Type_constraint_mismatched errmsg])
+                                                                 Nothing -> Left ((env_cond, cond_expr_inf), symtbl_c, [Type_constraint_mismatched errmsg])
                                                                    where
                                                                      errmsg = "conditional expression must be boolean."
       ((env_true, true_expr_inf), symtbl_ct, true_err) <- ty_inf symtbl_c' true_expr
-      ((env_merged, if_expr_inf), symtbl', if_expr_err') <-
+      ((env_merged, if_expr_inf), symtbl', if_expr_err') <- (        
         case false_expr of
           Nothing -> let equ_cond = ((syn_node_typeof cond_expr_inf), Ty_bool)
                          equs_cond_true = ty_overlap_env env_cond env_true
@@ -1559,14 +1566,20 @@ ty_inf symtbl expr =
                                           true_expr_inf' = syn_node_subst u_ct true_expr_inf
                                       in
                                         case ty_merge_env env_cond'' env_true' of
-                                          Just env_merged -> Right ((env_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
-                                                                    symtbl_ct, (cond_err' ++ true_err))
-                                          Nothing -> let env_merged = env_cond'' ++ env_true'
+                                          Just env_merged -> if ((syn_node_typeof cond_expr_inf'') == Ty_bool) then
+                                                               Right ((env_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
+                                                                      symtbl_ct, (cond_err' ++ true_err))
+                                                             else
+                                                               let errmsg = "ill unification on type inferance, is detected in type construction."
+                                                               in
+                                                                 Left ((env_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
+                                                                       symtbl_ct, (cond_err' ++ true_err ++ [Internal_error errmsg]))
+                                          Nothing -> let env_merged = ty_add_env env_cond'' env_true'
                                                          errmsg = "ill unification on type inferance, is detected in type environment construction."
                                                      in
                                                        Left ((env_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
                                                              symtbl_ct, (cond_err' ++ true_err ++ [Internal_error errmsg]))
-                         Nothing -> let env_merged = env_cond' ++ env_true
+                         Nothing -> let env_merged = ty_add_env env_cond' env_true
                                         errmsg = "type inference on true clause doesn't meet with its conditional expression."
                                     in
                                       Left ((env_merged, Syn_cond_expr (cond_expr_inf', (true_expr_inf, Nothing)) (syn_node_typeof true_expr_inf)),
@@ -1584,7 +1597,7 @@ ty_inf symtbl expr =
                                 env_true' = ty_subst_env u_ctf env_true
                                 true_expr_inf' = syn_node_subst u_ctf true_expr_inf
                                 env_false' = ty_subst_env u_ctf env_false
-                                false_expr_inf' = ty_subst_env u_ctf false_expr_inf
+                                false_expr_inf' = syn_node_subst u_ctf false_expr_inf
                             in
                               case (do
                                        env_ct <- ty_merge_env env_cond'' env_true'
@@ -1599,7 +1612,7 @@ ty_inf symtbl expr =
                                                      in
                                                        Left ((env_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Just false_expr_inf')) (syn_node_typeof true_expr_inf')),
                                                              symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Internal_error errmsg]))
-                                Nothing -> let env_merged = env_cond'' ++ env_true' ++ env_false'
+                                Nothing -> let env_merged = ty_add_env (ty_add_env env_cond'' env_true')  env_false'
                                                errmsg = "ill unification on type inferance, is detected in type environment construction."
                                            in
                                              Left ((env_merged, Syn_cond_expr (cond_expr_inf', (true_expr_inf', Just false_expr_inf')) (syn_node_typeof true_expr_inf')),
@@ -1608,83 +1621,21 @@ ty_inf symtbl expr =
                             Just u_tf -> let env_true' = ty_subst_env u_tf env_true
                                              true_expr_inf' = syn_node_subst u_tf true_expr_inf
                                              env_false' = ty_subst_env u_tf env_false
-                                             false_expr_inf' = ty_subst_env u_tf false_expr_inf
+                                             false_expr_inf' = syn_node_subst u_tf false_expr_inf
                                          in
-                                           let env_merged = env_cond'' ++ env_true' ++ env_false'
+                                           let env_merged = ty_add_env (ty_add_env env_cond' env_true') env_false'
                                                errmsg = "type inference on true/false clauses doesn't meet with its conditional expression."
                                            in
                                              Left ((env_merged, Syn_cond_expr (cond_expr_inf', (true_expr_inf', Just false_expr_inf')) (syn_node_typeof true_expr_inf')),
                                                    symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Type_constraint_mismatched errmsg]))
-                            Nothing -> let env_merged = env_cond' ++ env_true ++ env_false
+                            Nothing -> let env_merged = ty_add_env (ty_add_env env_cond' env_true) env_false
                                            errmsg = "both true and false clauses must have same type."
                                        in
                                          Left ((env_merged, Syn_cond_expr (cond_expr_inf, (true_expr_inf, Just false_expr_inf)) (syn_node_typeof true_expr_inf)),
                                                symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Type_constraint_mismatched errmsg]))
                          )
-
-
-
-                                         
-                                           
-        let env_true' = ty_subst_env unif_cond env_true
-            true_expr_inf' = syn_node_subst unif_cond true_expr_inf
-        in
-          case false_expr of
-            Nothing -> case ty_unif (ty_overlap_env env_cond' env_true') of
-                         Just u_env_ct -> let cond_expr_inf'' = syn_node_subst u_env_ct cond_expr_inf'
-                                              true_expr_inf'' = syn_node_subst u_env_ct true_expr_inf'
-                                              env_cond'' =  ty_subst_env u_env_ct env_cond'
-                                              env_true'' = ty_subst_env u_env_ct env_true'
-                                          in
-                                            case ty_merge_env env_cond'' env_true'' of
-                                              Just env_merged -> Right ((env_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf'', Nothing)) (syn_node_typeof cond_expr_inf'')),
-                                                                        symtbl_ct, (cond_err' ++ true_err))
-                                              Nothing -> let env_merged = env_cond'' ++ env_true''
-                                                             errmsg = "ill unification detected in type inferencing."
-                                                         in
-                                                           Left ((env_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf'', Nothing)) (syn_node_typeof cond_expr_inf'')),
-                                                                 symtbl_ct, (cond_err' ++ true_err ++ [Internal_error errmsg]))
-                         Nothing -> let env_merged = env_cond' ++ env_true
-                                        errmsg = "type inference on true clause doesn't meet with conditional expression."
-                                    in
-                                      Left ((env_merged, Syn_cond_expr (cond_expr_inf', (true_expr_inf', Nothing)) (syn_node_typeof cond_expr_inf')),
-                                            symtbl_ct, (cond_err' ++ true_err ++ [Type_constraint_mismatched errmsg]))
-            Just f_expr -> do
-              
-              let env_false' = ty_subst_env unif_cond env_false
-              let false_expr_inf' = syn_node_subst unif_cond false_expr_inf
-              
-              
-              
-              
-              
-                
-                                 Right ((env_merged_ct, Syn_cond_expr (cond_expr_inf, (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
-                                        symtbl_ct', true_err')
-                                                                   Just f_expr -> do
-                                                                     ((env_false, false_expr_inf), symtbl_ctf, false_err) <- ty_inf symtbl_ct' f_expr
-                                                                     case ty_merge_env env_merged_ct env_false of
-                                                                       Left err -> Left ((env_false, false_expr_inf), symtbl_ctf, (false_err ++ [err]))
-                                                                       Right env_merged -> Right ((env_merged,
-                                                                                                   Syn_cond_expr (cond_expr_inf, (true_expr_inf', Just false_expr_inf)) (syn_node_typeof false_expr_inf)),
-                                                                                                  symtbl_ctf, false_err)
-                                                                
-                                                                        let env_cond' = 
-                                                                                       in
-                                                                                         
-                                                                                         
-                                                                                                                
-                                                                                                                
-                                                                                         
-                                                                        case 
-                                                                     [] -> 
-        (case  of
-                                                                                                                
-                                                                                                                
-                                                                  )
-      
-                                                                )
-      return ((env_merged_ctf, if_expr_inf), symtbl', if_expr_err')
+        )
+      return ((env_merged, if_expr_inf), symtbl', if_expr_err')
     
     Syn_expr_una ope expr0 ty -> do
       ((env, expr0_inf), symtbl', una_err) <- ty_inf symtbl expr0
@@ -1703,9 +1654,9 @@ ty_inf symtbl expr =
                                                                                      expr2_inf' = syn_node_promote expr2_inf gct
                                                                                  in
                                                                                    case ty_merge_env (ty_subst_env u_subst env1) (ty_subst_env u_subst env2) of
-                                                                                     Right env' -> Right ((env', (Syn_expr_bin ope (expr1_inf', expr2_inf') gct)), symtbl_2, (err1 ++ err2))
-                                                                                     Left err_merg -> Left ((env2, (Syn_expr_bin ope (expr1_inf', expr2_inf') gct)), symtbl_2,
-                                                                                                             (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
+                                                                                     Just env' -> Right ((env', (Syn_expr_bin ope (expr1_inf', expr2_inf') gct)), symtbl_2, (err1 ++ err2))
+                                                                                     Nothing -> Left ((env2, (Syn_expr_bin ope (expr1_inf', expr2_inf') gct)), symtbl_2,
+                                                                                                      (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])           
                                                                                        where
                                                                                          errmsg = "type environments of operands doesn't meet, in binary operation of " ++ (show ope)
                                                                      Nothing -> let expr1_inf' = syn_node_promote expr1_inf ty1_inf'
