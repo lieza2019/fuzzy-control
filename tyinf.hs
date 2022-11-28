@@ -1522,20 +1522,20 @@ ty_inf symtbl expr =
                              (case v_attr of
                                  Syn_var v_id' v_ty_decl | v_id == v_id' -> (case ty_lcs v_ty v_ty_decl of
                                                                                Just lcs -> Right ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
-                                                                               Nothing -> let equ = [(v_ty, v_ty_decl)]
+                                                                               Nothing -> let equ = (v_ty, v_ty_decl)
                                                                                           in
-                                                                                            case ty_unif equ of
-                                                                                              Just u_subst -> let env' = Ty_env [(v_id, ty_subst u_subst v_ty)]
-                                                                                                                  expr' = Syn_var v_id (ty_subst u_subst v_ty)
-                                                                                                              in
-                                                                                                                Right ((env', expr'), symtbl', [])
+                                                                                            case ty_unif [equ] of
+                                                                                              Just u_var -> let env' = Ty_env [(v_id, ty_subst u_var v_ty)]
+                                                                                                                expr' = Syn_var v_id (ty_subst u_var v_ty)
+                                                                                                            in
+                                                                                                              Right ((env', expr'), symtbl', [])
                                                                                               Nothing -> Left ((Ty_env [(v_id, v_ty)], expr), symtbl', [Type_constraint_mismatched errmsg])
                                                                                                 where
-                                                                                                  errmsg = "type of " ++ v_id ++ " does'nt agree with its declaration."
+                                                                                                  errmsg = "type of " ++ v_id ++ " does'nt meet with its declaration."
                                                                             )
                                  _ -> Left ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
                                    where
-                                     errmsg = "ill-registration detected on symbol tablem, for " ++ v_id
+                                     errmsg = "ill-registration detected in symbol tablem, for " ++ v_id
                              )
                            Nothing -> let (symtbl', reg_err) = sym_regist False symtbl Sym_cat_decl (v_id, expr)
                                       in
