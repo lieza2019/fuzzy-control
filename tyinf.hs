@@ -1278,8 +1278,8 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
 
 type Fresh_tvar = (Type, Integer)
 
-first_flesh_tvar :: Fresh_tvar
-first_flesh_tvar = (Ty_var $ "t_" ++ (show 0), 0)
+initial_flesh_tvar :: Fresh_tvar
+initial_flesh_tvar = (Ty_var $ "t_" ++ (show 0), 0)
 
 succ_flesh_tvar :: Fresh_tvar -> Fresh_tvar
 succ_flesh_tvar prev =
@@ -1826,9 +1826,9 @@ main = do
                                                 "" -> let (syn_tree, symtbl', tokens') = cons_par_tree symtbl tokens (True, True, True)
                                                       in
                                                         case syn_tree of
-                                                          Just s_tree -> let (s_trees, symtbl'', tokens'') = cons_par_trees symtbl' tokens'
+                                                          Just s_tree -> let (s_ts, symtbl'', tokens'') = cons_par_trees symtbl' tokens'
                                                                          in
-                                                                           (Just (s_tree:s_trees), symtbl'', tokens'')
+                                                                           (Just (s_tree:s_ts), symtbl'', tokens'')
                                                           _ -> (Nothing, symtbl', tokens')
                                                   where
                                                     cons_par_trees symtbl [] = ([], symtbl, [])
@@ -1846,21 +1846,33 @@ main = do
   
   putStr "ty-abs:  "
   ty_abs <- return $ case syn_forest of
-                       Just syns -> let (forest_abs, _) = Prelude.foldl (\(stmts, prev_tv) -> (\stmt -> let (stmt_abs, prev_tv') = ty_curve (stmt, prev_tv)
-                                                                                                        in
-                                                                                                          (stmts ++ [stmt_abs], prev_tv')
-                                                                                              )
-                                                                        ) ([], first_flesh_tvar) syns
-                                    in
-                                      forest_abs
+                       Just s_trees -> let (forest_abs, _) = Prelude.foldl (\(stmts, prev_tv) -> (\stmt -> let (stmt_abs, crnt_tv) = ty_curve (stmt, prev_tv)
+                                                                                                           in
+                                                                                                             (stmts ++ [stmt_abs], crnt_tv)
+                                                                                                 )
+                                                                           ) ([], initial_flesh_tvar) s_trees
+                                       in
+                                         forest_abs
                        _ -> []
   mapM_ putStrLn $ Prelude.map show ty_abs
   
-  putStr "simtbl:  "
-  putStrLn $ show (sym_func symtbl')
+  putStr "ty-inf:  "
+  (judges_inf, symtbl'', errs) <- return $ case Prelude.foldl (\js -> \t_raw -> do
+                                                                  (judges, symtbl, errs) <- js
+                                                                  ((env, t_inf), symtbl', errs') <- ty_inf symtbl t_raw
+                                                                  Right (case judges of
+                                                                           [] -> ([(env, t_inf)], symtbl', (errs ++ errs'))
+                                                                           _ -> ((judges ++ [(env, t_inf)]), symtbl', (errs ++ errs'))
+                                                                        )
+                                                              ) (Right ([], symtbl', [])) ty_abs
+                                          of
+                                            Right r -> r
+                                            Left ((env, t_inf), symtbl', errs) -> ([(env, t_inf)], symtbl', errs)
+  mapM_ putStrLn $ Prelude.map show judges_inf
   
-  putStrLn $ "ty-inf:  " ++ (maybe "" show (ty_inf1 syn_forest))
-    
+  putStr "simtbl:  "
+  putStrLn $ show (sym_func symtbl'')
+  
     where
       read_src :: Handle -> IO String
       read_src h = do
