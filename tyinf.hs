@@ -735,7 +735,7 @@ ty_ftv ty_expr =
     _ -> [] -- for Ty_top, Ty_bool, Ty_string, Ty_int, Ty_abs, Ty_btm and Ty_unknown
 
 
--- returns Least Common Supertype if exists.
+-- returns Least Common Supertype, as ty_1 <: ty_2, if exists.
 ty_lcs :: Type -> Type -> Maybe Type
 ty_lcs ty_1 ty_2 =
   let is_subty ty_1 ty_2 =
@@ -1492,6 +1492,43 @@ ty_overlap_env env1 env2 =
                                                                               case (Prelude.lookup v es1, Prelude.lookup v es2) of
                                                                                 (Just ty1_mapsto, Just ty2_mapsto) -> (ty1_mapsto, ty2_mapsto):(pairing vs)
                                                                                 _ -> pairing vs
+ty_overlap_env1 :: Ty_env -> Ty_env -> ((Ty_env, Ty_env), [Equation])
+ty_overlap_env1 env1 env2 =
+  case env1 of
+    Ty_env [] -> ((env1, env2), [])
+    Ty_env es1 -> case env2 of
+                    Ty_env [] -> ((env1, env2), [])
+                    Ty_env es2 -> let overlaps = Set.intersection (Set.fromList $ Prelude.map fst es1) (Set.fromList $ Prelude.map fst es2)
+                                  in
+                                    case Set.toList overlaps of
+                                      [] -> ((env1, env2), [])
+                                      vs -> (case enum_equs vs (es1, es2) of
+                                               ((es1', es2'), equs) -> ((Ty_env es1', Ty_env es2'), equs)
+                                            )
+                                        where
+                                          enum_equs :: [String] -> ([(String, Type)], [(String, Type)]) -> (([(String, Type)], [(String, Type)]), [Equation])
+                                          enum_equs overlaps (es1, es2) =
+                                            case overlaps of
+                                              [] -> ((es1, es2), [])
+                                              (v:vs) -> (case (Prelude.lookup v es1, Prelude.lookup v es2) of
+                                                           (Just ty_es1, Just ty_es2) -> (case ty_lcs ty_es1 ty_es2 of
+                                                                                            Just lcs -> go_on v (ty_es1, ty_es2, lcs)
+                                                                                            Nothing -> (case ty_lcs ty_es2 ty_es1 of
+                                                                                                          Just lcs' -> go_on v (ty_es1, ty_es2, lcs')
+                                                                                                          Nothing -> (case enum_equs vs (es1, es2) of
+                                                                                                                        ((es1', es2'), equs) -> ((es1', es2'), (ty_es1, ty_es2):equs)
+                                                                                                                     )
+                                                                                                       )
+                                                                                         )
+                                                             where
+                                                               go_on :: String -> (Type, Type, Type) -> (([(String, Type)], [(String, Type)]), [Equation])
+                                                               go_on var_id (ty1_mapsto, ty2_mapsto, ty_lcs) =
+                                                                 let s_es1' = Set.toList $ Set.difference (Set.fromList es1) (Set.fromList [(var_id, ty1_mapsto)])
+                                                                     s_es2' = Set.toList $ Set.difference (Set.fromList es2) (Set.fromList [(var_id, ty2_mapsto)])
+                                                                 in
+                                                                   enum_equs vs ((s_es1' ++ [(var_id, ty_lcs)]), (s_es2' ++ [(var_id, ty_lcs)]))
+                                                           _ -> enum_equs vs (es1, es2)
+                                                        )
 
 
 ty_ovwt_env :: Ty_env -> Ty_env -> Ty_env
@@ -1690,6 +1727,7 @@ ty_inf_expr symtbl expr =
                                                    where
                                                      errmsg = "type environments of operands has no unification, in binary operation of " ++ (show ope)
       return ((env', expr_bin_inf), symtbl, err')
+
 
 ty_inf :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
 ty_inf symtbl decl =
