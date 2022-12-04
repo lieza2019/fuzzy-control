@@ -1483,12 +1483,19 @@ ty_overlap_env env1 env2 =
                                                                                 _ -> pairing vs
 
 
-ty_add_env :: Ty_env -> Ty_env -> Ty_env
-ty_add_env env_1 env_2 =
+ty_ovwt_env :: Ty_env -> Ty_env -> Ty_env
+ty_ovwt_env env_1 env_2 =
   case env_1 of
     Ty_env [] -> env_2
     Ty_env es1 -> case env_2 of
-                    Ty_env es2 -> Ty_env (es1 ++ es2)
+                    Ty_env [] -> env_1
+                    Ty_env es2 -> Ty_env $ Prelude.foldl (\env1 -> \(var, ty) -> case Prelude.lookup var env1 of
+                                                                                   Just ty1 -> let s_env1 = Set.fromList env1
+                                                                                                   s_bind = Set.fromList [(var, ty1)]
+                                                                                               in
+                                                                                                 (Set.toList (Set.difference s_env1 s_bind)) ++ [(var, ty)]
+                                                                                   Nothing -> env1
+                                                         ) es1 es2
 
 ty_merge_env :: Ty_env -> Ty_env -> Maybe Ty_env
 ty_merge_env env_1 env_2 =
@@ -1581,11 +1588,11 @@ ty_inf_expr symtbl expr =
                                                                in
                                                                  Left ((e_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
                                                                        symtbl_ct, (cond_err' ++ true_err ++ [Internal_error errmsg]))
-                                            Nothing -> Left (((ty_add_env env_cond'' env_true'), Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
+                                            Nothing -> Left (((ty_ovwt_env env_cond'' env_true'), Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
                                                              symtbl_ct, (cond_err' ++ true_err ++ [Internal_error errmsg]))
                                               where
                                                 errmsg = "ill unification is detected in type environment construction."
-                           Nothing -> Left (((ty_add_env env_cond' env_true), Syn_cond_expr (cond_expr_inf', (true_expr_inf, Nothing)) (syn_node_typeof true_expr_inf)),
+                           Nothing -> Left (((ty_ovwt_env env_cond' env_true), Syn_cond_expr (cond_expr_inf', (true_expr_inf, Nothing)) (syn_node_typeof true_expr_inf)),
                                             symtbl_ct, (cond_err' ++ true_err ++ [Type_constraint_mismatched errmsg]))
                              where
                                errmsg = "type inference on true clause doesn't meet with its conditional expression."
@@ -1616,7 +1623,7 @@ ty_inf_expr symtbl expr =
                                                      in
                                                        Left ((e_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Just false_expr_inf')) (syn_node_typeof true_expr_inf')),
                                                              symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Internal_error errmsg]))
-                                  Nothing -> Left (((ty_add_env (ty_add_env env_cond'' env_true')  env_false'),
+                                  Nothing -> Left (((ty_ovwt_env (ty_ovwt_env env_cond'' env_true')  env_false'),
                                                     Syn_cond_expr (cond_expr_inf', (true_expr_inf', Just false_expr_inf')) (syn_node_typeof true_expr_inf')),
                                                    symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Internal_error errmsg]))
                                     where
@@ -1627,12 +1634,12 @@ ty_inf_expr symtbl expr =
                                                env_false' = ty_subst_env u_tf env_false
                                                false_expr_inf' = syn_node_subst u_tf false_expr_inf
                                            in
-                                             Left (((ty_add_env (ty_add_env env_cond' env_true') env_false'),
+                                             Left (((ty_ovwt_env (ty_ovwt_env env_cond' env_true') env_false'),
                                                     Syn_cond_expr (cond_expr_inf', (true_expr_inf', Just false_expr_inf')) (syn_node_typeof true_expr_inf')),
                                                    symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Type_constraint_mismatched errmsg]))
                                 where
-                                  errmsg = "true/false clauses doesn't meet with its conditional expression."
-                              Nothing -> Left (((ty_add_env (ty_add_env env_cond' env_true) env_false),
+                                  errmsg = "conditional expression should consist of boolean condition, and same type clauses for both true/false."
+                              Nothing -> Left (((ty_ovwt_env (ty_ovwt_env env_cond' env_true) env_false),
                                                 Syn_cond_expr (cond_expr_inf, (true_expr_inf, Just false_expr_inf)) (syn_node_typeof true_expr_inf)),
                                                symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Type_constraint_mismatched errmsg]))
                                 where
@@ -1724,11 +1731,11 @@ ty_inf symtbl decl =
                                                                        in
                                                                          case (ty_merge_env env_seq' env_next') of
                                                                            Just env_seq'' -> Right (((env_seq'', (e_seq' ++ e_next_inf')), symtbl'', (errs_seq ++ errs_next)), es')
-                                                                           Nothing -> Left (((ty_add_env env_seq' env_next', (e_seq' ++ e_next_inf')), symtbl'',
+                                                                           Nothing -> Left (((ty_ovwt_env env_seq' env_next', (e_seq' ++ e_next_inf')), symtbl'',
                                                                                              (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
                                                                              where
                                                                                errmsg = "ill unification is detected in type environment construction."
-                                                        Nothing -> Left (((ty_add_env env_seq env_next, (e_seq ++ e_next_inf)), symtbl'',
+                                                        Nothing -> Left (((ty_ovwt_env env_seq env_next, (e_seq ++ e_next_inf)), symtbl'',
                                                                           (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
                                                           where
                                                             errmsg = "sequential expression type mismmatched,"
@@ -1746,7 +1753,7 @@ ty_inf symtbl decl =
                                                                                                   ((env_next, e_next_inf), symtbl'', errs_next) <- case ty_inf symtbl' e_next of
                                                                                                                                                      Right r -> Right r
                                                                                                                                                      Left r -> Right r
-                                                                                                  return ((ty_add_env env_seq env_next, (e_seq ++ [e_next_inf])), symtbl'',
+                                                                                                  return ((ty_ovwt_env env_seq env_next, (e_seq ++ [e_next_inf])), symtbl'',
                                                                                                           (errs_seq ++ errs_next))
                                                                                               ) (Right ((env_seq, seq_body_inf), symtbl', errs_seq)) es_remain
                             Left ((env_seq', (Syn_expr_seq seq_body_inf')), symtbl'', errs_seq')
