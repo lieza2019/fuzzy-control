@@ -803,7 +803,7 @@ data Syntree_node =
   | Syn_expr_call String [Syntree_node] Type
   | Syn_expr_una Operation Syntree_node Type
   | Syn_expr_bin Operation (Syntree_node, Syntree_node) Type
-  | Syn_expr_seq [Syntree_node]
+  | Syn_expr_seq [Syntree_node] Type
   | Syn_none
   deriving (Eq, Ord, Show)
 
@@ -824,11 +824,17 @@ syn_node_typeof expr =
     Syn_expr_una _ _ ty -> ty
     Syn_expr_bin _ _ ty -> ty
     Syn_scope (_, scp_body) -> syn_node_typeof scp_body
-    Syn_expr_seq expr_seq -> case expr_seq of
-                               [] -> Ty_btm
-                               [e] -> syn_node_typeof e
-                               e:es -> syn_node_typeof (Syn_expr_seq es)
+    Syn_expr_seq _ ty -> ty
     _ -> Ty_unknown -- Syn_none
+
+syn_retrieve_typeof :: Syntree_node -> Type
+syn_retrieve_typeof expr =
+  case expr of
+    Syn_expr_seq e_seq ty_seq -> case e_seq of
+                                   [] -> Ty_btm
+                                   [e] -> syn_retrieve_typeof e
+                                   e:es -> syn_retrieve_typeof (Syn_expr_seq es ty_seq)
+    _ -> syn_node_typeof expr
 
 syn_node_promote :: Syntree_node -> Type -> Syntree_node
 syn_node_promote expr ty_prom =
@@ -847,7 +853,7 @@ syn_node_promote expr ty_prom =
     Syn_expr_call id args ty -> Syn_expr_call id args (Ty_prom ty ty_prom)
     Syn_expr_una ope body ty -> Syn_expr_una ope body (Ty_prom ty ty_prom)
     Syn_expr_bin ope body ty -> Syn_expr_bin ope body (Ty_prom ty ty_prom)
-    Syn_expr_seq _ -> expr
+    Syn_expr_seq body ty -> Syn_expr_seq body (Ty_prom ty ty_prom)
     _ -> expr -- Syn_none
 
 syn_node_subst :: [Subst] -> Syntree_node -> Syntree_node
@@ -873,7 +879,7 @@ syn_node_subst subst expr =
     Syn_expr_call fun_id args ty -> Syn_expr_call fun_id (Prelude.map (syn_node_subst subst) args) (ty_subst subst ty)
     Syn_expr_una ope expr0 ty -> Syn_expr_una ope (syn_node_subst subst expr0) (ty_subst subst ty)
     Syn_expr_bin ope (expr1, expr2) ty -> Syn_expr_bin ope (syn_node_subst subst expr1, syn_node_subst subst expr2) (ty_subst subst ty)
-    Syn_expr_seq equs -> Syn_expr_seq $ Prelude.map (syn_node_subst subst) equs
+    Syn_expr_seq equs ty -> Syn_expr_seq (Prelude.map (syn_node_subst subst) equs) (ty_subst subst ty)
     _ -> expr -- Syn_none
 
 
@@ -1187,8 +1193,8 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
                       (Syn_scope ([], Syn_none)) -> let ((var_decls, expr_par_trees), new_scope', us, errs_body) = parse_fun_body new_scope ts''
                                                         fun_body' = (var_decls, (case expr_par_trees of
                                                                                     [] -> Syn_none
-                                                                                    [expr] -> expr
-                                                                                    exprs -> Syn_expr_seq exprs
+                                                                                    [e] -> e
+                                                                                    es -> Syn_expr_seq es Ty_abs
                                                                                 )
                                                                     )
                                                         (fun', tokens') = (Syn_fun_decl fun_id fun_args (Syn_scope fun_body') fun_ty, us)
@@ -1369,15 +1375,20 @@ ty_curve (expr, prev_tvar) =
      Syn_var_decl var_id Ty_abs -> let latest = succ_flesh_tvar prev_tvar
                                    in
                                      (Syn_var_decl var_id (fst latest), latest)
-     Syn_expr_seq exprs -> (case exprs of
-                              [] -> (Syn_expr_seq [], prev_tvar)
-                              e:es -> let (e', prev_tvar') = ty_curve (e, prev_tvar)
-                                          (es', latest) = abs_exprs es prev_tvar'
-                                      in
-                                        (Syn_expr_seq (e':es'), latest)
-                                where
-                                  abs_exprs = abs_decls
-                           )
+     Syn_expr_seq exprs Ty_abs -> (case exprs of
+                                     [] -> let latest = succ_flesh_tvar prev_tvar
+                                           in
+                                             (Syn_expr_seq [] (fst latest), latest)
+                                     e:es -> let (e', prev_tvar') = ty_curve (e, prev_tvar)
+                                                 (es', latest) = abs_exprs es prev_tvar'
+                                             in
+                                               let seq_expr_raw = Syn_expr_seq (e':es') Ty_unknown
+                                               in
+                                                 
+                                                 (Syn_expr_seq (e':es') (syn_retrieve_typeof seq_expr_raw), latest)
+                                       where
+                                         abs_exprs = abs_decls
+                                  )
      Syn_scope (decls, body) -> let (decls', prev_tvar') = abs_decls decls prev_tvar
                                     (body', latest) = ty_curve (body, prev_tvar')
                                 in
@@ -1708,9 +1719,9 @@ ty_inf symtbl decl =
                                               scp_decls_inf = scp_decls
                                        )
     
-    Syn_expr_seq expr_seq ->
+    Syn_expr_seq expr_seq ty_seq ->
       (case expr_seq of
-         [] -> Right (((Ty_env []), (Syn_expr_seq [])), symtbl, [])
+         [] -> Right (((Ty_env []), (Syn_expr_seq [] ty_seq)), symtbl, [])
          e:es -> (case ty_inf symtbl e of
                     Right ((env, e_inf), symtbl_e, errs_e) ->
                       let ty_inf_seq symtbl (expr, es) = let es'' = case es of
@@ -1742,11 +1753,15 @@ ty_inf symtbl decl =
                                                   ) (Right (((env, [e_inf]), symtbl_e, errs_e), es)) es
                       in
                         case seq_inf of
-                          Right (((env_seq, seq_body_inf), symtbl', errs_seq), es_remain) -> if es_remain == [] then Right ((env_seq, (Syn_expr_seq seq_body_inf)), symtbl', errs_seq)
-                                                                                             else
-                                                                                               let errmsg = "inconsistency detected in type inference for sequential expression."
-                                                                                               in
-                                                                                                 Left ((env_seq, (Syn_expr_seq seq_body_inf)), symtbl', (errs_seq ++ [Internal_error errmsg]))
+                          Right (((env_seq, seq_body_inf), symtbl', errs_seq), es_remain) -> let seq_expr_raw = Syn_expr_seq seq_body_inf Ty_unknown
+                                                                                             in
+                                                                                               if es_remain == [] then
+                                                                                                 Right ((env_seq, Syn_expr_seq seq_body_inf (syn_retrieve_typeof seq_expr_raw)), symtbl', errs_seq)
+                                                                                               else
+                                                                                                 let errmsg = "inconsistency detected in type inference for sequential expression."
+                                                                                                 in
+                                                                                                   Left ((env_seq, Syn_expr_seq seq_body_inf (syn_retrieve_typeof seq_expr_raw)), symtbl',
+                                                                                                         (errs_seq ++ [Internal_error errmsg]))
                           Left (((env_seq, seq_body_inf), symtbl', errs_seq), es_remain) -> do
                             ((env_seq', seq_body_inf'), symtbl'', errs_seq') <- Prelude.foldl (\judge_seq -> \e_next -> do
                                                                                                   ((env_seq, e_seq), symtbl', errs_seq) <- judge_seq
@@ -1756,7 +1771,8 @@ ty_inf symtbl decl =
                                                                                                   return ((ty_ovwt_env env_seq env_next, (e_seq ++ [e_next_inf])), symtbl'',
                                                                                                           (errs_seq ++ errs_next))
                                                                                               ) (Right ((env_seq, seq_body_inf), symtbl', errs_seq)) es_remain
-                            Left ((env_seq', (Syn_expr_seq seq_body_inf')), symtbl'', errs_seq')
+                            let seq_expr_raw = Syn_expr_seq seq_body_inf' Ty_unknown
+                            Left ((env_seq', Syn_expr_seq seq_body_inf' (syn_retrieve_typeof seq_expr_raw)), symtbl'', errs_seq')
                  )
       )
 
