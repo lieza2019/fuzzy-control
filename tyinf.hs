@@ -823,7 +823,12 @@ syn_node_typeof expr =
     Syn_expr_call _ _ ty -> ty
     Syn_expr_una _ _ ty -> ty
     Syn_expr_bin _ _ ty -> ty
-    _ -> Ty_unknown -- Syn_scope ([Syntree_node], Syntree_node), Syn_expr_seq [Syntree_node], Syn_none
+    Syn_scope (_, scp_body) -> syn_node_typeof scp_body
+    Syn_expr_seq expr_seq -> case expr_seq of
+                               [] -> Ty_btm
+                               [e] -> syn_node_typeof e
+                               e:es -> syn_node_typeof (Syn_expr_seq es)
+    _ -> Ty_unknown -- Syn_none
 
 syn_node_promote :: Syntree_node -> Type -> Syntree_node
 syn_node_promote expr ty_prom =
@@ -1508,8 +1513,8 @@ ty_merge_env env_1 env_2 =
                                                                   ) (Just env1_binds) env2_binds
 
 
-ty_inf :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
-ty_inf symtbl expr =
+ty_inf_expr :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
+ty_inf_expr symtbl expr =
   case expr of
     Syn_val (Val_bool b) ty_b -> if ty_b == Ty_bool then Right ((Ty_env [], expr), symtbl, [])
                                  else Left ((Ty_env [], expr), symtbl, [Illtyped_constant])
@@ -1546,7 +1551,7 @@ ty_inf symtbl expr =
                                               errmsg = "failed to regist on symbol table, for " ++ v_id
     
     Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> do
-      ((env_cond, cond_expr_inf), symtbl_c, cond_err) <- ty_inf symtbl cond_expr
+      ((env_cond, cond_expr_inf), symtbl_c, cond_err) <- ty_inf_expr symtbl cond_expr
       ((env_cond', cond_expr_inf'), symtbl_c', cond_err') <- let equ_cond = ((syn_node_typeof cond_expr_inf), Ty_bool)
                                                              in
                                                                case ty_unif [equ_cond] of
@@ -1554,7 +1559,7 @@ ty_inf symtbl expr =
                                                                  Nothing -> Left ((env_cond, cond_expr_inf), symtbl_c, (cond_err ++ [Type_constraint_mismatched errmsg]))
                                                                    where
                                                                      errmsg = "conditional clause of conditional expression must be boolean."
-      ((env_true, true_expr_inf), symtbl_ct, true_err) <- ty_inf symtbl_c' true_expr
+      ((env_true, true_expr_inf), symtbl_ct, true_err) <- ty_inf_expr symtbl_c' true_expr
       ((env_merged, if_expr_inf), symtbl', if_expr_err') <-
         let equ_cond = ((syn_node_typeof cond_expr_inf), Ty_bool)
         in
@@ -1585,7 +1590,7 @@ ty_inf symtbl expr =
                              where
                                errmsg = "type inference on true clause doesn't meet with its conditional expression."
             Just f_expr -> do
-              ((env_false, false_expr_inf), symtbl_ctf, false_err) <- ty_inf symtbl_ct f_expr
+              ((env_false, false_expr_inf), symtbl_ctf, false_err) <- ty_inf_expr symtbl_ct f_expr
               let equ_if_body = ((syn_node_typeof true_expr_inf), (syn_node_typeof false_expr_inf))
               let equs_cond_true = ty_overlap_env env_cond env_true
               let equs_cond_false = ty_overlap_env env_cond env_false
@@ -1626,7 +1631,7 @@ ty_inf symtbl expr =
                                                     Syn_cond_expr (cond_expr_inf', (true_expr_inf', Just false_expr_inf')) (syn_node_typeof true_expr_inf')),
                                                    symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Type_constraint_mismatched errmsg]))
                                 where
-                                  errmsg = "true/false clauses of conditional expression doesn't meet with its conditional expression."
+                                  errmsg = "true/false clauses doesn't meet with its conditional expression."
                               Nothing -> Left (((ty_add_env (ty_add_env env_cond' env_true) env_false),
                                                 Syn_cond_expr (cond_expr_inf, (true_expr_inf, Just false_expr_inf)) (syn_node_typeof true_expr_inf)),
                                                symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Type_constraint_mismatched errmsg]))
@@ -1636,13 +1641,13 @@ ty_inf symtbl expr =
       return ((env_merged, if_expr_inf), symtbl', if_expr_err')
     
     Syn_expr_una ope expr0 ty -> do
-      ((env, expr0_inf), symtbl', una_err) <- ty_inf symtbl expr0
+      ((env, expr0_inf), symtbl', una_err) <- ty_inf_expr symtbl expr0
       let expr_una_inf = Syn_expr_una ope expr0_inf (syn_node_typeof expr0_inf)
       return ((env, expr_una_inf), symtbl', una_err)
     
     Syn_expr_bin ope (expr1, expr2) ty -> do
-      ((env1, expr1_inf), symtbl_1, err1) <- ty_inf symtbl expr1
-      ((env2, expr2_inf), symtbl_2, err2) <- ty_inf symtbl_1 expr2
+      ((env1, expr1_inf), symtbl_1, err1) <- ty_inf_expr symtbl expr1
+      ((env2, expr2_inf), symtbl_2, err2) <- ty_inf_expr symtbl_1 expr2
       ((env', expr_bin_inf), symtbl', err') <- case ty_unif (ty_overlap_env env1 env2) of
                                                  Just u_subst -> let ty1_inf' = ty_subst u_subst $ syn_node_typeof expr1_inf
                                                                      ty2_inf' = ty_subst u_subst $ syn_node_typeof expr2_inf
@@ -1668,140 +1673,85 @@ ty_inf symtbl expr =
                                                      errmsg = "type environments of operands has no unification, in binary operation of " ++ (show ope)
       return ((env', expr_bin_inf), symtbl, err')
 
-
-ty_inf1 :: Maybe [Syntree_node] -> Maybe (Ty_env, Syntree_node)
-ty_inf1 expr =
-  --{(var_id, var_ty)} |- var_id : var_ty, s.t. "var_ty var_id" in declration form
-  case expr of
-    Just ((c@(Syn_val (Val_bool b) ty_b)):es) -> if (ty_b == Ty_bool) then Just (Ty_env [], c) else Nothing
-    Just ((c@(Syn_val (Val_int n) ty_n)):es) -> if (ty_n == Ty_int) then Just (Ty_env [], c) else Nothing
-    Just ((c@(Syn_val (Val_str s) ty_s)):es) -> if (ty_s == Ty_string) then Just (Ty_env [], c) else Nothing
-    Just ((v@(Syn_var var_id var_ty)):es) -> Just (Ty_env [(var_id, var_ty)], v)
-    Just ((Syn_expr_una ope exp _):es) -> do
-      (env, typng) <- ty_inf1 (Just [exp])
-      ty' <- (case typng of
-                Syn_val _ ty -> Just ty
-                Syn_var _ ty -> Just ty
-                Syn_expr_una _ _ ty -> Just ty
-                Syn_expr_bin _ _ ty -> Just ty
-                _ -> Nothing
-             )
-      return (env, Syn_expr_una ope exp ty')
-    Just ((Syn_expr_bin ope (exp_l, exp_r) _):es) -> do
-      (Ty_env env_l, typng_l) <- ty_inf1 (Just [exp_l])
-      (Ty_env env_r, typng_r) <- ty_inf1 (Just [exp_r])
-      ty' <- (case typng_l of
-                Syn_val _ ty_l -> (case typng_r of
-                                     Syn_val _ ty_r -> gct ty_l ty_r
-                                     Syn_var _ ty_r -> gct ty_l ty_r
-                                     Syn_expr_una _ _ ty_r -> gct ty_l ty_r
-                                     Syn_expr_bin _ _ ty_r -> gct ty_l ty_r
-                                     _ -> Nothing
-                                  )
-                Syn_var var_id ty_l -> (case typng_r of
-                                          Syn_val _ ty_r -> gct ty_l ty_r
-                                          Syn_var _ ty_r -> gct ty_l ty_r
-                                          Syn_expr_una _ _ ty_r -> gct ty_l ty_r
-                                          Syn_expr_bin _ _ ty_r -> gct ty_l ty_r
-                                          _ -> Nothing
-                                       )
-                Syn_expr_una _ _ ty_l -> (case typng_r of
-                                            Syn_val _ ty_r -> gct ty_l ty_r
-                                            Syn_var _ ty_r -> gct ty_l ty_r
-                                            Syn_expr_una _ _ ty_r -> gct ty_l ty_r
-                                            Syn_expr_bin _ _ ty_r -> gct ty_l ty_r
-                                            _ -> Nothing
-                                         )
-                Syn_expr_bin _ _ ty_l -> (case typng_r of
-                                            Syn_val _ ty_r -> gct ty_l ty_r
-                                            Syn_var _ ty_r -> gct ty_l ty_r
-                                            Syn_expr_una _ _ ty_r -> gct ty_l ty_r
-                                            Syn_expr_bin _ _ ty_r -> gct ty_l ty_r
-                                            _ -> Nothing
-                                         )
-                _ -> Nothing
-             )
-      exp_l' <- return (case typng_l of
-                          Syn_var var_id _ ->  Syn_var var_id ty'
-                          _ -> exp_l
-                       )
-      exp_r' <- return (case typng_r of
-                          Syn_var var_id _ ->  Syn_var var_id ty'
-                          _ -> exp_r
-                       )
-      
-      env_l' <- return (case typng_l of
-                          Syn_var var_id _ -> M.toList $ M.insert var_id ty' $ M.delete var_id (M.fromList env_l)
-                          _ -> env_l
-                       )
-      env_r' <- return (case typng_r of
-                          Syn_var var_id _ -> M.toList $ M.insert var_id ty' $ M.delete var_id (M.fromList env_r)
-                          _ -> env_r
-                       )
-      env' <- merge_env (Ty_env env_l') (Ty_env env_r')
-      return (env', Syn_expr_bin ope (exp_l', exp_r') ty')
-    _ -> Nothing
-  
-  where
-    gct :: Type -> Type -> Maybe Type
-    gct ty_1 ty_2 =  
-      let is_subty ty_1 ty_2 =
-            case ty_2 of
-              Ty_top -> True
-              Ty_bool -> (case ty_1 of
-                            Ty_btm -> True
-                            Ty_abs -> True
-                            Ty_bool -> True
-                            _ -> False
-                         )
-              Ty_string -> (case ty_1 of
-                              Ty_btm -> True
-                              Ty_abs -> True
-                              Ty_string -> True
-                              _ -> False
-                           )
-              Ty_int -> (case ty_1 of
-                           Ty_btm -> True
-                           Ty_abs -> True
-                           Ty_int -> True
-                           _ -> False
-                        )
-              Ty_pair (ty_21, ty_22) -> (case ty_1 of
-                                           Ty_pair (ty_11, ty_12) -> (is_subty ty_11 ty_21) && (is_subty ty_12 ty_22)
-                                           _ -> False
-                                        )
-              Ty_abs -> (case ty_1 of
-                           Ty_btm -> True
-                           Ty_abs -> True
-                           _ -> False
-                        )
-              _ -> False
-      in
-        if (is_subty ty_1 ty_2) then Just ty_2
-        else
-          if (is_subty ty_2 ty_1) then Just ty_1 else Nothing
+ty_inf :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
+ty_inf symtbl decl =
+  case decl of
+    Syn_fun_decl fun_id args (Syn_scope (scp_decls, scp_body)) ty ->
+      (case ty_inf symtbl scp_body of
+         Right ((env, scp_body_inf), symtbl', errs) -> let ty' = syn_node_typeof scp_body_inf
+                                                       in
+                                                         Right ((env, Syn_fun_decl fun_id args_inf (Syn_scope (scp_decls_inf, scp_body_inf)) ty'), symtbl', errs)
+           where
+             args_inf = args
+             scp_decls_inf = scp_decls
+         Left ((env, scp_body_inf), symtbl', errs) -> let ty' = syn_node_typeof scp_body_inf
+                                                      in
+                                                        Left ((env, Syn_fun_decl fun_id args_inf (Syn_scope (scp_decls_inf, scp_body_inf)) ty'), symtbl', errs)
+           where
+             args_inf = args
+             scp_decls_inf = scp_decls
+      )
     
-    merge_env :: Ty_env -> Ty_env -> Maybe Ty_env
-    merge_env env_1 env_2 =
-      case env_2 of
-        Ty_env [] -> Just env_1
-        Ty_env env2_body -> (case env_1 of
-                               Ty_env [] -> Just env_2
-                               Ty_env env1_body -> (case chk_and_merge env1_body env2_body of
-                                                      Just merged_body -> Just (Ty_env merged_body)
-                                                      Nothing -> Nothing
-                                                   )
-                            )
-        where
-          chk_and_merge env1_body env2_body =
-            Prelude.foldl (\e1 -> \(id, ty) -> do
-                        e1' <- e1
-                        e1'' <- (case Prelude.lookup id e1' of
-                                   Just _ -> Nothing
-                                   Nothing -> Just e1'
-                                )
-                        return ((id, ty) : e1'')
-                    ) (Just env1_body) env2_body
+    Syn_scope (scp_decls, scp_body) -> (case ty_inf symtbl scp_body of
+                                          Right ((env, scp_body_inf), symtbl', errs) -> Right ((env, Syn_scope (scp_decls_inf, scp_body_inf)), symtbl', errs)
+                                            where
+                                              scp_decls_inf = scp_decls
+                                          Left ((env, scp_body_inf), symtbl', errs) -> Left ((env, Syn_scope (scp_decls_inf, scp_body_inf)), symtbl', errs)
+                                            where
+                                              scp_decls_inf = scp_decls
+                                       )
+    
+    Syn_expr_seq expr_seq ->
+      (case expr_seq of
+         [] -> Right (((Ty_env []), (Syn_expr_seq [])), symtbl, [])
+         e:es -> (case ty_inf symtbl e of
+                    Right ((env, e_inf), symtbl_e, errs_e) ->
+                      let ty_inf_seq symtbl (expr, es) = let es'' = case es of
+                                                                      [] -> []
+                                                                      e:es' -> es'
+                                                         in
+                                                           case ty_inf symtbl expr of
+                                                             Right ((env, expr_inf), symtbl', errs) -> Right (((env, [expr_inf]), symtbl', errs), es'')
+                                                             Left ((env, expr_inf), symtbl', errs) -> Left (((env, [expr_inf]), symtbl', errs), es'')
+                          seq_inf = Prelude.foldl (\judge_seq -> \e_next -> do
+                                                      (((env_seq, e_seq), symtbl', errs_seq), es) <- judge_seq
+                                                      (((env_next, e_next_inf), symtbl'', errs_next), es') <- ty_inf_seq symtbl' (e_next, es)
+                                                      case ty_unif (ty_overlap_env env_seq env_next) of
+                                                        Just u_seq' -> let env_seq' = ty_subst_env u_seq' env_seq
+                                                                           e_seq' = Prelude.map (syn_node_subst u_seq') e_seq
+                                                                           env_next' = ty_subst_env u_seq' env_next
+                                                                           e_next_inf' = Prelude.map (syn_node_subst u_seq') e_next_inf
+                                                                       in
+                                                                         case (ty_merge_env env_seq' env_next') of
+                                                                           Just env_seq'' -> Right (((env_seq'', (e_seq' ++ e_next_inf')), symtbl'', (errs_seq ++ errs_next)), es')
+                                                                           Nothing -> Left (((ty_add_env env_seq' env_next', (e_seq' ++ e_next_inf')), symtbl'',
+                                                                                             (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
+                                                                             where
+                                                                               errmsg = "ill unification is detected in type environment construction."
+                                                        Nothing -> Left (((ty_add_env env_seq env_next, (e_seq ++ e_next_inf)), symtbl'',
+                                                                          (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
+                                                          where
+                                                            errmsg = "sequential expression type mismmatched,"
+                                                  ) (Right (((env, [e_inf]), symtbl_e, errs_e), es)) es
+                      in
+                        case seq_inf of
+                          Right (((env_seq, seq_body_inf), symtbl', errs_seq), es_remain) -> if es_remain == [] then Right ((env_seq, (Syn_expr_seq seq_body_inf)), symtbl', errs_seq)
+                                                                                             else
+                                                                                               let errmsg = "inconsistency detected in type inference for sequential expression."
+                                                                                               in
+                                                                                                 Left ((env_seq, (Syn_expr_seq seq_body_inf)), symtbl', (errs_seq ++ [Internal_error errmsg]))
+                          Left (((env_seq, seq_body_inf), symtbl', errs_seq), es_remain) -> do
+                            ((env_seq', seq_body_inf'), symtbl'', errs_seq') <- Prelude.foldl (\judge_seq -> \e_next -> do
+                                                                                                  ((env_seq, e_seq), symtbl', errs_seq) <- judge_seq
+                                                                                                  ((env_next, e_next_inf), symtbl'', errs_next) <- case ty_inf symtbl' e_next of
+                                                                                                                                                     Right r -> Right r
+                                                                                                                                                     Left r -> Right r
+                                                                                                  return ((ty_add_env env_seq env_next, (e_seq ++ [e_next_inf])), symtbl'',
+                                                                                                          (errs_seq ++ errs_next))
+                                                                                              ) (Right ((env_seq, seq_body_inf), symtbl', errs_seq)) es_remain
+                            Left ((env_seq', (Syn_expr_seq seq_body_inf')), symtbl'', errs_seq')
+                 )
+      )
 
 
 main :: IO ()
@@ -1859,7 +1809,7 @@ main = do
   putStr "ty-inf:  "
   (judges_inf, symtbl'', errs) <- return $ case Prelude.foldl (\js -> \t_raw -> do
                                                                   (judges, symtbl, errs) <- js
-                                                                  ((env, t_inf), symtbl', errs') <- ty_inf symtbl t_raw
+                                                                  ((env, t_inf), symtbl', errs') <- ty_inf_expr symtbl t_raw
                                                                   Right (case judges of
                                                                            [] -> ([(env, t_inf)], symtbl', (errs ++ errs'))
                                                                            _ -> ((judges ++ [(env, t_inf)]), symtbl', (errs ++ errs'))
