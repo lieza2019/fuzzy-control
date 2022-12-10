@@ -1619,15 +1619,15 @@ ty_inf_expr symtbl expr =
         let equ_cond = ((syn_node_typeof cond_expr_inf), Ty_bool)
         in
           case false_expr of
-            Nothing -> let equs_cond_true = ty_overlap_env env_cond env_true
+            Nothing -> let ((env_cond'', env_true'), equs_cond_true) = ty_overlap_env1 env_cond env_true
                        in
                          case ty_unif (equ_cond:equs_cond_true) of
-                           Just u_ct -> let env_cond'' =  ty_subst_env u_ct env_cond
+                           Just u_ct -> let env_cond_inf =  ty_subst_env u_ct env_cond''
                                             cond_expr_inf'' = syn_node_subst u_ct cond_expr_inf
-                                            env_true' = ty_subst_env u_ct env_true
+                                            env_true_inf = ty_subst_env u_ct env_true'
                                             true_expr_inf' = syn_node_subst u_ct true_expr_inf
                                         in
-                                          case ty_merge_env env_cond'' env_true' of
+                                          case ty_merge_env env_cond_inf env_true_inf of
                                             Just e_merged -> if ((syn_node_typeof cond_expr_inf'') == Ty_bool) then
                                                                Right ((e_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
                                                                       symtbl_ct, (cond_err' ++ true_err))
@@ -1636,7 +1636,7 @@ ty_inf_expr symtbl expr =
                                                                in
                                                                  Left ((e_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
                                                                        symtbl_ct, (cond_err' ++ true_err ++ [Internal_error errmsg]))
-                                            Nothing -> Left (((ty_ovwt_env env_cond'' env_true'), Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
+                                            Nothing -> Left (((ty_ovwt_env env_cond_inf env_true_inf), Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Nothing)) (syn_node_typeof true_expr_inf')),
                                                              symtbl_ct, (cond_err' ++ true_err ++ [Internal_error errmsg]))
                                               where
                                                 errmsg = "ill unification is detected in type environment construction."
@@ -1647,20 +1647,20 @@ ty_inf_expr symtbl expr =
             Just f_expr -> do
               ((env_false, false_expr_inf), symtbl_ctf, false_err) <- ty_inf_expr symtbl_ct f_expr
               let equ_if_body = ((syn_node_typeof true_expr_inf), (syn_node_typeof false_expr_inf))
-              let equs_cond_true = ty_overlap_env env_cond env_true
-              let equs_cond_false = ty_overlap_env env_cond env_false
-              let equs_true_false = ty_overlap_env env_true env_false
+              let ((env_cond'', env_true'), equs_cond_true) = ty_overlap_env1 env_cond env_true
+              let ((env_cond''', env_false'), equs_cond_false) = ty_overlap_env1 env_cond'' env_false
+              let ((env_true'', env_false''), equs_true_false) = ty_overlap_env1 env_true' env_false'
               case ty_unif (equ_cond:equ_if_body:(equs_cond_true ++ equs_cond_false ++ equs_true_false)) of
-                Just u_ctf -> let env_cond'' =  ty_subst_env u_ctf env_cond
+                Just u_ctf -> let env_cond_inf =  ty_subst_env u_ctf env_cond'''
                                   cond_expr_inf'' = syn_node_subst u_ctf cond_expr_inf
-                                  env_true' = ty_subst_env u_ctf env_true
+                                  env_true_inf = ty_subst_env u_ctf env_true''
                                   true_expr_inf' = syn_node_subst u_ctf true_expr_inf
-                                  env_false' = ty_subst_env u_ctf env_false
+                                  env_false_inf = ty_subst_env u_ctf env_false''
                                   false_expr_inf' = syn_node_subst u_ctf false_expr_inf
                               in
                                 case (do
-                                         env_ct <- ty_merge_env env_cond'' env_true'
-                                         env_ctf <- ty_merge_env env_ct env_false'
+                                         env_ct <- ty_merge_env env_cond_inf env_true_inf
+                                         env_ctf <- ty_merge_env env_ct env_false_inf
                                          return env_ctf
                                      ) of
                                   Just e_merged -> if ((syn_node_typeof cond_expr_inf'') == Ty_bool) && ((syn_node_typeof true_expr_inf') == (syn_node_typeof false_expr_inf')) then
@@ -1671,18 +1671,18 @@ ty_inf_expr symtbl expr =
                                                      in
                                                        Left ((e_merged, Syn_cond_expr (cond_expr_inf'', (true_expr_inf', Just false_expr_inf')) (syn_node_typeof true_expr_inf')),
                                                              symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Internal_error errmsg]))
-                                  Nothing -> Left (((ty_ovwt_env (ty_ovwt_env env_cond'' env_true')  env_false'),
+                                  Nothing -> Left (((ty_ovwt_env (ty_ovwt_env env_cond_inf env_true_inf)  env_false_inf),
                                                     Syn_cond_expr (cond_expr_inf', (true_expr_inf', Just false_expr_inf')) (syn_node_typeof true_expr_inf')),
                                                    symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Internal_error errmsg]))
                                     where
                                       errmsg = "ill unification is detected in type environment construction."
                 Nothing -> (case ty_unif (equ_if_body:equs_true_false) of
-                              Just u_tf -> let env_true' = ty_subst_env u_tf env_true
+                              Just u_tf -> let env_true_inf = ty_subst_env u_tf env_true''
                                                true_expr_inf' = syn_node_subst u_tf true_expr_inf
-                                               env_false' = ty_subst_env u_tf env_false
+                                               env_false_inf = ty_subst_env u_tf env_false''
                                                false_expr_inf' = syn_node_subst u_tf false_expr_inf
                                            in
-                                             Left (((ty_ovwt_env (ty_ovwt_env env_cond' env_true') env_false'),
+                                             Left (((ty_ovwt_env (ty_ovwt_env env_cond' env_true_inf) env_false_inf),
                                                     Syn_cond_expr (cond_expr_inf', (true_expr_inf', Just false_expr_inf')) (syn_node_typeof true_expr_inf')),
                                                    symtbl_ct, (cond_err' ++ true_err ++ false_err ++ [Type_constraint_mismatched errmsg]))
                                 where
@@ -1703,27 +1703,28 @@ ty_inf_expr symtbl expr =
     Syn_expr_bin ope (expr1, expr2) ty -> do
       ((env1, expr1_inf), symtbl_1, err1) <- ty_inf_expr symtbl expr1
       ((env2, expr2_inf), symtbl_2, err2) <- ty_inf_expr symtbl_1 expr2
-      ((env', expr_bin_inf), symtbl', err') <- case ty_unif (ty_overlap_env env1 env2) of
-                                                 Just u_subst -> let ty1_inf' = ty_subst u_subst $ syn_node_typeof expr1_inf
-                                                                     ty2_inf' = ty_subst u_subst $ syn_node_typeof expr2_inf
-                                                                 in
-                                                                   case ty_lcs ty1_inf' ty2_inf' of
-                                                                     Just gct -> let expr1_inf' = syn_node_promote expr1_inf gct
-                                                                                     expr2_inf' = syn_node_promote expr2_inf gct
-                                                                                 in
-                                                                                   case ty_merge_env (ty_subst_env u_subst env1) (ty_subst_env u_subst env2) of
-                                                                                     Just env' -> Right ((env', (Syn_expr_bin ope (expr1_inf', expr2_inf') gct)), symtbl_2, (err1 ++ err2))
-                                                                                     Nothing -> Left ((env2, (Syn_expr_bin ope (expr1_inf', expr2_inf') gct)), symtbl_2,
-                                                                                                      (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])           
-                                                                                       where
-                                                                                         errmsg = "type environments of operands doesn't meet, in binary operation of " ++ (show ope)
-                                                                     Nothing -> let expr1_inf' = syn_node_promote expr1_inf ty1_inf'
-                                                                                    expr2_inf' = syn_node_promote expr2_inf ty2_inf'
-                                                                                    errmsg = "types of operands have no common type, in binary operation of " ++ (show ope)
-                                                                                in
-                                                                                  Left ((env2, (Syn_expr_bin ope (expr1_inf', expr2_inf') ty)), symtbl_2,
-                                                                                        (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
-                                                 Nothing -> Left ((env2, (Syn_expr_bin ope (expr1_inf, expr2_inf) ty)), symtbl_2, (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
+      let ((env1', env2'), equ_env') = ty_overlap_env1 env1 env2
+      ((env', expr_bin_inf), symtbl', err') <- case ty_unif equ_env' of
+                                                 Just u_bin -> let ty1_inf' = ty_subst u_bin $ syn_node_typeof expr1_inf
+                                                                   ty2_inf' = ty_subst u_bin $ syn_node_typeof expr2_inf
+                                                               in
+                                                                 case ty_lcs ty1_inf' ty2_inf' of
+                                                                   Just gct -> let expr1_inf' = syn_node_promote expr1_inf gct
+                                                                                   expr2_inf' = syn_node_promote expr2_inf gct
+                                                                               in
+                                                                                 case ty_merge_env (ty_subst_env u_bin env1') (ty_subst_env u_bin env2') of
+                                                                                   Just env' -> Right ((env', (Syn_expr_bin ope (expr1_inf', expr2_inf') gct)), symtbl_2, (err1 ++ err2))
+                                                                                   Nothing -> Left ((env2', (Syn_expr_bin ope (expr1_inf', expr2_inf') gct)), symtbl_2,
+                                                                                                    (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
+                                                                                     where
+                                                                                       errmsg = "type environments of operands doesn't meet, in binary operation of " ++ (show ope)
+                                                                   Nothing -> let expr1_inf' = syn_node_promote expr1_inf ty1_inf'
+                                                                                  expr2_inf' = syn_node_promote expr2_inf ty2_inf'
+                                                                                  errmsg = "types of operands have no common type, in binary operation of " ++ (show ope)
+                                                                              in
+                                                                                Left ((env2', (Syn_expr_bin ope (expr1_inf', expr2_inf') ty)), symtbl_2,
+                                                                                      (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
+                                                 Nothing -> Left ((env2', (Syn_expr_bin ope (expr1_inf, expr2_inf) ty)), symtbl_2, (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
                                                    where
                                                      errmsg = "type environments of operands has no unification, in binary operation of " ++ (show ope)
       return ((env', expr_bin_inf), symtbl, err')
@@ -1772,15 +1773,16 @@ ty_inf symtbl decl =
                           seq_inf = Prelude.foldl (\judge_seq -> \e_next -> do
                                                       (((env_seq, e_seq), symtbl', errs_seq), es) <- judge_seq
                                                       (((env_next, e_next_inf), symtbl'', errs_next), es') <- ty_inf_seq symtbl' (e_next, es)
-                                                      case ty_unif (ty_overlap_env env_seq env_next) of
-                                                        Just u_seq' -> let env_seq' = ty_subst_env u_seq' env_seq
+                                                      let ((env_seq', env_next'), equ_env_seq') = ty_overlap_env1 env_seq env_next
+                                                      case ty_unif equ_env_seq' of
+                                                        Just u_seq' -> let env_seq_inf = ty_subst_env u_seq' env_seq'
                                                                            e_seq' = Prelude.map (syn_node_subst u_seq') e_seq
-                                                                           env_next' = ty_subst_env u_seq' env_next
+                                                                           env_next_inf = ty_subst_env u_seq' env_next'
                                                                            e_next_inf' = Prelude.map (syn_node_subst u_seq') e_next_inf
                                                                        in
-                                                                         case (ty_merge_env env_seq' env_next') of
-                                                                           Just env_seq'' -> Right (((env_seq'', (e_seq' ++ e_next_inf')), symtbl'', (errs_seq ++ errs_next)), es')
-                                                                           Nothing -> Left (((ty_ovwt_env env_seq' env_next', (e_seq' ++ e_next_inf')), symtbl'',
+                                                                         case (ty_merge_env env_seq_inf env_next_inf) of
+                                                                           Just env_seq_inf' -> Right (((env_seq_inf', (e_seq' ++ e_next_inf')), symtbl'', (errs_seq ++ errs_next)), es')
+                                                                           Nothing -> Left (((ty_ovwt_env env_seq_inf env_next_inf, (e_seq' ++ e_next_inf')), symtbl'',
                                                                                              (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
                                                                              where
                                                                                errmsg = "ill unification is detected in type environment construction."
