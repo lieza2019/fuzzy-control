@@ -1696,7 +1696,11 @@ ty_inf_expr symtbl expr =
       return ((env_merged, if_expr_inf), symtbl', if_expr_err')
     
     Syn_expr_una ope expr0 ty -> do
-      ((env, expr0_inf), symtbl', una_err) <- ty_inf_expr symtbl expr0
+      ((env, expr0_inf), symtbl', una_err) <- case ty_inf_expr symtbl expr0 of
+                                                Right r -> return r
+                                                Left ((env0, e0_inf), symtbl', e0_err) -> Left ((env0, e0_inf'), symtbl', e0_err)
+                                                  where
+                                                    e0_inf' = Syn_expr_una ope e0_inf (syn_node_typeof e0_inf)
       let expr_una_inf = Syn_expr_una ope expr0_inf (syn_node_typeof expr0_inf)
       return ((env, expr_una_inf), symtbl', una_err)
     
