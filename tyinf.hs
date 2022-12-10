@@ -1606,16 +1606,26 @@ ty_inf_expr symtbl expr =
                                               errmsg = "failed to regist on symbol table, for " ++ v_id
     
     Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> do
-      ((env_cond, cond_expr_inf), symtbl_c, cond_err) <- ty_inf_expr symtbl cond_expr
+      ((env_cond, cond_expr_inf), symtbl_c, cond_err) <- case ty_inf_expr symtbl cond_expr of
+                                                           Right r -> return r
+                                                           Left ((env_c, c_expr_inf), symtbl', c_err) -> Left ((env_c, expr'), symtbl', c_err)
+                                                             where
+                                                               expr' = Syn_cond_expr (c_expr_inf, (true_expr, false_expr)) ty
       ((env_cond', cond_expr_inf'), symtbl_c', cond_err') <- let equ_cond = ((syn_node_typeof cond_expr_inf), Ty_bool)
                                                              in
                                                                case ty_unif [equ_cond] of
                                                                  Just u_expr_c -> Right (((ty_subst_env u_expr_c env_cond), (syn_node_subst u_expr_c cond_expr_inf)), symtbl_c, cond_err)
-                                                                 Nothing -> Left ((env_cond, cond_expr_inf), symtbl_c, (cond_err ++ [Type_constraint_mismatched errmsg]))
+                                                                 Nothing -> Left ((env_cond, expr'), symtbl_c, (cond_err ++ [Type_constraint_mismatched errmsg]))
                                                                    where
+                                                                     expr' = Syn_cond_expr (cond_expr_inf, (true_expr, false_expr)) ty
                                                                      errmsg = "conditional clause of conditional expression must be boolean."
-      ((env_true, true_expr_inf), symtbl_ct, true_err) <- ty_inf_expr symtbl_c' true_expr
-      ((env_merged, if_expr_inf), symtbl', if_expr_err') <-
+      ((env_true, true_expr_inf), symtbl_ct, true_err) <- case ty_inf_expr symtbl_c' true_expr of
+                                                            Right r -> return r
+                                                            Left ((env_t, t_expr_inf), symtbl', t_err) -> Left ((env', expr'), symtbl', (cond_err' ++ t_err))
+                                                              where
+                                                                env' = ty_ovwt_env env_cond' env_t
+                                                                expr' = Syn_cond_expr (cond_expr_inf', (t_expr_inf, false_expr)) (syn_node_typeof t_expr_inf)
+      ((env'', if_expr_inf), symtbl'', if_expr_err') <-
         let equ_cond = ((syn_node_typeof cond_expr_inf), Ty_bool)
         in
           case false_expr of
@@ -1693,7 +1703,7 @@ ty_inf_expr symtbl expr =
                                 where
                                   errmsg = "true/false clauses of conditional expression must have same type."
                          )
-      return ((env_merged, if_expr_inf), symtbl', if_expr_err')
+      return ((env'', if_expr_inf), symtbl'', if_expr_err')
     
     Syn_expr_una ope expr0 ty -> do
       ((env, expr0_inf), symtbl', una_err) <- case ty_inf_expr symtbl expr0 of
@@ -1707,14 +1717,15 @@ ty_inf_expr symtbl expr =
     Syn_expr_bin ope (expr1, expr2) ty -> do
       ((env1, expr1_inf), symtbl_1, err1) <- case ty_inf_expr symtbl expr1 of
                                                Right r -> return r
-                                               Left ((env1', e1_inf), symtbl', e1_err) -> Left ((env1', bin_expr), symtbl', e1_err)
+                                               Left ((env1', e1_inf), symtbl', e1_err) -> Left ((env1', expr'), symtbl', e1_err)
                                                  where
-                                                   bin_expr = Syn_expr_bin ope (e1_inf, expr2) (syn_node_typeof e1_inf)
+                                                   expr' = Syn_expr_bin ope (e1_inf, expr2) (syn_node_typeof e1_inf)
       ((env2, expr2_inf), symtbl_2, err2) <- case ty_inf_expr symtbl_1 expr2 of
                                                Right r -> return r
-                                               Left ((env2', e2_inf), symtbl', e2_err) -> Left ((ty_ovwt_env env1 env2', bin_expr), symtbl', (err1 ++ e2_err))
+                                               Left ((env2', e2_inf), symtbl', e2_err) -> Left ((env', expr'), symtbl', (err1 ++ e2_err))
                                                  where
-                                                   bin_expr = Syn_expr_bin ope (expr1_inf, e2_inf) (syn_node_typeof e2_inf)
+                                                   env' = ty_ovwt_env env1 env2'
+                                                   expr' = Syn_expr_bin ope (expr1_inf, e2_inf) (syn_node_typeof e2_inf)
       let ((expr1_inf', expr2_inf'), equ_bin_op) = case ty_lcs (syn_node_typeof expr1_inf) (syn_node_typeof expr2_inf) of
                                                        Just lcs -> ((e1_inf', e2_inf'), [])
                                                          where
@@ -1840,8 +1851,8 @@ ty_inf symtbl decl =
                             ((env_seq', seq_body_inf'), symtbl'', errs_seq') <- Prelude.foldl (\judge_seq -> \e_next -> do
                                                                                                   ((env_seq, e_seq), symtbl', errs_seq) <- judge_seq
                                                                                                   ((env_next, e_next_inf), symtbl'', errs_next) <- case ty_inf symtbl' e_next of
-                                                                                                                                                     Right r -> Right r
-                                                                                                                                                     Left r -> Right r
+                                                                                                                                                     Right r -> return r
+                                                                                                                                                     Left r -> return r
                                                                                                   return ((ty_ovwt_env env_seq env_next, (e_seq ++ [e_next_inf])), symtbl'',
                                                                                                           (errs_seq ++ errs_next))
                                                                                               ) (Right ((env_seq, seq_body_inf), symtbl', errs_seq)) es_remain
