@@ -1585,7 +1585,7 @@ ty_inf_expr symtbl expr =
                                                                                Nothing -> let equ = (v_ty, v_ty_decl)
                                                                                           in
                                                                                             case ty_unif [equ] of
-                                                                                              Just u_var -> let env' = Ty_env [(v_id, ty_subst u_var v_ty)]
+                                                                                              Just u_var -> let env' = Ty_env [(v_id, (ty_subst u_var v_ty))]
                                                                                                                 expr' = Syn_var v_id (ty_subst u_var v_ty)
                                                                                                             in
                                                                                                               Right ((env', expr'), symtbl', [])
@@ -1595,7 +1595,7 @@ ty_inf_expr symtbl expr =
                                                                             )
                                  _ -> Left ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
                                    where
-                                     errmsg = "ill-registration detected in symbol tablem, for " ++ v_id
+                                     errmsg = "ill-registration detected in symbol table, for " ++ v_id
                              )
                            Nothing -> let (symtbl', reg_err) = sym_regist False symtbl Sym_cat_decl (v_id, expr)
                                       in
@@ -1705,9 +1705,17 @@ ty_inf_expr symtbl expr =
       return ((env, expr_una_inf), symtbl', una_err)
     
     Syn_expr_bin ope (expr1, expr2) ty -> do
-      ((env1, expr1_inf), symtbl_1, err1) <- ty_inf_expr symtbl expr1
-      ((env2, expr2_inf), symtbl_2, err2) <- ty_inf_expr symtbl_1 expr2
-      let ((expr1_inf', expr2_inf'), equ_bin_expr) = case ty_lcs (syn_node_typeof expr1_inf) (syn_node_typeof expr2_inf) of
+      ((env1, expr1_inf), symtbl_1, err1) <- case ty_inf_expr symtbl expr1 of
+                                               Right r -> return r
+                                               Left ((env1', e1_inf), symtbl', e1_err) -> Left ((env1', bin_expr), symtbl', e1_err)
+                                                 where
+                                                   bin_expr = Syn_expr_bin ope (e1_inf, expr2) (syn_node_typeof e1_inf)
+      ((env2, expr2_inf), symtbl_2, err2) <- case ty_inf_expr symtbl_1 expr2 of
+                                               Right r -> return r
+                                               Left ((env2', e2_inf), symtbl', e2_err) -> Left ((ty_ovwt_env env1 env2', bin_expr), symtbl', (err1 ++ e2_err))
+                                                 where
+                                                   bin_expr = Syn_expr_bin ope (expr1_inf, e2_inf) (syn_node_typeof e2_inf)
+      let ((expr1_inf', expr2_inf'), equ_bin_op) = case ty_lcs (syn_node_typeof expr1_inf) (syn_node_typeof expr2_inf) of
                                                        Just lcs -> ((e1_inf', e2_inf'), [])
                                                          where
                                                            e1_inf' = syn_node_promote expr1_inf lcs
@@ -1716,7 +1724,7 @@ ty_inf_expr symtbl expr =
                                                          where
                                                            equ = ((syn_node_typeof expr1_inf), (syn_node_typeof expr2_inf))
       let ((env1', env2'), equ_env') = ty_overlap_env1 env1 env2
-      ((env'', expr_bin_inf), symtbl', err') <- case ty_unif (equ_bin_expr ++ equ_env') of
+      ((env'', expr_bin_inf), symtbl', err') <- case ty_unif (equ_bin_op ++ equ_env') of
                                                   Just u_bin -> let ty1_inf' = ty_subst u_bin $ syn_node_typeof expr1_inf'
                                                                     ty2_inf' = ty_subst u_bin $ syn_node_typeof expr2_inf'
                                                                 in
@@ -1727,10 +1735,10 @@ ty_inf_expr symtbl expr =
                                                                                    case ty_merge_env (ty_subst_env u_bin env1') (ty_subst_env u_bin env2') of
                                                                                      Just env' -> Right ((env', (Syn_expr_bin ope (expr1_inf'', expr2_inf'') lcs')), symtbl_2, (err1 ++ err2))
                                                                                      Nothing -> Left ((env', (Syn_expr_bin ope (expr1_inf'', expr2_inf'') lcs')), symtbl_2,
-                                                                                                      (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
+                                                                                                      (err1 ++ err2) ++ [Internal_error errmsg])
                                                                                        where
                                                                                          env' = ty_ovwt_env (ty_subst_env u_bin env1') (ty_subst_env u_bin env2')
-                                                                                         errmsg = "type environments of operands doesn't meet, in binary operation of " ++ (show ope)
+                                                                                         errmsg = "ill unification is detected in type reconstruction."
                                                                     Nothing -> let expr1_inf'' = syn_node_promote expr1_inf' ty1_inf'
                                                                                    expr2_inf'' = syn_node_promote expr2_inf' ty2_inf'
                                                                                in
@@ -1738,12 +1746,21 @@ ty_inf_expr symtbl expr =
                                                                                        (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
                                                                       where
                                                                         env' = ty_ovwt_env (ty_subst_env u_bin env1') (ty_subst_env u_bin env2')
-                                                                        errmsg = "operands have no common type, in binary operation of " ++ (show ope)
-                                                  Nothing -> Left ((env2', (Syn_expr_bin ope (expr1_inf', expr2_inf') (syn_node_typeof expr2_inf'))), symtbl_2,
-                                                                   (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
+                                                                        errmsg = "operands lost common type on binary operation of " ++ (show ope)
+                                                  Nothing -> let ty1_inf' = syn_node_typeof expr1_inf'
+                                                                 ty2_inf' = syn_node_typeof expr2_inf'
+                                                             in
+                                                               case ty_lcs ty1_inf' ty2_inf' of
+                                                                 Just lcs' -> Left ((env', (Syn_expr_bin ope (expr1_inf', expr2_inf') lcs')), symtbl_2,
+                                                                                    (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
+                                                                   where
+                                                                     errmsg = "type environments of operands doesn't meet, in binary operation of " ++ (show ope)
+                                                                 Nothing -> Left ((env', (Syn_expr_bin ope (expr1_inf', expr2_inf') (syn_node_typeof expr2_inf'))), symtbl_2,
+                                                                                  (err1 ++ err2) ++ [Type_constraint_mismatched errmsg])
+                                                                   where
+                                                                     errmsg = "operands have no common type, in binary operation of " ++ (show ope)
                                                     where
                                                       env' = ty_ovwt_env env1' env2'
-                                                      errmsg = "type environments of operands has no unification, in binary operation of " ++ (show ope)
       return ((env'', expr_bin_inf), symtbl', err')
 
 
