@@ -717,12 +717,14 @@ data Type =
   | Ty_abs
   | Ty_btm
   | Ty_prom Type Type
+  | Ty_ovride Type Type
   | Ty_unknown
   deriving (Eq, Ord, Show)
 
 ty_ftv :: Type -> [String]
 ty_ftv ty_expr =
   case ty_expr of
+    Ty_ovride _ t_exp' -> ty_ftv t_exp'
     Ty_prom _ t_exp' -> ty_ftv t_exp'
     Ty_var tvar_id -> [tvar_id]
     Ty_pair (t_exp1, t_exp2) -> (ty_ftv t_exp1) ++ (ty_ftv t_exp2)
@@ -741,6 +743,7 @@ ty_lcs ty_1 ty_2 =
   let is_subty ty_1 ty_2 =
         case ty_2 of
           Ty_top -> True
+          Ty_ovride _ ty_2' -> is_subty ty_1 ty_2'
           Ty_prom _ ty_2' -> is_subty ty_1 ty_2'
           Ty_bool -> (case ty_1 of
                         Ty_btm -> True
@@ -789,8 +792,7 @@ data Val =
   deriving (Eq, Ord, Show)
 
 data Syntree_node =
-  Syn_ty_spec Type
-  | Syn_scope ([Syntree_node], Syntree_node)
+  Syn_scope ([Syntree_node], Syntree_node)
   | Syn_tydef_decl String Type
   | Syn_fun_decl String [Syntree_node] Syntree_node Type
   | Syn_arg_def String Type
@@ -810,7 +812,6 @@ data Syntree_node =
 syn_node_typeof :: Syntree_node -> Type
 syn_node_typeof expr =
   case expr of
-    Syn_ty_spec ty -> ty
     Syn_tydef_decl _ ty -> ty
     Syn_fun_decl _ _ _ ty -> ty
     Syn_arg_def _ ty -> ty
@@ -839,7 +840,6 @@ syn_retrieve_typeof expr =
 syn_node_promote :: Syntree_node -> Type -> Syntree_node
 syn_node_promote expr ty_prom =
   case expr of
-    Syn_ty_spec ty -> Syn_ty_spec (Ty_prom ty ty_prom)
     Syn_scope _ -> expr
     Syn_tydef_decl id ty -> Syn_tydef_decl id (Ty_prom ty ty_prom)
     Syn_fun_decl id args body ty -> Syn_fun_decl id args body (Ty_prom ty ty_prom)
@@ -859,7 +859,6 @@ syn_node_promote expr ty_prom =
 syn_node_subst :: [Subst] -> Syntree_node -> Syntree_node
 syn_node_subst subst expr =
   case expr of   
-    Syn_ty_spec ty -> Syn_ty_spec (ty_subst subst ty)
     Syn_scope (decls, body) -> Syn_scope ((Prelude.map (syn_node_subst subst) decls), syn_node_subst subst body)
     Syn_tydef_decl ty_id ty -> Syn_tydef_decl ty_id (ty_subst subst ty)
     Syn_fun_decl fun_id args body ty -> Syn_fun_decl fun_id (Prelude.map (syn_node_subst subst) args) (syn_node_subst subst body) (ty_subst subst ty)
@@ -1705,6 +1704,17 @@ ty_inf_expr symtbl expr =
                          )
       return ((env'', if_expr_inf), symtbl'', if_expr_err')
     
+    Syn_expr_call fun_id app_args ty -> Right ((Ty_env [], expr), symtbl, [])
+    
+    Syn_expr_par expr0 ty -> (case ty_inf symtbl expr0 of
+                                Right ((env0, expr0_inf), symtbl', expr0_err) -> Right ((env0, expr'), symtbl', expr0_err)
+                                  where
+                                    expr' = Syn_expr_par expr0_inf (syn_node_typeof expr0_inf)
+                                Left ((env0, expr0_inf), symtbl', expr0_err) -> Left ((env0, expr'), symtbl', expr0_err)
+                                  where
+                                    expr' = Syn_expr_par expr0_inf (syn_node_typeof expr0_inf)
+                             )
+    
     Syn_expr_una ope expr0 ty -> do
       ((env, expr0_inf), symtbl', una_err) <- case ty_inf_expr symtbl expr0 of
                                                 Right r -> return r
@@ -1773,6 +1783,8 @@ ty_inf_expr symtbl expr =
                                                     where
                                                       env' = ty_ovwt_env env1' env2'
       return ((env'', expr_bin_inf), symtbl', err')
+    
+    _ -> Right ((Ty_env [], expr), symtbl, [])
 
 
 ty_inf :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
@@ -1860,6 +1872,13 @@ ty_inf symtbl decl =
                             Left ((env_seq', Syn_expr_seq seq_body_inf' (syn_retrieve_typeof seq_expr_raw)), symtbl'', errs_seq')
                  )
       )
+    
+    --case Syn_tydef_decl _ _ -> INTERNAL ERROR
+    --case Syn_arg_def _ _ -> INTERNAL ERROR
+    --case Syn_rec_decl _ _ -> INTERNAL ERROR
+    --case Syn_var_decl _ _ -> INTERNAL ERROR
+    
+    _ -> Right ((Ty_env [], decl), symtbl, []) -- Syn_none
 
 
 main :: IO ()
