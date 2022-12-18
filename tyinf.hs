@@ -1737,13 +1737,14 @@ ty_inf_expr symtbl expr =
                                                    env' = ty_ovwt_env env1 env2'
                                                    expr' = Syn_expr_bin ope (expr1_inf, e2_inf) (syn_node_typeof e2_inf)
       let ((expr1_inf', expr2_inf'), equ_bin_op) = case ty_lcs (syn_node_typeof expr1_inf) (syn_node_typeof expr2_inf) of
-                                                       Just lcs -> ((e1_inf', e2_inf'), [])
-                                                         where
-                                                           e1_inf' = syn_node_promote expr1_inf lcs
-                                                           e2_inf' = syn_node_promote expr2_inf lcs
-                                                       Nothing -> ((expr1_inf, expr2_inf), [equ])
-                                                         where
-                                                           equ = ((syn_node_typeof expr1_inf), (syn_node_typeof expr2_inf))
+                                                     Just lcs -> ((e1_inf', e2_inf'), [])
+                                                     --Just lcs -> ((e1_inf', e2_inf'), [((syn_node_typeof expr1_inf), (syn_node_typeof expr2_inf))])
+                                                       where
+                                                         e1_inf' = syn_node_promote expr1_inf lcs
+                                                         e2_inf' = syn_node_promote expr2_inf lcs
+                                                     Nothing -> ((expr1_inf, expr2_inf), [equ])
+                                                       where
+                                                         equ = ((syn_node_typeof expr1_inf), (syn_node_typeof expr2_inf))
       let ((env1', env2'), equ_env') = ty_overlap_env1 env1 env2
       ((env'', expr_bin_inf), symtbl', err') <- case ty_unif (equ_bin_op ++ equ_env') of
                                                   Just u_bin -> let ty1_inf' = ty_subst u_bin $ syn_node_typeof expr1_inf'
