@@ -1789,7 +1789,7 @@ ty_inf_expr symtbl expr =
     _ -> Right ((Ty_env [], expr), symtbl, [])
 
 
-{- ty_inf :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
+ty_inf :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
 ty_inf symtbl decl =
   case decl of
     Syn_fun_decl fun_id args (Syn_scope (scp_decls, scp_body)) ty ->
@@ -1880,7 +1880,7 @@ ty_inf symtbl decl =
     --case Syn_rec_decl _ _ -> INTERNAL ERROR
     --case Syn_var_decl _ _ -> INTERNAL ERROR
     
-    _ -> Right ((Ty_env [], decl), symtbl, []) -- Syn_none -}
+    _ -> Right ((Ty_env [], decl), symtbl, []) -- Syn_none
 
 ty_inf1 :: Symtbl -> Syntree_node -> ExceptT ((Ty_env, Syntree_node), Symtbl, [Error_codes]) IO ((Ty_env, Syntree_node), Symtbl, [Error_codes])
 ty_inf1 symtbl decl =
@@ -1997,6 +1997,8 @@ ty_inf1 symtbl decl =
                                                                                                     ) (return ((env_seq, seq_body_inf), symtbl', errs_seq)) es_remain
                                   let seq_expr_raw = Syn_expr_seq seq_body_inf' Ty_unknown
                                   return $ Left ((env_seq', Syn_expr_seq seq_body_inf' (syn_retrieve_typeof seq_expr_raw)), symtbl'', errs_seq')
+                        
+                        Left ((env, e_inf), symtbl_e, errs_e) -> return $ Left ((env, e_inf), symtbl_e, errs_e)
                   )
            case judge_seq' of
              Right judge_seq'' -> return judge_seq''
