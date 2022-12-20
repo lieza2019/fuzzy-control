@@ -334,7 +334,7 @@ data Expr =
   | Numeric Integer
   | App Expr Expr
   | Fun String Expr
-  deriving (Show, Eq)
+  deriving (Eq, Show)
 
 
 data Tk_code =
@@ -1789,7 +1789,7 @@ ty_inf_expr symtbl expr =
     _ -> Right ((Ty_env [], expr), symtbl, [])
 
 
-ty_inf :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
+{- ty_inf :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
 ty_inf symtbl decl =
   case decl of
     Syn_fun_decl fun_id args (Syn_scope (scp_decls, scp_body)) ty ->
@@ -1880,7 +1880,7 @@ ty_inf symtbl decl =
     --case Syn_rec_decl _ _ -> INTERNAL ERROR
     --case Syn_var_decl _ _ -> INTERNAL ERROR
     
-    _ -> Right ((Ty_env [], decl), symtbl, []) -- Syn_none
+    _ -> Right ((Ty_env [], decl), symtbl, []) -- Syn_none -}
 
 ty_inf1 :: Symtbl -> Syntree_node -> ExceptT ((Ty_env, Syntree_node), Symtbl, [Error_codes]) IO ((Ty_env, Syntree_node), Symtbl, [Error_codes])
 ty_inf1 symtbl decl =
@@ -1929,7 +1929,7 @@ ty_inf1 symtbl decl =
          e:es -> do
            judge_seq' <-
              lift (do
-                      judge_seq <- runExceptT $ ty_inf1 symtbl e
+                      judge_seq <- runExceptT $ ty_inf1 symtbl e                      
                       case judge_seq of
                         Right ((env, e_inf), symtbl_e, errs_e) ->
                           let ty_inf_seq symtbl (expr, es) = let es'' = case es of
@@ -1951,21 +1951,23 @@ ty_inf1 symtbl decl =
                                                                                                                   )
                                                           let ((env_seq', env_next'), equ_env_seq') = ty_overlap_env1 env_seq env_next
                                                           case ty_unif equ_env_seq' of
-                                                            Just u_seq' -> let env_seq_inf = ty_subst_env u_seq' env_seq'
-                                                                               e_seq' = Prelude.map (syn_node_subst u_seq') e_seq
-                                                                               env_next_inf = ty_subst_env u_seq' env_next'
-                                                                               e_next_inf' = Prelude.map (syn_node_subst u_seq') e_next_inf
-                                                                           in
-                                                                             case (ty_merge_env env_seq_inf env_next_inf) of
-                                                                               Just env_seq_inf' -> return (((env_seq_inf', (e_seq' ++ e_next_inf')), symtbl'', (errs_seq ++ errs_next)), es')
-                                                                               Nothing -> throwE (((ty_ovwt_env env_seq_inf env_next_inf, (e_seq' ++ e_next_inf')), symtbl'',
-                                                                                                   (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
-                                                                                 where
-                                                                                   errmsg = "ill unification is detected in type environment construction."
-                                                            Nothing -> throwE (((ty_ovwt_env env_seq env_next, (e_seq ++ e_next_inf)), symtbl'',
-                                                                                (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
-                                                              where
-                                                                errmsg = "sequential expression type mismmatched,"
+                                                            Just u_seq' -> do
+                                                              --lift $ putStrLn (show u_seq')
+                                                              let env_seq_inf = ty_subst_env u_seq' env_seq'
+                                                                  e_seq' = Prelude.map (syn_node_subst u_seq') e_seq
+                                                                  env_next_inf = ty_subst_env u_seq' env_next'
+                                                                  e_next_inf' = Prelude.map (syn_node_subst u_seq') e_next_inf
+                                                              case (ty_merge_env env_seq_inf env_next_inf) of
+                                                                Just env_seq_inf' -> return (((env_seq_inf', (e_seq' ++ e_next_inf')), symtbl'', (errs_seq ++ errs_next)), es')
+                                                                Nothing -> throwE (((ty_ovwt_env env_seq_inf env_next_inf, (e_seq' ++ e_next_inf')), symtbl'',
+                                                                                    (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
+                                                                  where
+                                                                    errmsg = "ill unification is detected in type environment construction."
+                                                            Nothing -> do
+                                                              throwE (((ty_ovwt_env env_seq env_next, (e_seq ++ e_next_inf)), symtbl'',
+                                                                       (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
+                                                                where
+                                                                  errmsg = "sequential expression type mismmatched,"
                                                       ) (return (((env, [e_inf]), symtbl_e, errs_e), es)) es
                           in
                             do
@@ -2062,17 +2064,19 @@ main = do
   mapM_ putStrLn $ Prelude.map show ty_abs
   
   putStr "ty-inf:  "
-  (judges_inf, symtbl'', errs) <- return $ case Prelude.foldl (\js -> \t_raw -> do
-                                                                  (judges, symtbl, errs) <- js
-                                                                  ((env, t_inf), symtbl', errs') <- ty_inf_expr symtbl t_raw
-                                                                  Right (case judges of
-                                                                           [] -> ([(env, t_inf)], symtbl', (errs ++ errs'))
-                                                                           _ -> ((judges ++ [(env, t_inf)]), symtbl', (errs ++ errs'))
-                                                                        )
-                                                              ) (Right ([], symtbl', [])) ty_abs
-                                          of
-                                            Right r -> r
-                                            Left ((env, t_inf), symtbl', errs) -> ([(env, t_inf)], symtbl', errs)
+  (judges_inf, symtbl'', errs) <- do
+    r <- runExceptT $ Prelude.foldl (\js -> \t_raw -> do
+                                        (judges, symtbl, errs) <- js
+                                        ((env, t_inf), symtbl', errs') <- ty_inf1 symtbl t_raw
+                                        return (case judges of
+                                                  [] -> ([(env, t_inf)], symtbl', (errs ++ errs'))
+                                                  _ -> ((judges ++ [(env, t_inf)]), symtbl', (errs ++ errs'))
+                                               )
+                                    ) (return ([], symtbl', [])) ty_abs
+    return (case r of
+              Right r -> r
+              Left ((env, t_inf), symtbl', errs) -> ([(env, t_inf)], symtbl', errs)
+           )
   mapM_ putStrLn $ Prelude.map show judges_inf
   
   putStr "simtbl:  "
