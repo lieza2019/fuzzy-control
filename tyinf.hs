@@ -33,6 +33,7 @@ import Control.Monad.State as St
 import Control.Exception (assert)
 import Debug.Trace as Dbg
 import System.IO
+import Control.Monad.Trans.Except
 
 
 ras_trace str expr =
@@ -1880,6 +1881,132 @@ ty_inf symtbl decl =
     --case Syn_var_decl _ _ -> INTERNAL ERROR
     
     _ -> Right ((Ty_env [], decl), symtbl, []) -- Syn_none
+
+ty_inf1 :: Symtbl -> Syntree_node -> ExceptT ((Ty_env, Syntree_node), Symtbl, [Error_codes]) IO ((Ty_env, Syntree_node), Symtbl, [Error_codes])
+ty_inf1 symtbl decl =
+  case decl of
+    Syn_fun_decl fun_id args (Syn_scope (scp_decls, scp_body)) ty -> do
+      judge_fun_decl' <- lift (do
+                                  judge_fun_decl <- runExceptT $ ty_inf1 symtbl scp_body
+                                  return $ case judge_fun_decl of
+                                             Right ((env, scp_body_inf), symtbl', errs) -> let ty' = syn_node_typeof scp_body_inf
+                                                                                           in
+                                                                                             Right ((env, Syn_fun_decl fun_id args_inf (Syn_scope (scp_decls_inf, scp_body_inf)) ty'),
+                                                                                                    symtbl', errs)
+                                               where
+                                                 args_inf = args
+                                                 scp_decls_inf = scp_decls
+                                             Left ((env, scp_body_inf), symtbl', errs) -> let ty' = syn_node_typeof scp_body_inf
+                                                                                          in
+                                                                                            Left ((env, Syn_fun_decl fun_id args_inf (Syn_scope (scp_decls_inf, scp_body_inf)) ty'),
+                                                                                                  symtbl', errs)
+                                               where
+                                                 args_inf = args
+                                                 scp_decls_inf = scp_decls
+                              )
+      case judge_fun_decl' of
+        Right judge' -> return judge'
+        Left judge' -> throwE judge'
+    
+    Syn_scope (scp_decls, scp_body) -> do
+      judge_scope' <- lift (do
+                               judge_scope <- runExceptT $ ty_inf1 symtbl scp_body
+                               return $ case judge_scope of
+                                          Right ((env, scp_body_inf), symtbl', errs) -> Right ((env, Syn_scope (scp_decls_inf, scp_body_inf)), symtbl', errs)
+                                            where
+                                              scp_decls_inf = scp_decls
+                                          Left ((env, scp_body_inf), symtbl', errs) -> Left ((env, Syn_scope (scp_decls_inf, scp_body_inf)), symtbl', errs)
+                                            where
+                                              scp_decls_inf = scp_decls
+                           )
+      case judge_scope' of
+        Right judge' -> return judge'
+        Left judge' -> throwE judge'
+    
+    Syn_expr_seq expr_seq ty_seq ->
+      (case expr_seq of
+         [] -> return (((Ty_env []), (Syn_expr_seq [] ty_seq)), symtbl, [])
+         e:es -> do
+           judge_seq' <-
+             lift (do
+                      judge_seq <- runExceptT $ ty_inf1 symtbl e
+                      case judge_seq of
+                        Right ((env, e_inf), symtbl_e, errs_e) ->
+                          let ty_inf_seq symtbl (expr, es) = let es'' = case es of
+                                                                          [] -> []
+                                                                          e:es' -> es'
+                                                             in
+                                                               do
+                                                                 judge_e <- runExceptT $ ty_inf1 symtbl expr
+                                                                 return $ case judge_e of
+                                                                            Right ((env, expr_inf), symtbl', errs) -> Right (((env, [expr_inf]), symtbl', errs), es'')
+                                                                            Left ((env, expr_inf), symtbl', errs) -> Left (((env, [expr_inf]), symtbl', errs), es'')
+                              seq_inf = Prelude.foldl (\judge_seq -> \e_next -> do
+                                                          (((env_seq, e_seq), symtbl', errs_seq), es) <- judge_seq
+                                                          (((env_next, e_next_inf), symtbl'', errs_next), es') <- (do
+                                                                                                                      judge_next <- lift $ ty_inf_seq symtbl' (e_next, es)
+                                                                                                                      case judge_next of
+                                                                                                                        Right judge' -> return judge'
+                                                                                                                        Left judge' -> throwE judge'
+                                                                                                                  )
+                                                          let ((env_seq', env_next'), equ_env_seq') = ty_overlap_env1 env_seq env_next
+                                                          case ty_unif equ_env_seq' of
+                                                            Just u_seq' -> let env_seq_inf = ty_subst_env u_seq' env_seq'
+                                                                               e_seq' = Prelude.map (syn_node_subst u_seq') e_seq
+                                                                               env_next_inf = ty_subst_env u_seq' env_next'
+                                                                               e_next_inf' = Prelude.map (syn_node_subst u_seq') e_next_inf
+                                                                           in
+                                                                             case (ty_merge_env env_seq_inf env_next_inf) of
+                                                                               Just env_seq_inf' -> return (((env_seq_inf', (e_seq' ++ e_next_inf')), symtbl'', (errs_seq ++ errs_next)), es')
+                                                                               Nothing -> throwE (((ty_ovwt_env env_seq_inf env_next_inf, (e_seq' ++ e_next_inf')), symtbl'',
+                                                                                                   (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
+                                                                                 where
+                                                                                   errmsg = "ill unification is detected in type environment construction."
+                                                            Nothing -> throwE (((ty_ovwt_env env_seq env_next, (e_seq ++ e_next_inf)), symtbl'',
+                                                                                (errs_seq ++ errs_next ++ [Internal_error errmsg])), es')
+                                                              where
+                                                                errmsg = "sequential expression type mismmatched,"
+                                                      ) (return (((env, [e_inf]), symtbl_e, errs_e), es)) es
+                          in
+                            do
+                              seq_inf' <- runExceptT seq_inf
+                              case seq_inf' of
+                                Right (((env_seq, seq_body_inf), symtbl', errs_seq), es_remain) ->
+                                  let seq_expr_raw = Syn_expr_seq seq_body_inf Ty_unknown
+                                  in
+                                    if es_remain == [] then
+                                      return $ Right ((env_seq, Syn_expr_seq seq_body_inf (syn_retrieve_typeof seq_expr_raw)), symtbl', errs_seq)
+                                    else
+                                      return $ Left ((env_seq, Syn_expr_seq seq_body_inf (syn_retrieve_typeof seq_expr_raw)), symtbl', (errs_seq ++ [Internal_error errmsg]))
+                                  where
+                                    errmsg = "inconsistency detected in type inference for sequential expression."
+                                Left (((env_seq, seq_body_inf), symtbl', errs_seq), es_remain) -> do
+                                  ((env_seq', seq_body_inf'), symtbl'', errs_seq') <- Prelude.foldl (\judge_seq -> \e_next -> do
+                                                                                                        ((env_seq, e_seq), symtbl', errs_seq) <- judge_seq
+                                                                                                        ((env_next, e_next_inf), symtbl'', errs_next) <-
+                                                                                                          (do
+                                                                                                              r <- runExceptT $ ty_inf1 symtbl' e_next
+                                                                                                              case r of
+                                                                                                                Right r' -> return r'
+                                                                                                                Left r' -> return r'
+                                                                                                          )
+                                                                                                        return ((ty_ovwt_env env_seq env_next, (e_seq ++ [e_next_inf])), symtbl'',
+                                                                                                                (errs_seq ++ errs_next))
+                                                                                                    ) (return ((env_seq, seq_body_inf), symtbl', errs_seq)) es_remain
+                                  let seq_expr_raw = Syn_expr_seq seq_body_inf' Ty_unknown
+                                  return $ Left ((env_seq', Syn_expr_seq seq_body_inf' (syn_retrieve_typeof seq_expr_raw)), symtbl'', errs_seq')
+                  )
+           case judge_seq' of
+             Right judge_seq'' -> return judge_seq''
+             Left judge_seq'' -> throwE judge_seq''
+      )
+    
+    --case Syn_tydef_decl _ _ -> INTERNAL ERROR
+    --case Syn_arg_def _ _ -> INTERNAL ERROR
+    --case Syn_rec_decl _ _ -> INTERNAL ERROR
+    --case Syn_var_decl _ _ -> INTERNAL ERROR
+    
+    _ -> return ((Ty_env [], decl), symtbl, []) -- Syn_none
 
 
 main :: IO ()
