@@ -802,6 +802,7 @@ data Syntree_node =
   | Syn_cond_expr (Syntree_node, (Syntree_node, Maybe Syntree_node)) Type
   | Syn_val Val Type
   | Syn_var String Type
+  | Syn_expr_asgn Syntree_node Syntree_node Type
   | Syn_expr_par Syntree_node Type
   | Syn_expr_call String [Syntree_node] Type
   | Syn_expr_una Operation Syntree_node Type
@@ -821,6 +822,7 @@ syn_node_typeof expr =
     Syn_cond_expr _ ty -> ty
     Syn_val _ ty -> ty
     Syn_var _  ty -> ty
+    Syn_expr_asgn _ _ ty -> ty
     Syn_expr_par _ ty -> ty
     Syn_expr_call _ _ ty -> ty
     Syn_expr_una _ _ ty -> ty
@@ -851,6 +853,7 @@ syn_node_promote expr ty_prom =
       Syn_cond_expr body ty -> Syn_cond_expr body (Ty_prom ty ty_prom)
       Syn_val v ty -> Syn_val v (Ty_prom ty ty_prom)
       Syn_var id ty -> Syn_var id (Ty_prom ty ty_prom)
+      Syn_expr_asgn expr_l expr_r ty -> Syn_expr_asgn expr_l expr_r (Ty_prom ty ty_prom)
       Syn_expr_par body ty -> Syn_expr_par body (Ty_prom ty ty_prom)
       Syn_expr_call id args ty -> Syn_expr_call id args (Ty_prom ty ty_prom)
       Syn_expr_una ope body ty -> Syn_expr_una ope body (Ty_prom ty ty_prom)
@@ -877,6 +880,7 @@ syn_node_subst subst expr =
                                                                Syn_cond_expr (expr_cond', (expr_true', expr_false')) (ty_subst subst ty)
     Syn_val val ty -> Syn_val val (ty_subst subst ty)
     Syn_var var_id ty -> Syn_var var_id (ty_subst subst ty)
+    Syn_expr_asgn expr_l expr_r ty -> Syn_expr_asgn expr_l expr_r (ty_subst subst ty)
     Syn_expr_par expr_par ty -> Syn_expr_par (syn_node_subst subst expr_par) (ty_subst subst ty)   
     Syn_expr_call fun_id args ty -> Syn_expr_call fun_id (Prelude.map (syn_node_subst subst) args) (ty_subst subst ty)
     Syn_expr_una ope expr0 ty -> Syn_expr_una ope (syn_node_subst subst expr0) (ty_subst subst ty)
@@ -1921,6 +1925,40 @@ ty_inf_expr1 symtbl expr =
                                           Just err -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
                                             where
                                               errmsg = "failed to regist on symbol table, for " ++ v_id
+    
+    Syn_expr_asgn expr_l expr_r ty -> do
+      ((env_l, expr_l_inf), symtbl_l, err_l) <- ty_inf1 symtbl expr_l
+      case expr_l_inf of
+        Syn_var var_id var_ty -> do
+          ((env_r, expr_r_inf), symtbl_r, err_r) <- ty_inf1 symtbl_l expr_r
+          let ((env_l', env_r'), equ_env) = ty_overlap_env1 env_l env_r
+          let equ_asgn = ((syn_node_typeof expr_l_inf), (syn_node_typeof expr_r_inf))
+          case ty_unif (equ_asgn:equ_env) of
+            Just u_asgn -> let env_l_inf = ty_subst_env u_asgn env_l'
+                               expr_l_inf' = syn_node_subst u_asgn expr_l_inf
+                               env_r_inf = ty_subst_env u_asgn env_r'
+                               expr_r_inf' = syn_node_subst u_asgn expr_r_inf
+                           in
+                             case ty_merge_env env_l_inf env_r_inf of
+                               Just e_merged -> if (syn_node_typeof expr_l_inf') == (syn_node_typeof expr_r_inf') then
+                                                  return ((e_merged, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')), symtbl_r, (err_l ++ err_r))
+                                                else
+                                                  let errmsg = "ill unification is detected in type reconstruction on assignment expression."
+                                                  in
+                                                    throwE ((e_merged, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')),
+                                                            symtbl_r, (err_l ++ err_r ++ [Internal_error errmsg]))
+                               Nothing -> throwE ((ty_ovwt_env env_l_inf env_r_inf, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')),
+                                                  symtbl_r, (err_l ++ err_r ++ [Internal_error errmsg]))
+                                 where
+                                   errmsg = "ill unification is detected in type reconstruction on assignment expression."
+            Nothing -> throwE ((ty_ovwt_env env_l env_r, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_r, (err_l ++ err_r ++ [Internal_error errmsg]))
+              where
+                errmsg = "both left and right expressions must have same type, in assignment expression."
+        _ -> do
+          ((env_r, expr_r_inf), symtbl_r, err_r) <- ty_inf1 symtbl_l expr_r
+          throwE ((ty_ovwt_env env_l env_r, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_r, (err_l ++ err_r ++ [Internal_error errmsg]))
+          where
+            errmsg = "left expression must be lvalue in assignment expression."
     
     Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> do
       ((env_cond, cond_expr_inf), symtbl_c, cond_err) <-
