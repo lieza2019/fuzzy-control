@@ -1568,7 +1568,7 @@ ty_merge_env env_1 env_2 =
                                                                   ) (Just env1_binds) env2_binds
 
 
-ty_inf_expr :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
+{- ty_inf_expr :: Symtbl -> Syntree_node -> Either ((Ty_env, Syntree_node), Symtbl, [Error_codes]) ((Ty_env, Syntree_node), Symtbl, [Error_codes])
 ty_inf_expr symtbl expr =
   case expr of
     Syn_val (Val_bool b) ty_b -> if ty_b == Ty_bool then Right ((Ty_env [], expr), symtbl, [])
@@ -1880,7 +1880,7 @@ ty_inf symtbl decl =
     --case Syn_rec_decl _ _ -> INTERNAL ERROR
     --case Syn_var_decl _ _ -> INTERNAL ERROR
     
-    _ -> Right ((Ty_env [], decl), symtbl, []) -- Syn_none
+    _ -> Right ((Ty_env [], decl), symtbl, []) -- Syn_none -}
 
 
 ty_inf_expr1 :: Symtbl -> Syntree_node -> ExceptT ((Ty_env, Syntree_node), Symtbl, [Error_codes]) IO ((Ty_env, Syntree_node), Symtbl, [Error_codes])
@@ -2272,6 +2272,14 @@ ty_inf1 symtbl decl =
              Right judge_seq'' -> return judge_seq''
              Left judge_seq'' -> throwE judge_seq''
       )
+    
+    Syn_val _ _ -> ty_inf_expr1 symtbl decl
+    Syn_var _ _ -> ty_inf_expr1 symtbl decl
+    Syn_expr_par _ _ -> ty_inf_expr1 symtbl decl
+    Syn_expr_call _ _ _ -> ty_inf_expr1 symtbl decl
+    Syn_cond_expr _ _ -> ty_inf_expr1 symtbl decl
+    Syn_expr_una _ _ _ -> ty_inf_expr1 symtbl decl
+    Syn_expr_bin _ _ _ -> ty_inf_expr1 symtbl decl
     
     --case Syn_tydef_decl _ _ -> INTERNAL ERROR
     --case Syn_arg_def _ _ -> INTERNAL ERROR
