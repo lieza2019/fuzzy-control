@@ -774,6 +774,30 @@ ty_lcs ty_1 ty_2 =
     else
       if (is_subty ty_2 ty_1) then Just ty_1 else Nothing
 
+type Subst = (String, Type)
+
+ty_subst :: [Subst] -> Type -> Type
+ty_subst subst ty_expr =
+  case subst of
+    [] -> ty_expr
+    s:ss -> ty_subst ss (subst1 s ty_expr)
+      where
+        subst1 :: Subst -> Type -> Type
+        subst1 (subst@(tvar_id, ty_mapsto)) ty_expr =
+          case ty_expr of
+            Ty_top -> ty_expr
+            Ty_bool -> ty_expr
+            Ty_string -> ty_expr
+            Ty_int -> ty_expr              
+            Ty_var id -> if id == tvar_id then ty_mapsto else ty_expr
+            Ty_pair (ty_expr1, ty_expr2) -> Ty_pair (subst1 subst ty_expr1, subst1 subst ty_expr2)
+            Ty_fun ty_args -> Ty_fun $ Prelude.map (subst1 subst) ty_args
+            Ty_abs -> ty_expr
+            Ty_btm -> ty_expr
+            Ty_prom ty_prev ty_crnt -> Ty_prom ty_prev (subst1 subst ty_crnt)
+            Ty_ovride ty_prev ty_crnt -> Ty_ovride ty_prev (subst1 subst ty_crnt)
+            Ty_unknown -> ty_expr
+
 
 data Operation =
   Ope_asgn
@@ -1399,7 +1423,14 @@ ty_curve (expr, prev_tvar) =
                                     (body', latest) = ty_curve (body, prev_tvar')
                                 in
                                   (Syn_scope (decls', body'), latest)
-     _ -> (expr, prev_tvar)
+     
+     Syn_expr_asgn expr_l expr_r Ty_abs -> let (expr_l_abs, prev_tvar') = ty_curve (expr_l, prev_tvar)
+                                               (expr_r_abs, prev_tvar'') = ty_curve (expr_l, prev_tvar')
+                                               latest = succ_flesh_tvar prev_tvar''
+                                           in
+                                             (Syn_expr_asgn expr_l_abs expr_r_abs (fst latest), latest)
+     
+     _ -> (expr, prev_tvar) -- for Syn_tydef_decl, Syn_rec_decl, Syn_val, and Syn_none.
   )
   where
     abs_decls :: [Syntree_node] -> Fresh_tvar -> ([Syntree_node], Fresh_tvar)
@@ -1413,28 +1444,7 @@ ty_curve (expr, prev_tvar) =
 
 
 type Equation = (Type, Type)
-type Subst = (String, Type)
 
-ty_subst :: [Subst] -> Type -> Type
-ty_subst subst ty_expr =
-  case subst of
-    [] -> ty_expr
-    s:ss -> ty_subst ss (subst1 s ty_expr)
-      where
-        subst1 :: Subst -> Type -> Type
-        subst1 (subst@(tvar_id, ty_mapsto)) ty_expr =
-          case ty_expr of
-            Ty_top -> ty_expr
-            Ty_bool -> ty_expr
-            Ty_string -> ty_expr
-            Ty_int -> ty_expr              
-            Ty_var id -> if id == tvar_id then ty_mapsto else ty_expr
-            Ty_pair (ty_expr1, ty_expr2) -> Ty_pair (subst1 subst ty_expr1, subst1 subst ty_expr2)
-            Ty_fun ty_args -> Ty_fun $ Prelude.map (subst1 subst) ty_args
-            Ty_abs -> ty_expr
-            Ty_btm -> ty_expr
-            Ty_unknown -> ty_expr
-    
 ty_unif :: [Equation] -> Maybe [Subst]
 ty_unif equs =
   case equs of
@@ -1958,7 +1968,7 @@ ty_inf_expr1 symtbl expr =
           ((env_r, expr_r_inf), symtbl_r, err_r) <- ty_inf1 symtbl_l expr_r
           throwE ((ty_ovwt_env env_l env_r, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_r, (err_l ++ err_r ++ [Internal_error errmsg]))
           where
-            errmsg = "left expression must be lvalue in assignment expression."
+            errmsg = "left expression must be lvalue in assignment expression"
     
     Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> do
       ((env_cond, cond_expr_inf), symtbl_c, cond_err) <-
