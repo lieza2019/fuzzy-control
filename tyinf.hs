@@ -1101,10 +1101,10 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
         in
           case ope of
             Nothing -> (Right subexpr1, symtbl, tokens)
-            Just ope' | ope' == Ope_asgn -> let left = cons_par_tree symtbl tokens' (False, False, True)
+            Just ope' | ope' == Ope_asgn -> let right = cons_par_tree symtbl tokens' (False, False, True)
                                             in
-                                              case left of
-                                                (Just left_expr, symtbl', tokens'') -> (Right (Syn_expr_bin Ope_asgn (subexpr1, left_expr) Ty_abs), symtbl', tokens'')
+                                              case right of
+                                                (Just right_expr, symtbl', tokens'') -> (Right (Syn_expr_asgn subexpr1 right_expr Ty_abs), symtbl', tokens'')
                                                 (Nothing, symtbl', tokens'') -> (Left Illegal_left_expression_for_assignment, symtbl', tokens'')
             Just ope' | is_bin_op ope' -> let r2 = cons_par_tree symtbl tokens' (False, False, True)
                                           in
@@ -1425,7 +1425,7 @@ ty_curve (expr, prev_tvar) =
                                   (Syn_scope (decls', body'), latest)
      
      Syn_expr_asgn expr_l expr_r Ty_abs -> let (expr_l_abs, prev_tvar') = ty_curve (expr_l, prev_tvar)
-                                               (expr_r_abs, prev_tvar'') = ty_curve (expr_l, prev_tvar')
+                                               (expr_r_abs, prev_tvar'') = ty_curve (expr_r, prev_tvar')
                                                latest = succ_flesh_tvar prev_tvar''
                                            in
                                              (Syn_expr_asgn expr_l_abs expr_r_abs (fst latest), latest)
@@ -2338,6 +2338,7 @@ ty_inf1 symtbl decl =
     
     Syn_val _ _ -> ty_inf_expr1 symtbl decl
     Syn_var _ _ -> ty_inf_expr1 symtbl decl
+    Syn_expr_asgn _ _ _ -> ty_inf_expr1 symtbl decl
     Syn_expr_par _ _ -> ty_inf_expr1 symtbl decl
     Syn_expr_call _ _ _ -> ty_inf_expr1 symtbl decl
     Syn_cond_expr _ _ -> ty_inf_expr1 symtbl decl
