@@ -2019,7 +2019,71 @@ ty_inf symtbl decl =
     Syn_var _ _ -> ty_inf_expr symtbl decl
     Syn_expr_asgn _ _ _ -> ty_inf_expr symtbl decl
     Syn_expr_par _ _ -> ty_inf_expr symtbl decl
-    Syn_expr_call _ _ _ -> ty_inf_expr symtbl decl
+    
+    --Syn_expr_call _ _ _ -> ty_inf_expr symtbl decl
+    Syn_expr_call fun_id args ty -> do
+      case sym_lkup_fun_decl symtbl fun_id of
+        Just (Sym_attrib { sym_attr_entity = fun_attr}, symtbl') ->
+          (case fun_attr of
+             Syn_fun_decl f_id f_args _ f_ty | f_id == fun_id -> do
+                                                 judge_call <- lift $
+                                                   let match_arg symtbl arg_fun arg_app = runExceptT $
+                                                         case arg_app of
+                                                           Syn_val _ _ -> ty_inf_expr symtbl arg_app
+                                                           Syn_var _ _ -> ty_inf_expr symtbl arg_app
+                                                           Syn_cond_expr _ _ -> ty_inf_expr symtbl arg_app
+                                                           Syn_expr_asgn _ _ _ -> ty_inf_expr symtbl arg_app
+                                                           Syn_expr_par _ _ -> ty_inf_expr symtbl arg_app
+                                                           Syn_expr_call _ _ _ -> ty_inf_expr symtbl arg_app
+                                                           Syn_expr_una _ _ _ -> ty_inf_expr symtbl arg_app
+                                                           Syn_expr_bin _ _ _ -> ty_inf_expr symtbl arg_app
+                                                           -- for Syn_scope, Syn_tydef_decl ,Syn_fun_decl, Syn_arg_def, Syn_rec_decl, Syn_var_decl, Syn_expr_seq and Syn_none
+                                                           _ -> throwE ((Ty_env [], arg_app), symtbl, [Internal_error errmsg])
+                                                             where
+                                                               errmsg = "arguments to call function are expected as expressions."
+                                                   in
+                                                     do
+                                                       args_inf <- Prelude.foldl (\judge_args -> \arg -> do
+                                                                                     r <- judge_args
+                                                                                     case r of
+                                                                                       Right ((js, errs), symtbl, (as, acc)) ->
+                                                                                         (case as of
+                                                                                            [] -> return $ Left ((js, errs'), symtbl, ([], acc))
+                                                                                              where
+                                                                                                errs' = errs ++ [Type_constraint_mismatched errmsg]
+                                                                                                errmsg = "Too many arguments in function call expression."
+                                                                                            a:as' -> (do
+                                                                                                         arg_inf <- match_arg symtbl a arg
+                                                                                                         case arg_inf of
+                                                                                                           Left (judge_a, symtbl', errs_a) ->
+                                                                                                             return $ Left ((js ++ [judge_a], (errs ++ errs_a)), symtbl', (as', (acc ++ [arg])))
+                                                                                                           Right (judge_a, symtbl', errs_a) ->
+                                                                                                             return $ Right ((js ++ [judge_a], (errs ++ errs_a)), symtbl', (as', (acc ++ [arg])))
+                                                                                                     )
+                                                                                         )
+                                                                                       Left r' -> return r
+                                                                                 ) (return $ Right (([], []), symtbl', (f_args, []))) args
+                                                       case args_inf of
+                                                         Right ((judges_args, errs_args), symtbl'', (f_args_remain, acc_args)) -> return $
+                                                           case judges_args of
+                                                             [] -> if (f_args_remain == f_args) && (acc_args == []) && (args == []) then
+                                                                     Right ((Ty_env [], Syn_expr_call fun_id [] f_ty), symtbl'', errs_args)
+                                                                   else
+                                                                     let errmsg = "corrupted evaluation over arguments of function calling, detected in function call expression."
+                                                                     in
+                                                                       Left ((Ty_env [], Syn_expr_call fun_id [] f_ty), symtbl'', errs_args ++ [Internal_error errmsg])
+                                                 case  judge_call of
+                                                   Right judge' -> return judge'
+                                                   Left judge' -> throwE judge'
+             _ -> throwE ((Ty_env [], decl), symtbl', [Internal_error errmsg])
+               where
+                 errmsg = "ill-registration detected in symbol table, for " ++ fun_id
+          )
+        Nothing -> throwE ((Ty_env [], decl), symtbl, [Type_constraint_mismatched errmsg])
+          where
+            errmsg = "undefined function: " ++ fun_id ++ " detected in function call expression."
+            
+      
     Syn_cond_expr _ _ -> ty_inf_expr symtbl decl
     Syn_expr_una _ _ _ -> ty_inf_expr symtbl decl
     Syn_expr_bin _ _ _ -> ty_inf_expr symtbl decl
