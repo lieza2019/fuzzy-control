@@ -2029,7 +2029,7 @@ ty_inf symtbl decl =
           (case fun_attr of
              Syn_fun_decl f_id f_args _ f_ty | f_id == fun_id -> do
                                                  judge_call <- lift $
-                                                   let match_arg symtbl arg_fun arg_app = runExceptT $
+                                                   let inf_arg symtbl arg_app = runExceptT $
                                                          case arg_app of
                                                            Syn_val _ _ -> ty_inf_expr symtbl arg_app
                                                            Syn_var _ _ -> ty_inf_expr symtbl arg_app
@@ -2073,7 +2073,7 @@ ty_inf symtbl decl =
                                                                                                 errs' = errs ++ [Type_constraint_mismatched errmsg]
                                                                                                 errmsg = "Too many arguments in function call expression."
                                                                                             a:as' -> (do
-                                                                                                         arg_inf <- match_arg symtbl a arg
+                                                                                                         arg_inf <- inf_arg symtbl arg
                                                                                                          case arg_inf of
                                                                                                            Right (judge_a, symtbl', errs_a) ->
                                                                                                              return $ Right ((js ++ [judge_a], (errs ++ errs_a)), symtbl',
@@ -2087,92 +2087,115 @@ ty_inf symtbl decl =
                                                        case args_inf of
                                                          Right ((judges_args, errs_args), symtbl'', ((f_args_matched, acc_args), f_args_remain)) -> return $
                                                            case judges_args of
-                                                             [] -> if (f_args_remain == f_args) && (acc_args == []) && (args == []) then
+                                                             [] -> if (f_args_remain == f_args) && (f_args_matched == []) && (acc_args == []) && (args == []) then
                                                                      Right ((Ty_env [], Syn_expr_call fun_id [] f_ty), symtbl'', errs_args)
                                                                    else
                                                                      let errmsg = "corrupted evaluation over arguments of function calling, detected in function call expression."
                                                                      in
                                                                        Left ((Ty_env [], Syn_expr_call fun_id [] f_ty), symtbl'', errs_args ++ [Internal_error errmsg])
-                                                             _ -> let env_call = Prelude.foldl (\env_whole -> \env_arg -> do
+                                                             _ -> let env_call = Prelude.foldl (\env_whole -> \env_arg ->
                                                                                                    ty_ovwt_env env_whole env_arg
                                                                                                ) (Ty_env []) (Prelude.map fst judges_args)
-                                                                      args = Prelude.map snd judges_args
+                                                                      args' = Prelude.map snd judges_args
                                                                   in
-                                                                    let equs_envs = equs_over_envs (Prelude.map fst judges_args)
-                                                                        equs_args = equs_over_args f_args_matched (Prelude.map snd judges_args)
-                                                                    in
-                                                                      case equs_envs of
-                                                                        Right equs_envs' ->
-                                                                          (case equs_args of
-                                                                             Right equs_args' ->
-                                                                               case ty_unif (equs_envs' ++ equs_args') of
-                                                                                 Just u_call ->
-                                                                                   let envs_arg_inf = Prelude.map (ty_subst_env u_call) (Prelude.map fst judges_args)
-                                                                                       f_args_inf = Prelude.map (syn_node_subst u_call) f_args
-                                                                                       args_inf = Prelude.map (syn_node_subst u_call) (Prelude.map snd judges_args)
-                                                                                       f_ty_inf = ty_subst u_call f_ty
-                                                                                   in
-                                                                                     case Prelude.foldl (\env_whole -> \env_arg -> do
-                                                                                                            env_acc <- env_whole
-                                                                                                            ty_merge_env env_acc env_arg
-                                                                                                        ) (Just (Ty_env [])) envs_arg_inf of
-                                                                                       Just env_call_inf ->
-                                                                                         (case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args_inf) f_ty_inf) args_inf of
-                                                                                            Right (ty'@(Ty_fun _ f_ty'), []) ->
-                                                                                              Right ((env_call_inf, Syn_expr_call fun_id f_args_inf ty'), symtbl'', errs_args)
-                                                                                            Right (ty'@(Ty_fun _ f_ty'), _ ) ->
-                                                                                              Left ((env_call_inf, Syn_expr_call fun_id f_args_inf ty'), symtbl'',
-                                                                                                    (errs_args ++ [Internal_error errmsg]))
-                                                                                              where
-                                                                                                errmsg = "Currupt results from trace_fun_ty, in function call expression."
-                                                                                            Left (ty'@(Ty_fun _ f_ty'), _) ->
-                                                                                              Left ((env_call_inf, Syn_expr_call fun_id f_args_inf ty'), symtbl'',
-                                                                                                    (errs_args ++ [Internal_error errmsg]))
-                                                                                              where
-                                                                                                errmsg = "Currupt results from trace_fun_ty, in function call expression."
-                                                                                         )
-                                                                                       Nothing ->
-                                                                                         let env_call_inf = Prelude.foldl (\env_whole -> \env_arg ->
-                                                                                                                              ty_ovwt_env env_whole env_arg
-                                                                                                                          ) (Ty_env []) envs_arg_inf
-                                                                                             errmsg = "ill unification detected in type reconstruction on function call expression."
+                                                                    if (((length f_args_matched) == (length acc_args)) && ((length acc_args) == (length $ Prelude.map snd judges_args))) then
+                                                                      let equs_envs = equs_over_envs (Prelude.map fst judges_args)
+                                                                          equs_args = equs_over_args f_args_matched (Prelude.map snd judges_args)
+                                                                      in
+                                                                        case equs_envs of
+                                                                          Right equs_envs' ->
+                                                                            (case equs_args of
+                                                                               Right equs_args' ->
+                                                                                 case ty_unif (equs_envs' ++ equs_args') of
+                                                                                   Just u_call ->
+                                                                                     let envs_arg_inf = Prelude.map (ty_subst_env u_call) (Prelude.map fst judges_args)
+                                                                                         f_args_inf = Prelude.map (syn_node_subst u_call) f_args
+                                                                                         args_inf = Prelude.map (syn_node_subst u_call) (Prelude.map snd judges_args)
+                                                                                         f_ty_inf = ty_subst u_call f_ty
+                                                                                     in
+                                                                                       case Prelude.foldl (\env_whole -> \env_arg -> do
+                                                                                                              env_acc <- env_whole
+                                                                                                              ty_merge_env env_acc env_arg
+                                                                                                          ) (Just (Ty_env [])) envs_arg_inf of
+                                                                                         Just env_call_inf ->
+                                                                                           (case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args_inf) f_ty_inf) args_inf of
+                                                                                              Right (ty'@(Ty_fun _ f_ty'), []) ->
+                                                                                                Right ((env_call_inf, Syn_expr_call fun_id args_inf ty'), symtbl'', errs_args)
+                                                                                              Right (ty'@(Ty_fun _ f_ty'), _ ) ->
+                                                                                                Left ((env_call_inf, Syn_expr_call fun_id args_inf ty'), symtbl'',
+                                                                                                      (errs_args ++ [Internal_error errmsg]))
+                                                                                                where
+                                                                                                  errmsg = "Currupt results from trace_fun_ty, in function call expression."
+                                                                                              Left (ty'@(Ty_fun _ f_ty'), _) ->
+                                                                                                Left ((env_call_inf, Syn_expr_call fun_id args_inf ty'), symtbl'',
+                                                                                                      (errs_args ++ [Internal_error errmsg]))
+                                                                                                where
+                                                                                                  errmsg = "Currupt results from trace_fun_ty, in function call expression."
+                                                                                           )
+                                                                                         Nothing ->
+                                                                                           let env_call_inf = Prelude.foldl (\env_whole -> \env_arg ->
+                                                                                                                                ty_ovwt_env env_whole env_arg
+                                                                                                                            ) (Ty_env []) envs_arg_inf
+                                                                                               errmsg = "ill unification detected in type environment reconstruction with ty_merge_env."
+                                                                                           in
+                                                                                             (case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args_inf) f_ty_inf) args_inf of
+                                                                                                Right (ty'@(Ty_fun f_args_inf_ty' f_ty'), _) ->
+                                                                                                  Left ((env_call_inf, Syn_expr_call fun_id f_args_inf ty'), symtbl'',
+                                                                                                        (errs_args ++ [Internal_error errmsg]))
+                                                                                                Left (ty'@(Ty_fun f_args_inf_ty' f_ty'), _) ->
+                                                                                                  Left ((env_call_inf, Syn_expr_call fun_id f_args_inf ty'), symtbl'',
+                                                                                                        (errs_args ++ [Internal_error errmsg]))
+                                                                                             )
+                                                                                   Nothing ->
+                                                                                     case ty_unif equs_args' of
+                                                                                       Just u_call ->
+                                                                                         let envs_arg_inf = Prelude.map (ty_subst_env u_call) (Prelude.map fst judges_args)
+                                                                                             f_args_inf = Prelude.map (syn_node_subst u_call) f_args
+                                                                                             args_inf = Prelude.map (syn_node_subst u_call) (Prelude.map snd judges_args)
+                                                                                             f_ty_inf = ty_subst u_call f_ty
                                                                                          in
-                                                                                           case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args_inf) f_ty_inf) args_inf of
-                                                                                             Right (ty'@(Ty_fun f_args_inf_ty' f_ty'), _) ->
-                                                                                               Left ((env_call_inf, Syn_expr_call fun_id f_args_inf ty'), symtbl'',
-                                                                                                     (errs_args ++ [Internal_error errmsg]))
-                                                                                             Left (ty'@(Ty_fun f_args_inf_ty' f_ty'), _) ->
-                                                                                               Left ((env_call_inf, Syn_expr_call fun_id f_args_inf ty'), symtbl'',
-                                                                                                     (errs_args ++ [Internal_error errmsg]))
-                                                                                 Nothing ->
-                                                                                   let errmsg = "type environments over arguments doesn't meet, in function call expression."
-                                                                                   in
-                                                                                     case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args of
-                                                                                       Right (ty'@(Ty_fun _ f_ty'), _) ->
-                                                                                         Left ((env_call, Syn_expr_call fun_id args ty'), symtbl'',
-                                                                                               (errs_args ++ [Type_constraint_mismatched errmsg]))
-                                                                                       Left (ty'@(Ty_fun _ f_ty'), _) ->
-                                                                                         Left ((env_call, Syn_expr_call fun_id args ty'), symtbl'',
-                                                                                               (errs_args ++ [Type_constraint_mismatched errmsg]))
-                                                                                               
-                                                                             Left _ -> let errmsg = "Currupt results from equs_over_args, in function call expression."
-                                                                                       in
-                                                                                         case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args of
-                                                                                           Right (ty'@(Ty_fun _ f_ty'), _) ->
-                                                                                             Left ((env_call, Syn_expr_call fun_id args f_ty'), symtbl'',
-                                                                                                   (errs_args ++ [Internal_error errmsg]))
-                                                                                           Left (ty'@(Ty_fun _ f_ty'), _) ->
-                                                                                             Left ((env_call, Syn_expr_call fun_id args f_ty'), symtbl'',
-                                                                                                   (errs_args ++ [Internal_error errmsg]))
-                                                                          )
-                                                                        Left _ -> let errmsg = "Currupt results from equs_over_envs, in function call expression."
-                                                                                  in
-                                                                                    case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args of
-                                                                                      Right (ty'@(Ty_fun _ f_ty'), _) ->
-                                                                                        Left ((env_call, Syn_expr_call fun_id args f_ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
-                                                                                      Left (ty'@(Ty_fun _ f_ty'), _) ->
-                                                                                        Left ((env_call, Syn_expr_call fun_id args f_ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
-                                                                                                
+                                                                                           let env_call_inf = Prelude.foldl (\env_whole -> \env_arg ->
+                                                                                                                                ty_ovwt_env env_whole env_arg
+                                                                                                                            ) (Ty_env []) envs_arg_inf
+                                                                                               errmsg = "type environments over arguments doesn't meet, in type reconstruction."
+                                                                                           in
+                                                                                             case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args_inf) f_ty_inf) args_inf of
+                                                                                               Right (ty'@(Ty_fun _ f_ty'), _) ->
+                                                                                                 Left ((env_call_inf, Syn_expr_call fun_id args_inf ty'), symtbl'',
+                                                                                                       (errs_args ++ [Type_constraint_mismatched errmsg]))
+                                                                                               Left (ty'@(Ty_fun _ f_ty'), _) ->
+                                                                                                 Left ((env_call_inf, Syn_expr_call fun_id args_inf ty'), symtbl'',
+                                                                                                       (errs_args ++ [Type_constraint_mismatched errmsg]))
+                                                                                       Nothing ->
+                                                                                         let ty' = case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args' of
+                                                                                                     Right (ty@(Ty_fun _ f_ty'), _) -> ty
+                                                                                                     Left (ty@(Ty_fun _ f_ty'), _) -> ty
+                                                                                             errmsg = ""
+                                                                                         in
+                                                                                           Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
+                                                                               Left _ -> let errmsg = "Currupt results from equs_over_args, in function call expression."
+                                                                                         in
+                                                                                           case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args' of
+                                                                                             Right (ty'@(Ty_fun _ f_ty'), _) ->
+                                                                                               Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
+                                                                                             Left (ty'@(Ty_fun _ f_ty'), _) ->
+                                                                                               Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
+                                                                            )
+                                                                          Left _ -> let errmsg = "Currupt results from equs_over_envs, in function call expression."
+                                                                                    in
+                                                                                      case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args' of
+                                                                                        Right (ty'@(Ty_fun _ f_ty'), _) ->
+                                                                                          Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
+                                                                                        Left (ty'@(Ty_fun _ f_ty'), _) ->
+                                                                                          Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
+                                                                    else
+                                                                      let errmsg = ""
+                                                                      in
+                                                                        case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args' of
+                                                                          Right (ty'@(Ty_fun _ f_ty'), _) ->
+                                                                            Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
+                                                                          Left (ty'@(Ty_fun _ f_ty'), _) ->
+                                                                            Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
                                                                where
                                                                  equs_over_args params args =
                                                                    let ty_params = Prelude.map syn_node_typeof params
@@ -2247,6 +2270,8 @@ ty_inf symtbl decl =
                                                                                                                     Right es_bs -> Left (es_v ++ es_bs)
                                                                                                                     Left es_bs -> Left (es_v ++ es_bs)
                                                                                                                  )
+                                                                 --trace_fun_arg :: f_args_inf -> args_inf -> Either ((f_args_acc, args_acc), (f_args_rem, args_rem)) ((f_args_acc, args_acc), (f_args_rem, args_rem))
+                                                                 
                                                          Left ((judges_args, errs_args), symtbl'', ((f_args_matched, acc_args), f_args_remain)) -> return $
                                                            case judges_args of
                                                              [] -> Left ((Ty_env [], Syn_expr_call fun_id [] f_ty), symtbl'', errs_args)
