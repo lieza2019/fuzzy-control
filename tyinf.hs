@@ -2174,7 +2174,8 @@ ty_inf symtbl decl =
                                                                                                                    Left (((envs_acc, ty_args_acc), substs), (env, (ty, arg)),
                                                                                                                          [Type_constraint_mismatched errmsg])
                                                                                                                    where
-                                                                                                                     errmsg = ""
+                                                                                                                     errmsg = "incompatible type on passing " ++ (show $ length substs) ++ " th" ++
+                                                                                                                              " argument to the function of " ++ f_id
                                                                                                            ) (Right (([], []), [])) (zip envs ty_and_args)
                                                                                             ) of
                                                                                          Right ((envs_acc, ty_args_acc), substs) ->
