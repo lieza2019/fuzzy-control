@@ -2141,14 +2141,15 @@ ty_inf symtbl decl =
                                                                                           Right equs_envs' -> equs_envs'
                                                                                           Left equs_envs' -> equs_envs'
                                                                                        )
+                                               equs_args' = equs_args
                                            in
                                            {- case equs_envs of
                                              Right equs_envs' -> -}
-                                             let equs_args' = assert (isRight equs_envs) (case equs_envs of
+                                             {- let equs_args' = assert (isRight equs_envs) (case equs_envs of
                                                                                             Right equs_envs' -> equs_envs'
                                                                                             Left equs_envs' -> equs_envs'
                                                                                          )
-                                             in
+                                             in -}
                                                {- (case equs_args of
                                                   Right equs_args' -> -}
                                                     (case ty_unif (equs_envs' ++ equs_args') of
@@ -2213,10 +2214,11 @@ ty_inf symtbl decl =
                                                                                                       ) -}
                                                                                    let ty_acc' = Prelude.map fst ty_args_acc'
                                                                                        args_acc' = Prelude.map snd ty_args_acc'
-                                                                                   equs_args <- assert (isRight $ equs_over_args ty_acc' args_acc') $
+                                                                                       equs_args = equs_over_args ty_acc' args_acc'
+                                                                                   {- equs_args <- assert (isRight $ equs_over_args ty_acc' args_acc') $
                                                                                                   case equs_over_args ty_acc' args_acc' of
                                                                                                     Right equs' -> Right equs'
-                                                                                                    Left equs' -> Right equs' -- internal_error asserted in equs_over_args.
+                                                                                                    Left equs' -> Right equs' -- internal_error asserted in equs_over_args. -}
                                                                                    {- equs_args <- case equs_over_args ty_acc' args_acc' of
                                                                                                   Right equs' -> Right equs'
                                                                                                   Left equs' -> -- internal_error asserted in equs_over_args.
@@ -2326,8 +2328,15 @@ ty_inf symtbl decl =
                                         let equs = zip ty_params ty_args
                                             equs' = Prelude.foldl (\es -> \(ty_p, ty_a) -> es ++ (if (ty_p == ty_a) then [] else [(ty_p, ty_a)])) [] equs
                                         in
+                                          assert ((length ty_params) == (length ty_args)) equs'
+                                    {- equs_over_args ty_params args =
+                                      let ty_args = Prelude.map syn_node_typeof args
+                                      in
+                                        let equs = zip ty_params ty_args
+                                            equs' = Prelude.foldl (\es -> \(ty_p, ty_a) -> es ++ (if (ty_p == ty_a) then [] else [(ty_p, ty_a)])) [] equs
+                                        in
                                           if ((length ty_params) == (length ty_args)) then Right equs'
-                                          else Left equs' -- internal_error detected.
+                                          else Left equs' -- internal_error detected. -}
                                     equs_over_envs envs =
                                       case group_binds ([], (union_binds envs)) of
                                         ([], []) -> Right []
