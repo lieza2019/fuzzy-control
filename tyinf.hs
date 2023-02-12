@@ -2276,27 +2276,13 @@ ty_inf symtbl decl =
                              let args_ty = Prelude.foldl (\a_ts -> \a -> (a_ts ++ [syn_node_typeof a])) [] f_args_remain
                              in
                                return $ case judges_args of
-                                          [] -> if (f_args_remain == f_args) && (f_args_matched == acc_args) && (acc_args == []) then
+                                          [] -> assert ((f_args_remain == f_args) && (f_args_matched == acc_args) && (acc_args == [])) $
                                                   Left ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args)
-                                                else
-                                                  assert False (
-                                                    do
-                                                      errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                      Left ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'',
-                                                            (errs_args ++ [Internal_error errmsg]))
-                                                    )
-                                          _ -> let (env_call_inf, args_inf) = merge_by_ovwt judges_args
-                                               in
-                                                 if (((length f_args_matched) + (length f_args_remain)) == (length f_args)) && (f_args_matched == acc_args) then
-                                                   Left ((env_call_inf, Syn_expr_call fun_id args_inf (Ty_fun args_ty f_ty)), symtbl'', errs_args)
-                                                 else
-                                                   assert False (
-                                                     do
-                                                       errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                       Left ((env_call_inf, Syn_expr_call fun_id args_inf (Ty_fun args_ty f_ty)), symtbl'',
-                                                             (errs_args ++ [Internal_error errmsg]))
-                                                     )
+                                          _ -> assert ((((length f_args_matched) + (length f_args_remain)) == (length f_args)) && (f_args_matched == acc_args) &&
+                                                       ((length judges_args) == (length acc_args))
+                                                      ) $ Left ((env_call_inf, Syn_expr_call fun_id args_inf (Ty_fun args_ty f_ty)), symtbl'', errs_args)
                                             where
+                                              (env_call_inf, args_inf) = merge_by_ovwt judges_args
                                               merge_by_ovwt judges = case judges of
                                                 [] -> (Ty_env [], [])
                                                 (env, expr):js -> (ty_ovwt_env envs env, (expr:exprs))
