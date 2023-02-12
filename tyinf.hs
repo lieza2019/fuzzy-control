@@ -2040,13 +2040,16 @@ ty_inf symtbl decl =
     --Syn_expr_call _ _ _ -> ty_inf_expr symtbl decl
     Syn_expr_call fun_id args ty -> do
       case sym_lkup_fun_decl symtbl fun_id of
+        Nothing -> throwE ((Ty_env [], decl), symtbl, [Type_constraint_mismatched errmsg])
+          where
+            errmsg = "undefined function calling of : " ++ fun_id ++ "."
         Just (Sym_attrib { sym_attr_entity = fun_attr}, symtbl') ->
           (case fun_attr of
              -- func1 (j as int, b as bool) as int { ... }
              -- f_id: func1
              -- f_args: j as int, b as bool
              -- f_body: { ... }
-             -- f_ty: Ty_fun [Ty_int, Ty_bool] Ty_int, s.t. "(j as int, b as bool) as int {...}".
+             -- f_ty: Ty_fun [Ty_int, Ty_bool] Ty_int, s.t. "(j as int, b as bool) as int".
              Syn_fun_decl f_id f_args _ (Ty_fun args_ty f_ty)
                | f_id == fun_id -> do
                    judge_call <- lift $
@@ -2077,7 +2080,7 @@ ty_inf symtbl decl =
                                  t:ts -> (case args of
                                             [] -> Right (Ty_fun f_args_ty f_ty, [])
                                             a:as -> if cmp t (syn_node_typeof a) then trace_fun_ty (Ty_fun ts f_ty) as
-                                                    else -- for internal error.
+                                                    else -- omits remaining arguments.
                                                       (case trace_fun_ty (Ty_fun ts f_ty) as of
                                                          Right r -> Left r
                                                          Left r -> Left r
@@ -2088,9 +2091,9 @@ ty_inf symtbl decl =
                          args_inf <- Prelude.foldl (\judges_args -> \arg -> do
                                                        r <- judges_args
                                                        case r of
-                                                         Right ((js, errs), symtbl, ((f_args_matched, acc), f_args_remain)) ->
+                                                         Right ((js, errs), symtbl, ((f_args_matched, args_matched), f_args_remain)) ->
                                                            (case f_args_remain of
-                                                              [] -> return $ Left ((js, errs'), symtbl, ((f_args_matched, acc), []))
+                                                              [] -> return $ Left ((js, errs'), symtbl, ((f_args_matched, args_matched), []))
                                                                 where
                                                                   errmsg = "Too many arguments in function calling."
                                                                   errs' = errs ++ [Type_constraint_mismatched errmsg]
@@ -2099,25 +2102,27 @@ ty_inf symtbl decl =
                                                                            case arg_inf of
                                                                              Right (judge_a, symtbl', errs_a) ->
                                                                                return $ Right ((js ++ [judge_a], (errs ++ errs_a)), symtbl',
-                                                                                               (((f_args_matched ++ [a]), (acc ++ [arg])), as'))
+                                                                                               (((f_args_matched ++ [a]), (args_matched ++ [arg])), as'))
                                                                              Left (judge_a, symtbl', errs_a) ->
                                                                                return $ Left ((js, (errs ++ errs_a)), symtbl',
-                                                                                              ((f_args_matched, acc), f_args_remain))
+                                                                                              ((f_args_matched, args_matched), f_args_remain))
                                                                        )
                                                            )
-                                                         Left r' -> return r
+                                                         Left r' -> return r -- omits remaining arguments.
                                                    ) (return $ Right (([], []), symtbl', (([], []), f_args))) args
                          case args_inf of
                            Right ((judges_args, errs_args), symtbl'', ((f_args_matched, acc_args), f_args_remain)) -> return $
                              (case judges_args of
-                                [] -> if (f_args_remain == f_args) && (f_args_matched == acc_args) && (acc_args == []) then
-                                        Right ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args)
-                                      else
-                                        assert False (
-                                          do
-                                            errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                            Left ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args ++ [Internal_error errmsg])
-                                          )
+                                [] -> {- assert ((f_args_remain == f_args) && (f_args_matched == acc_args) && (acc_args == []))
+                                        Right ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args) -}
+                                  if (f_args_remain == f_args) && (f_args_matched == acc_args) && (acc_args == []) then
+                                    Right ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args)
+                                  else
+                                    assert False (
+                                    do
+                                      errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                      Left ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args ++ [Internal_error errmsg])
+                                    )
                                 _ -> let env_call = make_env_ovwt (Prelude.map fst judges_args)
                                          args' = Prelude.map snd judges_args
                                      in
@@ -2396,16 +2401,15 @@ ty_inf symtbl decl =
                    case judge_call of
                      Right judge' -> return judge'
                      Left judge' -> throwE judge'
-             _ -> assert False (
-                    do
-                      errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                      throwE ((Ty_env [], decl), symtbl', [Internal_error errmsg])
-                    )
+             _ -> throwE ((Ty_env [], decl), symtbl', [Type_constraint_mismatched errmsg])
+               where
+                 errmsg = "Function calling must be applied on function objects."
           )
-        Nothing -> throwE ((Ty_env [], decl), symtbl, [Type_constraint_mismatched errmsg])
-          where
-            errmsg = "undefined function calling of : " ++ fun_id ++ " detected."
-    
+        Just _ -> assert False (
+                    do
+                      let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                      throwE ((Ty_env [], decl), symtbl, [Internal_error errmsg])
+                    )
     Syn_cond_expr _ _ -> ty_inf_expr symtbl decl
     Syn_expr_una _ _ _ -> ty_inf_expr symtbl decl
     Syn_expr_bin _ _ _ -> ty_inf_expr symtbl decl
@@ -2433,6 +2437,7 @@ main = do
   src <- read_src h
   
   let (tokens, src_remains) = conv2_tokens src
+  --assert False $ putStrLn $ "source:  " ++ (show src)
   putStrLn $ "source:  " ++ (show src)
   putStrLn $ "tokens:  " ++ (show (tokens, src_remains))
   symtbl <- return $ sym_enter_scope Nothing Sym_cat_decl
