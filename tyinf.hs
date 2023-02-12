@@ -2082,13 +2082,7 @@ ty_inf symtbl decl =
                                  t:ts -> (case args of
                                             [] -> Right (Ty_fun f_args_ty f_ty, [])
                                             a:as -> if cmp t (syn_node_typeof a) then trace_fun_ty (Ty_fun ts f_ty) as
-                                                    else 
-                                                      {- (case trace_fun_ty (Ty_fun ts f_ty) as of
-                                                         -- omits remaining arguments.
-                                                         Right r -> Left r
-                                                         Left r -> Left r
-                                                      ) -}
-                                                      Left (Ty_fun f_args_ty f_ty, args)
+                                                    else Left (Ty_fun f_args_ty f_ty, args)
                                          )
                                    where
                                      cmp ty1 ty2 = ty1 == ty2
@@ -2119,42 +2113,18 @@ ty_inf symtbl decl =
                              (case judges_args of
                                 [] -> assert ((f_args_remain == f_args) && (f_args_matched == acc_args) && (acc_args == []))
                                         Right ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args)
-                                  {- if (f_args_remain == f_args) && (f_args_matched == acc_args) && (acc_args == []) then
-                                    Right ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args)
-                                  else
-                                    assert False (
-                                    do
-                                      errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                      Left ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args ++ [Internal_error errmsg])
-                                    ) -}
                                 _ -> let env_call = make_env_ovwt (Prelude.map fst judges_args)
                                          args' = Prelude.map snd judges_args
                                      in
                                        assert ((((length f_args_matched) + (length f_args_remain)) == (length f_args)) && ((length f_args_matched) == (length acc_args)) &&
                                                ((length acc_args) == (length $ Prelude.map snd judges_args))
                                               ) $
-                                       {- if (((length f_args_matched) + (length f_args_remain)) == (length f_args)) && ((length f_args_matched) == (length acc_args)) &&
-                                          ((length acc_args) == (length $ Prelude.map snd judges_args)) then -}
                                          let equs_envs = equs_over_envs (Prelude.map fst judges_args)
                                              equs_args = equs_over_args (Prelude.map syn_node_typeof f_args_matched) args'
                                          in
                                            let equs_envs' = equs_envs
                                                equs_args' = equs_args
-                                               {- equs_envs' = assert (isRight equs_envs) (case equs_envs of
-                                                                                          Right equs_envs' -> equs_envs'
-                                                                                          Left equs_envs' -> equs_envs'
-                                                                                       ) -}
-                                               
                                            in
-                                           {- case equs_envs of
-                                             Right equs_envs' -> -}
-                                             {- let equs_args' = assert (isRight equs_envs) (case equs_envs of
-                                                                                            Right equs_envs' -> equs_envs'
-                                                                                            Left equs_envs' -> equs_envs'
-                                                                                         )
-                                             in -}
-                                               {- (case equs_args of
-                                                  Right equs_args' -> -}
                                                     (case ty_unif (equs_envs' ++ equs_args') of
                                                        Just u_call ->
                                                          let envs_arg_inf = Prelude.map (ty_subst_env u_call) (Prelude.map fst judges_args)
@@ -2180,14 +2150,6 @@ ty_inf symtbl decl =
                                                                             Left ((env_call_inf, Syn_expr_call fun_id f_args_inf ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
                                                                           )
                                                                  )
-                                                             {- Right (ty'@(Ty_fun _ f_ty'), _ ) ->
-                                                               let env_call_inf = make_env_ovwt envs_arg_inf
-                                                               in
-                                                                 assert False (
-                                                                   do
-                                                                     errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                     Left ((env_call_inf, Syn_expr_call fun_id args_inf ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
-                                                                   ) -}
                                                              Left (ty'@(Ty_fun _ f_ty'), _) ->
                                                                let env_call_inf = make_env_ovwt envs_arg_inf
                                                                in
@@ -2204,33 +2166,9 @@ ty_inf symtbl decl =
                                                                                    let ty_args_acc' = ty_args_acc ++ [(ty, arg)]
                                                                                    let envs_acc' = envs_acc ++ [env]
                                                                                        equs_envs = equs_over_envs envs_acc'
-                                                                                   {- equs_envs <- assert (isRight $ equs_over_envs envs_acc') $
-                                                                                                  case equs_over_envs envs_acc' of
-                                                                                                    Right equs' -> Right equs'
-                                                                                                    Left equs' -> Right equs' -- internal_error asserted in equs_over_envs. -}
-                                                                                   {- equs_envs <- case equs_over_envs envs_acc' of
-                                                                                                  Right equs' -> Right equs'
-                                                                                                  Left equs' -> -- internal_error asserted in equs_over_envs.
-                                                                                                    assert False (
-                                                                                                      do
-                                                                                                        errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                                        Left (((envs_acc, ty_args_acc), substs), (env, (ty, arg)), [Internal_error errmsg])
-                                                                                                      ) -}
                                                                                    let ty_acc' = Prelude.map fst ty_args_acc'
                                                                                        args_acc' = Prelude.map snd ty_args_acc'
                                                                                        equs_args = equs_over_args ty_acc' args_acc'
-                                                                                   {- equs_args <- assert (isRight $ equs_over_args ty_acc' args_acc') $
-                                                                                                  case equs_over_args ty_acc' args_acc' of
-                                                                                                    Right equs' -> Right equs'
-                                                                                                    Left equs' -> Right equs' -- internal_error asserted in equs_over_args. -}
-                                                                                   {- equs_args <- case equs_over_args ty_acc' args_acc' of
-                                                                                                  Right equs' -> Right equs'
-                                                                                                  Left equs' -> -- internal_error asserted in equs_over_args.
-                                                                                                    assert False (
-                                                                                                      do
-                                                                                                        errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                                        Left (((envs_acc, ty_args_acc), substs), (env, (ty, arg)), [Internal_error errmsg])
-                                                                                                      ) -}
                                                                                    case ty_unif (equs_envs ++ equs_args) of
                                                                                      Just u_call ->
                                                                                        Right ((envs_acc', ty_args_acc'), u_call:substs)
@@ -2272,59 +2210,7 @@ ty_inf symtbl decl =
                                                                                         Left (ty@(Ty_fun _ f_ty'), _) -> ty
                                                                             in
                                                                               Left ((env_call_inf, Syn_expr_call fun_id args_inf ty'), symtbl'', (errs_args ++ errs))
-                                                               {- else
-                                                                 let env_call = make_env_ovwt envs_acc
-                                                                     ty' = case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args_acc of
-                                                                             Right (ty@(Ty_fun _ f_ty'), _) -> ty
-                                                                             Left (ty@(Ty_fun _ f_ty'), _) -> ty
-                                                                 in
-                                                                   assert False (
-                                                                     do
-                                                                       errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                       Left ((env_call, Syn_expr_call fun_id args_acc ty'), symtbl'', ((errs_args ++ errs) ++ [Internal_error errmsg]))
-                                                                     ) -}
                                                     )
-                                                  {- Left _ -> case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args' of
-                                                              Right (ty'@(Ty_fun _ f_ty'), _) ->
-                                                                assert False (
-                                                                  do
-                                                                    errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                    Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
-                                                                  )
-                                                              Left (ty'@(Ty_fun _ f_ty'), _) ->
-                                                                assert False (
-                                                                  do
-                                                                    errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                    Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
-                                                                  )
-                                               ) -}
-                                             {- Left _ -> case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args' of
-                                                         Right (ty'@(Ty_fun _ f_ty'), _) ->
-                                                           assert False (
-                                                             do
-                                                               errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                               Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
-                                                             )
-                                                         Left (ty'@(Ty_fun _ f_ty'), _) ->
-                                                           assert False (
-                                                             do
-                                                               errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                               Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
-                                                             ) -}
-                                       {- else
-                                         case trace_fun_ty (Ty_fun (Prelude.map syn_node_typeof f_args) f_ty) args' of
-                                           Right (ty'@(Ty_fun _ f_ty'), _) ->
-                                             assert False (
-                                               do
-                                                 errmsg <- return $  __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                 Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
-                                               )
-                                           Left (ty'@(Ty_fun _ f_ty'), _) ->
-                                             assert False (
-                                               do
-                                                 errmsg <- return $  __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                 Left ((env_call, Syn_expr_call fun_id args' ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
-                                               ) -}
                                   where
                                     equs_over_args ty_params args =
                                       let ty_args = Prelude.map syn_node_typeof args
@@ -2333,14 +2219,6 @@ ty_inf symtbl decl =
                                             equs' = Prelude.foldl (\es -> \(ty_p, ty_a) -> es ++ (if (ty_p == ty_a) then [] else [(ty_p, ty_a)])) [] equs
                                         in
                                           assert ((length ty_params) == (length ty_args)) equs'
-                                    {- equs_over_args ty_params args =
-                                      let ty_args = Prelude.map syn_node_typeof args
-                                      in
-                                        let equs = zip ty_params ty_args
-                                            equs' = Prelude.foldl (\es -> \(ty_p, ty_a) -> es ++ (if (ty_p == ty_a) then [] else [(ty_p, ty_a)])) [] equs
-                                        in
-                                          if ((length ty_params) == (length ty_args)) then Right equs'
-                                          else Left equs' -- internal_error detected. -}
                                     equs_over_envs envs =
                                       case group_binds ([], (union_binds envs)) of
                                         (b_groups, remains) ->
@@ -2348,14 +2226,6 @@ ty_inf symtbl decl =
                                                                             Right equs -> equs
                                                                             Left equs -> assert False equs -- internal_error detected.
                                                                          )
-                                    {- equs_over_envs envs =
-                                      case group_binds ([], (union_binds envs)) of
-                                        ([], []) -> Right []
-                                        (b_groups, []) -> gen_equs b_groups
-                                        (b_groups, _) -> (case gen_equs b_groups of -- internal_error detected.
-                                                            Right equs -> Left equs
-                                                            Left equs -> Left equs
-                                                         ) -}
                                     union_binds envs =
                                       case envs of
                                         [] -> []
