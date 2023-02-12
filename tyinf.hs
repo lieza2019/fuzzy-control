@@ -2138,11 +2138,13 @@ ty_inf symtbl decl =
                                          let equs_envs = equs_over_envs (Prelude.map fst judges_args)
                                              equs_args = equs_over_args (Prelude.map syn_node_typeof f_args_matched) args'
                                          in
-                                           let equs_envs' = assert (isRight equs_envs) (case equs_envs of
+                                           let equs_envs' = equs_envs
+                                               equs_args' = equs_args
+                                               {- equs_envs' = assert (isRight equs_envs) (case equs_envs of
                                                                                           Right equs_envs' -> equs_envs'
                                                                                           Left equs_envs' -> equs_envs'
-                                                                                       )
-                                               equs_args' = equs_args
+                                                                                       ) -}
+                                               
                                            in
                                            {- case equs_envs of
                                              Right equs_envs' -> -}
@@ -2199,12 +2201,13 @@ ty_inf symtbl decl =
                                                          in
                                                            case (Prelude.foldl (\acc -> \(env, (ty, arg)) -> do
                                                                                    ((envs_acc, ty_args_acc), substs) <- acc
+                                                                                   let ty_args_acc' = ty_args_acc ++ [(ty, arg)]
                                                                                    let envs_acc' = envs_acc ++ [env]
-                                                                                       ty_args_acc' = ty_args_acc ++ [(ty, arg)]
-                                                                                   equs_envs <- assert (isRight $ equs_over_envs envs_acc') $
+                                                                                       equs_envs = equs_over_envs envs_acc'
+                                                                                   {- equs_envs <- assert (isRight $ equs_over_envs envs_acc') $
                                                                                                   case equs_over_envs envs_acc' of
                                                                                                     Right equs' -> Right equs'
-                                                                                                    Left equs' -> Right equs' -- internal_error asserted in equs_over_envs.
+                                                                                                    Left equs' -> Right equs' -- internal_error asserted in equs_over_envs. -}
                                                                                    {- equs_envs <- case equs_over_envs envs_acc' of
                                                                                                   Right equs' -> Right equs'
                                                                                                   Left equs' -> -- internal_error asserted in equs_over_envs.
@@ -2338,21 +2341,21 @@ ty_inf symtbl decl =
                                         in
                                           if ((length ty_params) == (length ty_args)) then Right equs'
                                           else Left equs' -- internal_error detected. -}
-                                    equs_over_envs' envs =
+                                    equs_over_envs envs =
                                       case group_binds ([], (union_binds envs)) of
                                         (b_groups, remains) ->
                                           assert ((length remains) == 0) (case gen_equs b_groups of
                                                                             Right equs -> equs
                                                                             Left equs -> assert False equs -- internal_error detected.
                                                                          )
-                                    equs_over_envs envs =
+                                    {- equs_over_envs envs =
                                       case group_binds ([], (union_binds envs)) of
                                         ([], []) -> Right []
                                         (b_groups, []) -> gen_equs b_groups
                                         (b_groups, _) -> (case gen_equs b_groups of -- internal_error detected.
                                                             Right equs -> Left equs
                                                             Left equs -> Left equs
-                                                         )
+                                                         ) -}
                                     union_binds envs =
                                       case envs of
                                         [] -> []
