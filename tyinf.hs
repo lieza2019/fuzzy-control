@@ -1493,9 +1493,10 @@ ty_unif equs =
                                                  )
             _ -> Nothing
 
-
+type Ty_env_bind = [(String, Type)]
 data Ty_env =
-  Ty_env [(String, Type)]
+  --Ty_env [(String, Type)]
+  Ty_env Ty_env_bind
   deriving (Eq, Show)
 
 ty_subst_env :: [Subst] -> Ty_env -> Ty_env
@@ -2337,6 +2338,13 @@ ty_inf symtbl decl =
                                         in
                                           if ((length ty_params) == (length ty_args)) then Right equs'
                                           else Left equs' -- internal_error detected. -}
+                                    equs_over_envs' envs =
+                                      case group_binds ([], (union_binds envs)) of
+                                        (b_groups, remains) ->
+                                          assert ((length remains) == 0) (case gen_equs b_groups of
+                                                                            Right equs -> equs
+                                                                            Left equs -> assert False equs -- internal_error detected.
+                                                                         )
                                     equs_over_envs envs =
                                       case group_binds ([], (union_binds envs)) of
                                         ([], []) -> Right []
