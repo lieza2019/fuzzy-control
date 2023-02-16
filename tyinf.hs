@@ -2272,6 +2272,22 @@ ty_inf symtbl decl =
                                                                                              Right es_bs -> Left (es_v ++ es_bs)
                                                                                              Left es_bs -> Left (es_v ++ es_bs)
                                                                                           )
+                                            equs_over_envs' envs =
+                                              case group_binds ([], (union_binds envs)) of
+                                                (b_groups, remains) -> assert ((length remains) == 0) $ gen_equs' b_groups
+                                            gen_equs' b_groups =
+                                              case b_groups of
+                                                [] -> []
+                                                [b]:gs -> gen_equs' gs
+                                                g:gs -> (enum_equs g) ++ (gen_equs' gs)
+                                                  where
+                                                    enum_equs binds =
+                                                      case binds of
+                                                        [] -> []
+                                                        (v_id, ty):bs ->
+                                                          let equs = Prelude.foldl (\es -> \(v_id', ty') -> assert (v_id' == v_id) (if (ty' == ty) then (es ++ [(ty, ty')]) else es)) [] bs
+                                                          in
+                                                            equs ++ (enum_equs bs)
                            Left ((judges_args, errs_args), symtbl'', ((f_args_matched, acc_args), f_args_remain)) ->
                              let args_ty = Prelude.foldl (\a_ts -> \a -> (a_ts ++ [syn_node_typeof a])) [] f_args_remain
                              in
