@@ -2203,6 +2203,9 @@ ty_inf symtbl decl =
                                                                           in
                                                                             Left ((env_call_inf, Syn_expr_call fun_id args_inf ty'), symtbl'', (errs_args ++ errs))
                                           where
+                                            equs_over_envs envs =
+                                              case group_binds ([], (union_binds envs)) of
+                                                (b_groups, remains) -> assert ((length remains) == 0) $ gen_equs b_groups
                                             equs_over_args ty_params args =
                                               let ty_args = Prelude.map syn_node_typeof args
                                               in
@@ -2210,12 +2213,6 @@ ty_inf symtbl decl =
                                                     equs' = Prelude.foldl (\es -> \(ty_p, ty_a) -> es ++ (if (ty_p == ty_a) then [] else [(ty_p, ty_a)])) [] equs
                                                 in
                                                   assert ((length ty_params) == (length ty_args)) equs'
-                                            equs_over_envs envs =
-                                              case group_binds ([], (union_binds envs)) of
-                                                (b_groups, remains) -> assert ((length remains) == 0) (case gen_equs b_groups of
-                                                                                                         Right equs -> equs
-                                                                                                         Left equs -> assert False equs -- internal_error detected.
-                                                                                                      )
                                             union_binds envs =
                                               case envs of
                                                 [] -> []
@@ -2231,55 +2228,9 @@ ty_inf symtbl decl =
                                                                                           ) ([], []) remains
                                             gen_equs b_groups =
                                               case b_groups of
-                                                [] -> Right []
-                                                [b]:gs -> gen_equs gs
-                                                g:gs -> (case enum_equs g of
-                                                           Right equs_g -> (case gen_equs gs of
-                                                                              Right equs_gs -> Right (equs_g ++ equs_gs)
-                                                                              Left equs_gs -> Left (equs_g ++ equs_gs)
-                                                                           )
-                                                           Left equs_g -> (case gen_equs gs of
-                                                                             Right equs_gs -> Left (equs_g ++ equs_gs)
-                                                                             Left equs_gs -> Left (equs_g ++ equs_gs)
-                                                                          )
-                                                        )
-                                                  where
-                                                    enum_equs binds =
-                                                      case binds of
-                                                        [] -> Right []
-                                                        (v_id, ty):bs -> let equs_v = Prelude.foldl (\equs -> \(id', ty') ->
-                                                                                                        let e_new = if (id' == v_id) then
-                                                                                                                      if (ty' /= ty) then (Right [(ty, ty')]) else (Right [])
-                                                                                                                    else (Left []) -- internal error detected.
-                                                                                                        in
-                                                                                                          case e_new of
-                                                                                                            Right e -> (case equs of
-                                                                                                                          Right es -> Right (es ++ e)
-                                                                                                                          Left es -> Left (es ++ e)
-                                                                                                                       )
-                                                                                                            Left e -> (case equs of
-                                                                                                                         Right es -> Left (es ++ e)
-                                                                                                                         Left es -> Left (es ++ e)
-                                                                                                                      )
-                                                                                                    ) (Right []) bs
-                                                                         in
-                                                                           case equs_v of
-                                                                             Right es_v -> (case enum_equs bs of
-                                                                                              Right es_bs -> Right (es_v ++ es_bs)
-                                                                                              Left es_bs -> Left (es_v ++ es_bs)
-                                                                                           )
-                                                                             Left es_v -> (case enum_equs bs of
-                                                                                             Right es_bs -> Left (es_v ++ es_bs)
-                                                                                             Left es_bs -> Left (es_v ++ es_bs)
-                                                                                          )
-                                            equs_over_envs' envs =
-                                              case group_binds ([], (union_binds envs)) of
-                                                (b_groups, remains) -> assert ((length remains) == 0) $ gen_equs' b_groups
-                                            gen_equs' b_groups =
-                                              case b_groups of
                                                 [] -> []
-                                                [b]:gs -> gen_equs' gs
-                                                g:gs -> (enum_equs g) ++ (gen_equs' gs)
+                                                [b]:gs -> gen_equs gs
+                                                g:gs -> (enum_equs g) ++ (gen_equs gs)
                                                   where
                                                     enum_equs binds =
                                                       case binds of
