@@ -997,40 +997,23 @@ par_fun_decl symtbl fun tokens =
       Syn_fun_decl fun_id args fun_body fun_ty -> (case tokens of
                                                      Tk_L_par:Tk_R_par:ts -> let ((fun_ty', tokens'), errs) = par_fun_type ts
                                                                                  fun_decl = Syn_fun_decl fun_id args fun_body fun_ty'
-                                                                                 {- (symtbl', err_symreg) = sym_regist' (fun_id, fun_decl)
-                                                                                 errs' = case err_symreg of
-                                                                                           Just e_reg -> errs ++ [e_reg]
-                                                                                           Nothing -> errs -}
                                                                              in
-                                                                               --((fun_decl, symtbl', tokens'), errs')
                                                                                ((fun_decl, symtbl, tokens'), errs)
                                                      Tk_L_par:ts -> let ((args', ts'), symtbl', arg_errs) = cons_args_decl symtbl ts
                                                                     in
                                                                       case ts' of
                                                                         Tk_R_par:ts'' -> let fun_decl = Syn_fun_decl fun_id (args ++ args') fun_body fun_ty'
-                                                                                             {- (symtbl'', err_symreg) = sym_regist'' (fun_id, fun_decl)
-                                                                                             errs' = case err_symreg of
-                                                                                                       Just e_reg -> errs ++ [e_reg]
-                                                                                                       Nothing -> errs -}
                                                                                          in
-                                                                                           --((fun_decl, symtbl'', tokens'), errs')
                                                                                            ((fun_decl, symtbl', tokens'), errs)
                                                                           where
                                                                             ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts''
-                                                                            --sym_regist'' = sym_regist False symtbl' Sym_cat_decl
                                                                             errs = arg_errs ++ fun_ty_errs
                                                                         
                                                                         _ -> let fun_decl = Syn_fun_decl fun_id (args ++ args') fun_body fun_ty'
-                                                                                 {- (symtbl'', err_symreg) = sym_regist'' (fun_id, fun_decl)
-                                                                                 errs' = case err_symreg of
-                                                                                           Just e_reg -> errs ++ [e_reg]
-                                                                                           Nothing -> errs -}
                                                                              in
-                                                                               --((fun_decl, symtbl'', tokens'), errs')
                                                                                ((fun_decl, symtbl', tokens'), errs)
                                                                           where
                                                                             ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts'
-                                                                            --sym_regist'' = sym_regist False symtbl' Sym_cat_decl
                                                                             errs = arg_errs ++ [Imcomplete_function_declaration] ++ fun_ty_errs
                                                        where
                                                          cons_args_decl :: Symtbl -> [Tk_code] -> (([Syntree_node], [Tk_code]), Symtbl, [Error_codes])
@@ -1057,19 +1040,12 @@ par_fun_decl symtbl fun tokens =
                                                          
                                                          
                                                      _ -> let fun_decl = Syn_fun_decl fun_id args fun_body fun_ty'
-                                                              {- (symtbl', err_symreg) = sym_regist' (fun_id, fun_decl)
-                                                              errs' = case err_symreg of
-                                                                        Just e_reg -> errs ++ [e_reg]
-                                                                        Nothing -> errs -}
                                                           in
-                                                            --((fun_decl, symtbl', tokens'), errs')
                                                             ((fun_decl, symtbl, tokens'), errs)
                                                        where
                                                          ((fun_ty', tokens'), fun_ty_errs) = par_fun_type tokens
                                                          errs =  [Imcomplete_function_declaration] ++ fun_ty_errs
                                                   )
-        {- where
-          sym_regist' = sym_regist False symtbl Sym_cat_decl -}
       
       _ -> ((Syn_none, symtbl, tokens), [Internal_error "Calling cons_var_decl with non variable constructor."])
 
