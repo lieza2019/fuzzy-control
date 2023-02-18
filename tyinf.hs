@@ -1031,10 +1031,10 @@ par_fun_decl' symtbl fun tokens =
                        case cons_var_decl symtbl arg ts of
                          ((Nothing, symtbl', ts'), errs) -> ((Just (Syn_arg_def arg_id Ty_abs), ts'), symtbl', errs)
                          ((Just (Syn_var_decl arg_id arg_ty), symtbl', ts'), errs) -> ((Just (Syn_arg_def arg_id arg_ty), ts'), symtbl', errs)
-                         ((_, symtbl', ts'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                    in
-                                                                       ((Just Syn_none, ts'), symtbl', (errs ++ [Internal_error errmsg]))
-                                                                   )
+                         ((Just wrong, symtbl', ts'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                             in
+                                                                               ((Just wrong, ts'), symtbl', (errs ++ [Internal_error errmsg]))
+                                                                            )
                    _ -> ((Nothing, tokens), symtbl, [])
            
            _ -> ((Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty'), symtbl, tokens'), errs)
@@ -1045,9 +1045,54 @@ par_fun_decl' symtbl fun tokens =
       
       _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                          in
-                            ((Syn_none, symtbl, tokens), [Internal_error errmsg])
+                            ((fun, symtbl, tokens), [Internal_error errmsg])
                         )
-   
+
+cons_fun_tree symtbl fun tokens =
+  case fun of
+    Syn_fun_decl' fun_id args fun_body (env, fun_ty) ->
+      case par_fun_decl' symtbl fun tokens of
+        ((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', tokens'), errs) ->
+          assert (fun_id' == fun_id') (
+            case chk_args args' of
+              (Right r, errs_args) -> assert (r == []) ((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', tokens'), (errs ++ errs_args))
+              --(Left ill_args, err_args) -> 
+          )
+          where
+            chk_args :: [Syntree_node] -> (Either [Syntree_node] [Syntree_node], [Error_codes])
+            chk_args args =
+              let chk_decls (as, omits) =
+                    case as of
+                      [] -> (Right [], [])
+                      [a] -> (Right [], [])
+                      a:as' -> (case Prelude.lookup (fst a) omits of
+                                  Just _ -> chk_decls (as', omits)
+                                  Nothing -> (case Prelude.lookup (fst a) as' of
+                                                Nothing -> chk_decls (as', omits)
+                                                Just a' -> (case chk_decls (as', (a:omits)) of
+                                                              (Right as'', errs) -> assert (as'' == []) (Left [(snd a)], (errs ++ [Symbol_redifinition]))
+                                                              (Left ill_decls, errs) -> (Left (ill_decls ++ [(snd a)]), (errs ++ [Symbol_redifinition]))
+                                                           )
+                                             )
+                               )
+              in
+                chk_decls (args', [])
+              where
+                args' = Prelude.foldl (\as -> \a -> case a of
+                                          (Syn_arg_def id _) -> as ++ [(id, a)]
+                                          _ -> assert False as
+                                      ) [] args
+                
+                  
+        ((wrong, symtbl', tokens'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                           in
+                                                             ((wrong, symtbl, tokens), (errs ++ [Internal_error errmsg]))
+                                                          )
+    _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                       in
+                         ((fun, symtbl, tokens), [Internal_error errmsg])
+                      )
+
 par_fun_decl :: Symtbl -> Syntree_node -> [Tk_code] -> ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 par_fun_decl symtbl fun tokens =
   let par_fun_type tokens =
