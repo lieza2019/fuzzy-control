@@ -1054,24 +1054,103 @@ cons_fun_tree symtbl fun tokens =
       case par_fun_decl' symtbl fun tokens of
         ((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', tokens'), errs) ->
           assert (fun_id' == fun_id') (
-            case chk_args args' of
-              (Right r, errs_args) -> assert (r == []) ((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', tokens'), (errs ++ errs_args))
-              --(Left ill_args, err_args) -> 
-          )
+            --((Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty'), symtbl', tokens'), errs)
+            let (args'', errs') = case chk_args args' of
+                                    (Right args'', errs_args) -> (args'', Right [errs_args])
+                                    (Left args'', errs_args) -> (args'', Left [errs_args])
+            in
+              case tokens' of
+                Tk_L_bra:ts' -> do
+                  let fun' = Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')
+                  let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', fun')
+                  let (new_scope, errs_argreg) = Prelude.foldl (\(sytbl, errs) -> \arg@(Syn_arg_def id _) -> case sym_regist False sytbl Sym_cat_decl (id, arg) of
+                                                                                                               (sytbl', Just err_reg) -> (sytbl', (errs ++ [err_reg]))
+                                                                                                               (sytbl', Nothing) -> (symtbl', errs)
+                                                               ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) args''
+                  case fun_body' of
+                    (Syn_scope ([], Syn_none)) -> let ((var_decls, expr_par_trees), new_scope', ts'', errs_body) = parse_fun_body new_scope ts'
+                                                      fun_body'' = (var_decls, (case expr_par_trees of
+                                                                                  [] -> Syn_none
+                                                                                  [e] -> e
+                                                                                  es -> Syn_expr_seq es Ty_abs
+                                                                               )
+                                                                   )
+                                                      fun'' = Syn_fun_decl' fun_id' args'' (Syn_scope fun_body'') (env',fun_ty')
+                                                      errs0 = [(Right errs)] ++ [(mkup_errs err_funreg)] ++ [(Right errs_argreg)] ++ [(Right errs_body)]
+                                                  in
+                                                    let prev_scope = sym_leave_scope new_scope' Sym_cat_decl
+                                                        (prev_scope', err_funreg') = sym_regist False prev_scope Sym_cat_func (fun_id', fun'')
+                                                        errs1 = errs0 ++ [(mkup_errs err_funreg')]
+                                                    in
+                                                      case cat_errs (fun'', errs1) of
+                                                        (Right r, errs'') -> (case ts'' of
+                                                                                Tk_R_bra:tokens'' -> ((r, prev_scope', tokens''), errs'')
+                                                                                _ -> ((r, prev_scope', ts''), errs'')
+                                                                             )
+                                                        (Left r, errs'') -> (case ts'' of
+                                                                               Tk_R_bra:tokens'' -> ((r, prev_scope', tokens''), errs'')
+                                                                               _ -> ((r, prev_scope', ts''), errs'')
+                                                                            )
+                    
+                    _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                       in
+                                         ((r, new_scope, ts'), (errs'' ++ [Internal_error errmsg]))
+                                      )
+                      where
+                        errs0 = [(Right errs)] ++ [(mkup_errs err_funreg)] ++ [(Right errs_argreg)]
+                        (r, errs'') = case cat_errs (fun', errs0) of
+                                        (Right r', errs0') -> (r', errs0')
+                                        (Left r', errs0') -> (r', errs0')
+            )
           where
+            mkup_errs :: (Maybe Error_codes) -> Either [Error_codes] [Error_codes]
+            mkup_errs err =
+              case err of
+                Just err' -> Right [err']
+                Nothing -> Right []
+            
+            cat_errs :: (Syntree_node, [Either [Error_codes] [Error_codes]]) -> (Either Syntree_node Syntree_node, [Error_codes])
+            cat_errs (syntree, errs) =
+              case errs of
+                [] -> (Right syntree, [])
+                _ -> let r = Prelude.foldl (\acc -> \es -> (do
+                                                               (done, yet) <- acc
+                                                               assert (yet /= []) (
+                                                                 case yet of
+                                                                   y:yet' -> assert (y == es) (
+                                                                     case es of
+                                                                       Right es' -> Right ((done ++ es'), yet')
+                                                                       Left es' -> Left (done, yet)
+                                                                     )
+                                                                 )
+                                                           )
+                                           ) (Right ([], errs)) errs
+                     in
+                       case r of
+                         Right (errs', remains) -> assert (remains == []) (Right syntree, errs')
+                         Left (errs', remains) -> (Left syntree, (errs' ++ remains'))
+                           where
+                             remains' = Prelude.foldl (\acc -> \es -> case es of
+                                                                        Right es' -> (acc ++ es')
+                                                                        Left es' -> (acc ++ es')
+                                                      ) [] remains
+            
             chk_args :: [Syntree_node] -> (Either [Syntree_node] [Syntree_node], [Error_codes])
             chk_args args =
               let chk_decls (as, omits) =
                     case as of
                       [] -> (Right [], [])
-                      [a] -> (Right [], [])
+                      [a] -> (Right [(snd a)], [])
                       a:as' -> (case Prelude.lookup (fst a) omits of
                                   Just _ -> chk_decls (as', omits)
                                   Nothing -> (case Prelude.lookup (fst a) as' of
-                                                Nothing -> chk_decls (as', omits)
+                                                Nothing -> (case chk_decls (as', omits) of
+                                                              (Right as'', errs) -> (Right ((snd a) : as''), errs)
+                                                              (Left as'', errs) ->  (Left ((snd a) : as''), errs)
+                                                           )
                                                 Just a' -> (case chk_decls (as', (a:omits)) of
-                                                              (Right as'', errs) -> assert (as'' == []) (Left [(snd a)], (errs ++ [Symbol_redifinition]))
-                                                              (Left ill_decls, errs) -> (Left (ill_decls ++ [(snd a)]), (errs ++ [Symbol_redifinition]))
+                                                              (Right as'', errs) -> (Left ((snd a) : as''), ((Symbol_redifinition) : errs))
+                                                              (Left ill_decls, errs) -> (Left ((snd a) : ill_decls), ((Symbol_redifinition) : errs))
                                                            )
                                              )
                                )
@@ -1082,8 +1161,11 @@ cons_fun_tree symtbl fun tokens =
                                           (Syn_arg_def id _) -> as ++ [(id, a)]
                                           _ -> assert False as
                                       ) [] args
-                
-                  
+            
+            parse_fun_body :: Symtbl -> [Tk_code] -> (([Syntree_node], [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
+            parse_fun_body symtbl tokens =
+              (([], []), symtbl, [], [])
+            
         ((wrong, symtbl', tokens'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                            in
                                                              ((wrong, symtbl, tokens), (errs ++ [Internal_error errmsg]))
