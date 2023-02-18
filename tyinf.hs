@@ -727,6 +727,46 @@ data Type =
   | Ty_unknown
   deriving (Eq, Ord, Show)
 
+type Ty_env_bind = [(String, Type)]
+data Ty_env =
+  --Ty_env [(String, Type)]
+  Ty_env Ty_env_bind
+  deriving (Eq, Ord, Show)
+
+type Subst = (String, Type)
+
+ty_subst :: [Subst] -> Type -> Type
+ty_subst subst ty_expr =
+  case subst of
+    [] -> ty_expr
+    s:ss -> ty_subst ss (subst1 s ty_expr)
+      where
+        subst1 :: Subst -> Type -> Type
+        subst1 (subst@(tvar_id, ty_mapsto)) ty_expr =
+          case ty_expr of
+            Ty_top -> ty_expr
+            Ty_bool -> ty_expr
+            Ty_string -> ty_expr
+            Ty_int -> ty_expr              
+            Ty_var id -> if id == tvar_id then ty_mapsto else ty_expr
+            Ty_pair (ty_expr1, ty_expr2) -> Ty_pair (subst1 subst ty_expr1, subst1 subst ty_expr2)
+            Ty_fun ty_args ty_expr -> Ty_fun (Prelude.map (subst1 subst) ty_args) (subst1 subst ty_expr)
+            Ty_abs -> ty_expr
+            Ty_btm -> ty_expr
+            Ty_prom ty_prev ty_crnt -> Ty_prom ty_prev (subst1 subst ty_crnt)
+            Ty_ovride ty_prev ty_crnt -> Ty_ovride ty_prev (subst1 subst ty_crnt)
+            Ty_unknown -> ty_expr
+
+ty_subst_env :: [Subst] -> Ty_env -> Ty_env
+ty_subst_env subst env =
+  case env of
+    Ty_env [] -> env
+    Ty_env ((v_id, v_ty):es) -> let v_ty' = ty_subst subst v_ty
+                                in
+                                  Ty_env $ (v_id, v_ty'):(case ty_subst_env subst (Ty_env es) of
+                                                            Ty_env es' -> es'
+                                                         )
+
 ty_ftv :: Type -> [String]
 ty_ftv ty_expr =
   case ty_expr of
@@ -781,30 +821,6 @@ ty_lcs ty_1 ty_2 =
     else
       if (is_subty ty_2 ty_1) then Just ty_1 else Nothing
 
-type Subst = (String, Type)
-
-ty_subst :: [Subst] -> Type -> Type
-ty_subst subst ty_expr =
-  case subst of
-    [] -> ty_expr
-    s:ss -> ty_subst ss (subst1 s ty_expr)
-      where
-        subst1 :: Subst -> Type -> Type
-        subst1 (subst@(tvar_id, ty_mapsto)) ty_expr =
-          case ty_expr of
-            Ty_top -> ty_expr
-            Ty_bool -> ty_expr
-            Ty_string -> ty_expr
-            Ty_int -> ty_expr              
-            Ty_var id -> if id == tvar_id then ty_mapsto else ty_expr
-            Ty_pair (ty_expr1, ty_expr2) -> Ty_pair (subst1 subst ty_expr1, subst1 subst ty_expr2)
-            Ty_fun ty_args ty_expr -> Ty_fun (Prelude.map (subst1 subst) ty_args) (subst1 subst ty_expr)
-            Ty_abs -> ty_expr
-            Ty_btm -> ty_expr
-            Ty_prom ty_prev ty_crnt -> Ty_prom ty_prev (subst1 subst ty_crnt)
-            Ty_ovride ty_prev ty_crnt -> Ty_ovride ty_prev (subst1 subst ty_crnt)
-            Ty_unknown -> ty_expr
-
 
 data Operation =
   Ope_asgn
@@ -826,6 +842,7 @@ data Val =
 data Syntree_node =
   Syn_scope ([Syntree_node], Syntree_node)
   | Syn_tydef_decl String Type
+  | Syn_fun_decl' String [Syntree_node] Syntree_node (Ty_env, Type)
   | Syn_fun_decl String [Syntree_node] Syntree_node Type
   | Syn_arg_def String Type
   | Syn_rec_decl String Type
@@ -846,6 +863,7 @@ syn_node_typeof :: Syntree_node -> Type
 syn_node_typeof expr =
   case expr of
     Syn_tydef_decl _ ty -> ty
+    Syn_fun_decl' _ _ _ (_, ty) -> ty
     Syn_fun_decl _ _ _ ty -> ty
     Syn_arg_def _ ty -> ty
     Syn_rec_decl _  ty -> ty
@@ -877,6 +895,7 @@ syn_node_promote expr ty_prom =
     case expr of
       Syn_scope _ -> expr
       Syn_tydef_decl id ty -> Syn_tydef_decl id (Ty_prom ty ty_prom)
+      Syn_fun_decl' id args body (env, ty) -> Syn_fun_decl' id args body (env, (Ty_prom ty ty_prom))
       Syn_fun_decl id args body ty -> Syn_fun_decl id args body (Ty_prom ty ty_prom)
       Syn_arg_def id ty -> Syn_arg_def id (Ty_prom ty ty_prom)
       Syn_rec_decl id ty -> Syn_rec_decl id (Ty_prom ty ty_prom)
@@ -898,6 +917,7 @@ syn_node_subst subst expr =
   case expr of   
     Syn_scope (decls, body) -> Syn_scope ((Prelude.map (syn_node_subst subst) decls), syn_node_subst subst body)
     Syn_tydef_decl ty_id ty -> Syn_tydef_decl ty_id (ty_subst subst ty)
+    Syn_fun_decl' fun_id args body (env, ty) -> Syn_fun_decl' fun_id (Prelude.map (syn_node_subst subst) args) (syn_node_subst subst body) ((ty_subst_env subst env),(ty_subst subst ty))
     Syn_fun_decl fun_id args body ty -> Syn_fun_decl fun_id (Prelude.map (syn_node_subst subst) args) (syn_node_subst subst body) (ty_subst subst ty)
     Syn_arg_def arg_id ty -> Syn_arg_def arg_id (ty_subst subst ty)
     Syn_rec_decl rec_id ty -> Syn_rec_decl rec_id (ty_subst subst ty)
@@ -949,40 +969,85 @@ par_type_decl tokens =
 cons_var_decl :: Symtbl -> Syntree_node -> [Tk_code] -> ((Maybe Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 cons_var_decl symtbl var tokens =
   case var of
-    Syn_var var_id var_ty -> (case tokens of
-                                Tk_typed_as:ts -> (case par_type_decl tokens of
-                                                     (Right var_ty', ts') -> let var_decl = Syn_var_decl var_id var_ty'
-                                                                                 {- (symtbl', err_symreg) = sym_regist' (var_id, var_decl)
-                                                                                 err = case err_symreg of
-                                                                                   Just e_reg  -> [e_reg]
-                                                                                   Nothing -> [] -}
-                                                                             in
-                                                                               --((Just var_decl, symtbl', ts'), err)
-                                                                               ((Just var_decl, symtbl, ts'), [])
-                                                     (Left err, ts') -> let var_decl = Syn_var_decl var_id var_ty
-                                                                            {- (symtbl', err_symreg) = sym_regist' (var_id, var_decl)
-                                                                            err' = case err_symreg of
-                                                                                     Just e_reg -> err ++ [e_reg]
-                                                                                     Nothing -> err -}
-                                                                        in
-                                                                          --((Just var_decl, symtbl', ts'), err')
-                                                                          ((Just var_decl, symtbl, ts'), err)
-                                                  )
-                                  {- where
-                                    sym_regist' = sym_regist False symtbl Sym_cat_decl -}
-                                
-                                _ -> let var_decl = Syn_var_decl var_id var_ty
-                                         {- (symtbl', err_symreg) = sym_regist False symtbl Sym_cat_decl (var_id, var_decl)
-                                         err = case err_symreg of
-                                           Just e_reg  -> [e_reg]
-                                           Nothing -> [] -}
-                                     in
-                                       --((Just var_decl, symtbl', tokens), err)
-                                       ((Just var_decl, symtbl, tokens), [])
-                             )
-    _ -> ((Just Syn_none, symtbl, tokens), [Internal_error "Calling cons_var_decl with non variable constructor."])
+    Syn_var var_id var_ty ->
+      (case tokens of
+         Tk_typed_as:ts -> (case par_type_decl tokens of
+                              (Right var_ty', ts') -> ((Just (Syn_var_decl var_id var_ty'), symtbl, ts'), [])
+                              (Left err, ts') -> ((Just (Syn_var_decl var_id var_ty), symtbl, ts'), err)
+                           )
+         _ -> ((Just (Syn_var_decl var_id var_ty), symtbl, tokens), [])
+      )
+    _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                       in
+                          ((Just Syn_none, symtbl, tokens), [Internal_error errmsg])
+                      )
 
-
+par_fun_decl' :: Symtbl -> Syntree_node -> [Tk_code] -> ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
+par_fun_decl' symtbl fun tokens =
+  let par_fun_type tokens = case tokens of
+                              Tk_typed_as:ts -> (case par_type_decl tokens  of
+                                                   (Right ty, ts') -> ((ty, ts'), [])
+                                                   (Left err, ts') -> ((Ty_abs, ts'), err)
+                                                )
+                              _ -> ((Ty_abs, tokens), [])
+  in
+    case fun of
+      Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty) ->
+        (case tokens of
+           Tk_L_par:Tk_R_par:ts -> ((Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty'), symtbl, tokens'), errs)
+             where
+               ((fun_ty', tokens'), errs) = par_fun_type ts
+           Tk_L_par:ts -> let ((args', ts'), symtbl', arg_errs) = par_args symtbl ts
+                              binds' = Prelude.map snd $ Prelude.foldl (\bs -> \(a_id, _) -> case Prelude.lookup a_id bs of
+                                                                                               Just b -> Set.toList $ Set.difference (Set.fromList bs) (Set.fromList [(a_id, b)])
+                                                                                               Nothing -> bs
+                                                                       ) (Prelude.map (\(id, ty) -> (id, (id, ty))) binds) (Prelude.map (\(Syn_var_decl a_id a_ty) -> (a_id, a_ty)) args')
+                          in
+                            case ts' of
+                              Tk_R_par:ts'' -> ((Syn_fun_decl' fun_id (args ++ args') fun_body (Ty_env binds', fun_ty'), symtbl', tokens'), (arg_errs ++ fun_ty_errs))
+                                where
+                                  ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts''
+                              _ -> ((Syn_fun_decl' fun_id (args ++ args') fun_body (Ty_env binds', fun_ty'), symtbl', tokens'), errs)
+                                where
+                                  ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts'
+                                  errs = (arg_errs ++ [Imcomplete_function_declaration]) ++ fun_ty_errs
+             where
+               par_args :: Symtbl -> [Tk_code] -> (([Syntree_node], [Tk_code]), Symtbl, [Error_codes])
+               par_args symtbl tokens =
+                 case par_arg symtbl tokens of
+                   ((Nothing, tokens'), symtbl', errs) -> (([], tokens'), symtbl', errs)
+                   ((Just arg, tokens'), symtbl', errs) -> (case tokens' of
+                                                              Tk_smcl:ts' -> ((arg:args, tokens''), symtbl'', (errs ++ errs'))
+                                                                where
+                                                                  ((args, tokens''), symtbl'', errs') = par_args symtbl' ts'
+                                                              _ -> (([arg], tokens'), symtbl', errs)
+                                                           )
+               par_arg :: Symtbl -> [Tk_code] -> ((Maybe Syntree_node, [Tk_code]), Symtbl, [Error_codes])
+               par_arg symtbl tokens =
+                 case tokens of
+                   (Tk_ident arg_id):ts ->
+                     let arg = Syn_var arg_id Ty_abs
+                     in
+                       case cons_var_decl symtbl arg ts of
+                         ((Nothing, symtbl', ts'), errs) -> ((Just (Syn_arg_def arg_id Ty_abs), ts'), symtbl', errs)
+                         ((Just (Syn_var_decl arg_id arg_ty), symtbl', ts'), errs) -> ((Just (Syn_arg_def arg_id arg_ty), ts'), symtbl', errs)
+                         ((_, symtbl', ts'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                    in
+                                                                       ((Just Syn_none, ts'), symtbl', (errs ++ [Internal_error errmsg]))
+                                                                   )
+                   _ -> ((Nothing, tokens), symtbl, [])
+           
+           _ -> ((Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty'), symtbl, tokens'), errs)
+             where
+               ((fun_ty', tokens'), fun_ty_errs) = par_fun_type tokens
+               errs =  [Imcomplete_function_declaration] ++ fun_ty_errs
+        )
+      
+      _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                         in
+                            ((Syn_none, symtbl, tokens), [Internal_error errmsg])
+                        )
+   
 par_fun_decl :: Symtbl -> Syntree_node -> [Tk_code] -> ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 par_fun_decl symtbl fun tokens =
   let par_fun_type tokens =
@@ -1468,22 +1533,6 @@ ty_unif equs =
                                                     _ -> Nothing
                                                  )
             _ -> Nothing
-
-type Ty_env_bind = [(String, Type)]
-data Ty_env =
-  --Ty_env [(String, Type)]
-  Ty_env Ty_env_bind
-  deriving (Eq, Show)
-
-ty_subst_env :: [Subst] -> Ty_env -> Ty_env
-ty_subst_env subst env =
-  case env of
-    Ty_env [] -> env
-    Ty_env ((var_id, var_ty):es) -> let var_ty' = ty_subst subst var_ty
-                                    in
-                                      Ty_env $ (var_id, var_ty'):(case ty_subst_env subst (Ty_env es) of
-                                                                    Ty_env es' -> es'
-                                                                 )
 
 
 ty_overlap_env :: Ty_env -> Ty_env -> [Equation]
