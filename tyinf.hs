@@ -942,6 +942,7 @@ syn_node_subst subst expr =
 
 data Error_codes =
   Internal_error String
+  | Parse_error String
   | Illtyped_constant
   | Type_constraint_mismatched String
   | Imcomplete_function_declaration
@@ -1056,51 +1057,57 @@ cons_fun_tree symtbl fun tokens =
           assert (fun_id' == fun_id') (
             --((Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty'), symtbl', tokens'), errs)
             let (args'', errs') = case chk_args args' of
-                                    (Right args'', errs_args) -> (args'', Right [errs_args])
-                                    (Left args'', errs_args) -> (args'', Left [errs_args])
+                                    (Right args'', errs_args) -> (args'', ((Right errs):[(Right errs_args)]))
+                                    (Left args'', errs_args) -> (args'', ((Right errs):[(Left errs_args)]))
             in
-              case tokens' of
-                Tk_L_bra:ts' -> do
-                  let fun' = Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')
-                  let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', fun')
-                  let (new_scope, errs_argreg) = Prelude.foldl (\(sytbl, errs) -> \arg@(Syn_arg_def id _) -> case sym_regist False sytbl Sym_cat_decl (id, arg) of
-                                                                                                               (sytbl', Just err_reg) -> (sytbl', (errs ++ [err_reg]))
-                                                                                                               (sytbl', Nothing) -> (symtbl', errs)
-                                                               ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) args''
-                  case fun_body' of
-                    (Syn_scope ([], Syn_none)) -> let ((var_decls, expr_par_trees), new_scope', ts'', errs_body) = parse_fun_body new_scope ts'
-                                                      fun_body'' = (var_decls, (case expr_par_trees of
-                                                                                  [] -> Syn_none
-                                                                                  [e] -> e
-                                                                                  es -> Syn_expr_seq es Ty_abs
-                                                                               )
-                                                                   )
-                                                      fun'' = Syn_fun_decl' fun_id' args'' (Syn_scope fun_body'') (env',fun_ty')
-                                                      errs0 = [(Right errs)] ++ [(mkup_errs err_funreg)] ++ [(Right errs_argreg)] ++ [(Right errs_body)]
-                                                  in
-                                                    let prev_scope = sym_leave_scope new_scope' Sym_cat_decl
-                                                        (prev_scope', err_funreg') = sym_regist False prev_scope Sym_cat_func (fun_id', fun'')
-                                                        errs1 = errs0 ++ [(mkup_errs err_funreg')]
-                                                    in
-                                                      case cat_errs (fun'', errs1) of
-                                                        (Right r, errs'') -> (case ts'' of
-                                                                                Tk_R_bra:tokens'' -> ((r, prev_scope', tokens''), errs'')
-                                                                                _ -> ((r, prev_scope', ts''), errs'')
+              do
+                let (ts', errs_parse) = assert (tokens' /= []) (case tokens' of
+                                                                  t':ts'' | t' == Tk_L_bra -> (ts'', Right [])
+                                                                  t':ts'' -> (ts'', Left [Parse_error errmsg])
+                                                                    where
+                                                                      errmsg = "missing left brace to begin function body declaration."
+                                                               )
+                let fun' = Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')
+                let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', fun')
+                let (new_scope, errs_argreg) = Prelude.foldl (\(sytbl, errs) -> \arg@(Syn_arg_def id _) -> case sym_regist False sytbl Sym_cat_decl (id, arg) of
+                                                                                                             (sytbl', Just err_reg) -> (sytbl', (errs ++ [err_reg]))
+                                                                                                             (sytbl', Nothing) -> (symtbl', errs)
+                                                             ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) args''
+                case fun_body' of
+                  (Syn_scope ([], Syn_none)) -> let ((var_decls, expr_par_trees), new_scope', ts'', errs_body) = parse_fun_body new_scope ts'
+                                                    fun_body'' = (var_decls, (case expr_par_trees of
+                                                                                [] -> Syn_none
+                                                                                [e] -> e
+                                                                                es -> Syn_expr_seq es Ty_abs
                                                                              )
-                                                        (Left r, errs'') -> (case ts'' of
-                                                                               Tk_R_bra:tokens'' -> ((r, prev_scope', tokens''), errs'')
-                                                                               _ -> ((r, prev_scope', ts''), errs'')
-                                                                            )
-                    
-                    _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                       in
-                                         ((r, new_scope, ts'), (errs'' ++ [Internal_error errmsg]))
-                                      )
-                      where
-                        errs0 = [(Right errs)] ++ [(mkup_errs err_funreg)] ++ [(Right errs_argreg)]
-                        (r, errs'') = case cat_errs (fun', errs0) of
-                                        (Right r', errs0') -> (r', errs0')
-                                        (Left r', errs0') -> (r', errs0')
+                                                                 )
+                                                    fun'' = Syn_fun_decl' fun_id' args'' (Syn_scope fun_body'') (env',fun_ty')
+                                                    errs0 = errs' ++ [errs_parse] ++ [(mkup_errs err_funreg)] ++ [(Right errs_argreg)] ++ [(Right errs_body)]
+                                                in
+                                                  let prev_scope = sym_leave_scope new_scope' Sym_cat_decl
+                                                      (prev_scope', err_funreg') = sym_regist False prev_scope Sym_cat_func (fun_id', fun'')
+                                                      errs1 = errs0 ++ [(mkup_errs err_funreg')]
+                                                      errmsg = "missing right brace to end function body declaration."
+                                                  in
+                                                    case cat_errs (fun'', errs1) of
+                                                      (Right r, errs'') -> (case ts'' of
+                                                                              Tk_R_bra:tokens'' -> ((r, prev_scope', tokens''), errs'')
+                                                                              _ -> ((r, prev_scope', ts''), (errs'' ++ [Parse_error errmsg]))
+                                                                           )
+                                                      (Left r, errs'') -> (case ts'' of
+                                                                             Tk_R_bra:tokens'' -> ((r, prev_scope', tokens''), errs'')
+                                                                             _ -> ((r, prev_scope', ts''), (errs'' ++ [Parse_error errmsg]))
+                                                                          )
+                  
+                  _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                      in
+                                       ((r, new_scope, ts'), (errs'' ++ [Internal_error errmsg]))
+                                    )
+                    where
+                      errs0 = [(Right errs)] ++ [(mkup_errs err_funreg)] ++ [(Right errs_argreg)]
+                      (r, errs'') = case cat_errs (fun', errs0) of
+                                      (Right r', errs0') -> (r', errs0')
+                                      (Left r', errs0') -> (r', errs0')
             )
           where
             mkup_errs :: (Maybe Error_codes) -> Either [Error_codes] [Error_codes]
