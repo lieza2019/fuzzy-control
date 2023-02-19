@@ -1059,15 +1059,15 @@ cons_fun_tree symtbl fun tokens =
               ((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', []), errs)
             else
               let (args'', errs') = case chk_args args' of
-                                      (Right args'', errs_args) -> (args'', ((Right errs):[(Right errs_args)]))
-                                      (Left args'', errs_args) -> (args'', ((Right errs):[(Left errs_args)]))
+                                      (Right args'', errs_args) -> (args'', (Right errs):[(Right errs_args)])
+                                      (Left args'', errs_args) -> (args'', (Right errs):[(Left errs_args)])
               in
                 do
                   let (ts', errs_parse) = assert (tokens' /= []) (case tokens' of
                                                                     t':ts'' | t' == Tk_L_bra -> (ts'', Right [])
                                                                     t':ts'' -> (ts'', Left [Parse_error errmsg])
                                                                       where
-                                                                        errmsg = "missing left brace to begin function body declaration."
+                                                                        errmsg = "missing left brace to begin declaration of function body."
                                                                  )
                   let fun' = Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')
                   let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', fun')
@@ -1088,9 +1088,12 @@ cons_fun_tree symtbl fun tokens =
                                                       errs1 = errs0 ++ [(Right errs_body)]
                                                   in
                                                     let prev_scope = sym_leave_scope new_scope' Sym_cat_decl
-                                                        (prev_scope', err_funreg') = sym_regist False prev_scope Sym_cat_func (fun_id', fun'')
+                                                        (prev_scope', err_funreg') = if (sym_crnt_level (sym_decl prev_scope)) <= 1 then
+                                                                                       sym_regist False prev_scope Sym_cat_func (fun_id', fun'')
+                                                                                     else
+                                                                                       (prev_scope, Nothing)
                                                         errs1' = errs1 ++ [(mkup_errs err_funreg')]
-                                                        errmsg = "missing right brace to end function body declaration."
+                                                        errmsg = "missing right brace to end declaration of function body."
                                                     in
                                                       case cat_errs (fun'', errs1') of
                                                         (Right r, errs'') -> (case ts'' of
@@ -1173,8 +1176,40 @@ cons_fun_tree symtbl fun tokens =
             
             parse_fun_body :: Symtbl -> [Tk_code] -> (([Syntree_node], [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
             parse_fun_body symtbl tokens =
-              (([], []), symtbl, [], [])
-            
+              case cons_par_tree symtbl tokens (False, True, True) of
+                (Just fun_decl@(Syn_fun_decl' fun_id args fun_body (env, fun_ty)), symtbl', tokens') ->
+                  (case tokens' of
+                     [] -> (([fun_decl], []), symtbl', [], [])
+                     _ -> let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
+                          in
+                            ((fun_decl:var_decls, expr_trees), symtbl'', tokens'', errs)
+                  )
+                (Just var_decl@(Syn_var_decl _ _), symtbl', tokens') ->
+                  (case tokens' of
+                     [] -> (([var_decl], []), symtbl', [], [Parse_error errmsg])
+                     Tk_smcl:ts' -> let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' ts'
+                                    in
+                                      ((var_decl:var_decls, expr_trees), symtbl'', tokens'', errs)
+                     _ -> let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
+                          in
+                            ((var_decl:var_decls, expr_trees), symtbl'', tokens'', (Parse_error errmsg):errs)
+                  )
+                  where
+                    errmsg = "missing semicolon at the end of declaration."
+                (Just expr_par_tree, symtbl', tokens') ->
+                  (case tokens' of
+                     [] -> (([], [expr_par_tree]), symtbl', tokens', [Parse_error errmsg])
+                     Tk_smcl:ts' -> let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' ts'
+                                    in
+                                      ((var_decls, expr_par_tree:expr_trees), symtbl'', tokens'', errs)
+                     _ -> let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
+                          in
+                            ((var_decls, expr_par_tree:expr_trees), symtbl'', tokens'', (Parse_error errmsg):errs)
+                  )
+                  where
+                    errmsg = "missing semicolon at the end of semtence."
+                (Nothing, symtbl', tokens') -> (([], []), symtbl', tokens', [])
+        
         ((wrong, symtbl', tokens'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                            in
                                                              ((wrong, symtbl', tokens'), (errs ++ [Internal_error errmsg]))
