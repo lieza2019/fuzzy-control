@@ -953,6 +953,7 @@ data Error_codes =
   | Illegal_left_expression_for_assignment
   | Illegal_type_specified Tk_code
   | Illegal_operands Operation Syntree_node
+  | Undefined_symbol String
   | Symbol_redefinition String
   | Illegal_symbol_declaration
   | Unknown_token_detected
@@ -2465,7 +2466,7 @@ ty_inf symtbl decl =
     --Syn_expr_call _ _ _ -> ty_inf_expr symtbl decl
     Syn_expr_call fun_id args ty -> do
       case sym_lkup_fun_decl symtbl fun_id of
-        Nothing -> throwE ((Ty_env [], decl), symtbl, [Type_constraint_mismatched errmsg])
+        Nothing -> throwE ((Ty_env [], decl), symtbl, [Undefined_symbol errmsg])
           where
             errmsg = "undefined function calling of : " ++ fun_id ++ "."
         Just (Sym_attrib { sym_attr_entity = fun_attr}, symtbl') ->
@@ -2496,19 +2497,16 @@ ty_inf symtbl decl =
                                     )
                      in
                        do
-                         let make_env_ovwt = Prelude.foldl (\env_whole -> \env ->
-                                                               ty_ovwt_env env_whole env
-                                                           ) (Ty_env [])
-                             trace_fun_ty (Ty_fun f_args_ty f_ty) args =
-                               case f_args_ty of
-                                 [] -> Right (Ty_fun [] f_ty, args)
-                                 t:ts -> (case args of
-                                            [] -> Right (Ty_fun f_args_ty f_ty, [])
-                                            a:as -> if cmp t (syn_node_typeof a) then trace_fun_ty (Ty_fun ts f_ty) as
-                                                    else Left (Ty_fun f_args_ty f_ty, args)
-                                         )
-                                   where
-                                     cmp ty1 ty2 = ty1 == ty2
+                         let make_env_ovwt = Prelude.foldl (\env_whole -> \env -> ty_ovwt_env env_whole env) (Ty_env [])
+                             trace_fun_ty (Ty_fun f_args_ty f_ty) args = case f_args_ty of
+                                                                           [] -> Right (Ty_fun [] f_ty, args)
+                                                                           t:ts -> (case args of
+                                                                                      [] -> Right (Ty_fun f_args_ty f_ty, [])
+                                                                                      a:as -> if cmp t (syn_node_typeof a) then trace_fun_ty (Ty_fun ts f_ty) as
+                                                                                              else Left (Ty_fun f_args_ty f_ty, args)
+                                                                                   )
+                                                                             where
+                                                                               cmp ty1 ty2 = ty1 == ty2
                          args_inf <- Prelude.foldl (\judges_args -> \arg -> do
                                                        r <- judges_args
                                                        case r of
