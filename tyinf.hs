@@ -1802,9 +1802,9 @@ ty_curve (expr, prev_tvar) = do
     Syn_arg_decl arg_id Ty_abs -> return (Syn_arg_decl arg_id (fst tvar_arg), tvar_arg)
       where
         tvar_arg = succ_flesh_tvar prev_tvar
-    Syn_var var_id Ty_abs -> let assert_msg  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                             in
-                               throwE (Error_Excep Excep_assert_failed assert_msg)
+    Syn_var var_id Ty_abs -> return (Syn_var var_id (fst tvar_var), tvar_var)
+      where
+        tvar_var = succ_flesh_tvar prev_tvar
     
     Syn_expr_par expr' ty_par -> do
       r <- lift (do
@@ -2009,8 +2009,12 @@ ty_curve (expr, prev_tvar) = do
       case r of
         Left err -> throwE err
         Right r' -> return r'
+
+    Syn_val _ Ty_abs -> let assert_msg  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                        in
+                          throwE (Error_Excep Excep_assert_failed assert_msg)
     
-    _ -> return (expr, prev_tvar) -- including the case of  Syn_tydef_decl, Syn_rec_decl, and Syn_val, Syn_none.
+    _ -> return (expr, prev_tvar) -- including the case of  Syn_tydef_decl, Syn_rec_decl, and Syn_none.
   
   where
     curve_decls :: [Syntree_node] -> Fresh_tvar -> ExceptT Error_Excep IO ([Syntree_node], Fresh_tvar)
@@ -2898,9 +2902,7 @@ main = do
                                                                       Nothing -> mzero
                                                                       Just (stmts', crnt_tv) -> return (stmts', crnt_tv)
                                                                 )
-                                                  ) (do
-                                                        return ([], initial_flesh_tvar)
-                                                    ) s_trees
+                                                  ) (return ([], initial_flesh_tvar)) s_trees
                    case r of
                      Nothing -> return []
                      Just (s_trees', _) -> return s_trees'
