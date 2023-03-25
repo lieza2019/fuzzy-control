@@ -1796,8 +1796,8 @@ succ_flesh_tvar prev =
   where
     last_id = (snd prev)
 
-ty_curve2 :: (Syntree_node, Fresh_tvar) -> ExceptT Error_Excep IO (Syntree_node, Fresh_tvar)
-ty_curve2 (expr, prev_tvar) = do
+ty_curve :: (Syntree_node, Fresh_tvar) -> ExceptT Error_Excep IO (Syntree_node, Fresh_tvar)
+ty_curve (expr, prev_tvar) = do
   case expr of
     Syn_arg_decl arg_id Ty_abs -> return (Syn_arg_decl arg_id (fst tvar_arg), tvar_arg)
       where
@@ -1808,7 +1808,7 @@ ty_curve2 (expr, prev_tvar) = do
     
     Syn_expr_par expr' ty_par -> do
       r <- lift (do
-                    r' <- runExceptT $ ty_curve2 (expr', prev_tvar)
+                    r' <- runExceptT $ ty_curve (expr', prev_tvar)
                     return $ case r' of
                                Left err -> r'
                                Right (expr'', prev_tvar') -> Right (case ty_par of
@@ -1822,7 +1822,7 @@ ty_curve2 (expr, prev_tvar) = do
     
     Syn_expr_una ope_una expr' ty_una -> do
       r <- lift (do
-                    r' <- runExceptT $ ty_curve2 (expr', prev_tvar)
+                    r' <- runExceptT $ ty_curve (expr', prev_tvar)
                     return $ case r' of
                       Left err -> r'
                       Right (expr'', prev_tvar') -> Right (case ty_una of
@@ -1838,11 +1838,11 @@ ty_curve2 (expr, prev_tvar) = do
     
     Syn_expr_bin ope_bin (expr1, expr2) ty_bin -> do
       r <- lift (do
-                    r1 <- runExceptT $ ty_curve2 (expr1, prev_tvar)
+                    r1 <- runExceptT $ ty_curve (expr1, prev_tvar)
                     case r1 of
                       Left err -> return r1
                       Right (expr1', prev_tvar') -> do
-                        r2 <- runExceptT $ ty_curve2 (expr2, prev_tvar')
+                        r2 <- runExceptT $ ty_curve (expr2, prev_tvar')
                         return $ case r2 of
                                    Left err -> r2
                                    Right (expr2', prev_tvar'') -> Right (case ty_bin of
@@ -1876,18 +1876,18 @@ ty_curve2 (expr, prev_tvar) = do
     
     Syn_cond_expr (cond_expr, (expr_true, expr_false)) ty_cond -> do
       r <- lift (do
-                    r_cond <- runExceptT $ ty_curve2 (cond_expr, prev_tvar)
+                    r_cond <- runExceptT $ ty_curve (cond_expr, prev_tvar)
                     case r_cond of
                       Left err -> return r_cond
                       Right (cond_expr', prev_tvar') -> do
-                        r_true <- runExceptT $ ty_curve2 (expr_true, prev_tvar')
+                        r_true <- runExceptT $ ty_curve (expr_true, prev_tvar')
                         case r_true of
                           Left err -> return r_true
                           Right (expr_true', prev_tvar'') -> do
                             r_false <- (case expr_false of
                                           Nothing -> return $ Right (Nothing, prev_tvar'')
                                           Just f_expr_body -> do
-                                            r_false' <- runExceptT $ ty_curve2 (f_expr_body, prev_tvar'')
+                                            r_false' <- runExceptT $ ty_curve (f_expr_body, prev_tvar'')
                                             case r_false' of
                                               Left err -> return $ Left err
                                               Right (f_expr_body', latest) -> return $ Right (Just f_expr_body', latest)
@@ -1913,7 +1913,7 @@ ty_curve2 (expr, prev_tvar) = do
                       case r_args of
                         Left err -> return $ Left err
                         Right (args', prev_tvar') -> do
-                          r_body <- runExceptT $ ty_curve2 (fun_body, prev_tvar')
+                          r_body <- runExceptT $ ty_curve (fun_body, prev_tvar')
                           case r_body of
                             Left err -> return r_body
                             Right (fun_body', prev_tvar'') -> return $ Right (Syn_fun_decl fun_id args' fun_body' ty_fun', latest)
@@ -1952,7 +1952,7 @@ ty_curve2 (expr, prev_tvar) = do
                     r_exprs <- case exprs of
                                  [] -> return $ Right ([], prev_tvar)
                                  e:es -> do
-                                   r_e <- runExceptT $ ty_curve2 (e, prev_tvar)
+                                   r_e <- runExceptT $ ty_curve (e, prev_tvar)
                                    case r_e of
                                      Left err -> return $ Left err
                                      Right (e', prev_tvar') -> (do
@@ -1982,7 +1982,7 @@ ty_curve2 (expr, prev_tvar) = do
                     case r_decls of
                       Left err -> return $ Left err
                       Right (decls', prev_tvar') -> do
-                        r_body <- runExceptT $ ty_curve2 (body, prev_tvar')
+                        r_body <- runExceptT $ ty_curve (body, prev_tvar')
                         case r_body of
                           Left err -> return r_body
                           Right (body', latest) -> return $ Right (Syn_scope (decls', body'), latest)
@@ -1993,11 +1993,11 @@ ty_curve2 (expr, prev_tvar) = do
     
     Syn_expr_asgn expr_l expr_r ty_asgn -> do
       r <- lift (do
-                    r_l <- runExceptT $ ty_curve2 (expr_l, prev_tvar)
+                    r_l <- runExceptT $ ty_curve (expr_l, prev_tvar)
                     case r_l of
                       Left err -> return r_l
                       Right (expr_l', prev_tvar') -> do
-                        r_r <- runExceptT $ ty_curve2 (expr_r, prev_tvar')
+                        r_r <- runExceptT $ ty_curve (expr_r, prev_tvar')
                         case r_r of
                           Left err -> return r_r
                           Right (expr_r', prev_tvar'') -> return $ Right (Syn_expr_asgn expr_l' expr_r' ty_asgn', prev_tvar'')
@@ -2019,7 +2019,7 @@ ty_curve2 (expr, prev_tvar) = do
                     case decls of
                       [] -> return $ Right ([], prev_tvar)
                       a:as -> do
-                        r' <- runExceptT $ ty_curve2 (a, prev_tvar)
+                        r' <- runExceptT $ ty_curve (a, prev_tvar)
                         case r' of
                           Left err -> return (Left err)
                           Right (a', prev_tvar') -> do
@@ -2851,7 +2851,9 @@ main = do
   --assert False $ putStrLn $ "source:  " ++ (show src)
   putStrLn $ "source:  " ++ (show src)
   putStrLn $ "tokens:  " ++ (show (tokens, src_remains))
+  
   symtbl <- return $ sym_enter_scope Nothing Sym_cat_decl
+  
   (syn_forest, symtbl', tokens')  <- return $ case src_remains of
                                                 "" -> let (syn_tree, symtbl', tokens') = cons_par_tree symtbl tokens (True, True, True)
                                                       in
@@ -2880,7 +2882,7 @@ main = do
                    r <- runMaybeT $ Prelude.foldl (\stmts_tv -> (\stmt -> do
                                                                     (stmts, prev_tv) <- stmts_tv
                                                                     r' <- lift (do
-                                                                                   r_cur <- runExceptT $ ty_curve2 (stmt, prev_tv)
+                                                                                   r_cur <- runExceptT $ ty_curve (stmt, prev_tv)
                                                                                    case r_cur of
                                                                                      Left err -> (do
                                                                                                      putStrLn errmsg
