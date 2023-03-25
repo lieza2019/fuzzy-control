@@ -3130,7 +3130,6 @@ main = do
                                                           _ -> ([], symtbl', ts')
                                                     cons_p_trees symtbl ts = ([], symtbl, ts)
                                                 _ -> (Nothing, symtbl, tokens) -}
-
   (syn_forest, symtbl', tokens') <- do
     r <- (case src_remains of
             "" -> do
