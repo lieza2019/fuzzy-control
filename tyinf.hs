@@ -30,6 +30,7 @@ import Data.Either (isLeft, isRight)
 import Data.Map as M
 import Data.Set as Set
 import Control.Monad.State as St
+import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Control.Exception as Except
 import Control.Exception (assert)
@@ -849,7 +850,7 @@ data Syntree_node =
   | Syn_fun_decl String [Syntree_node] Syntree_node Type
   | Syn_arg_decl String Type
   | Syn_rec_decl String Type
-  | Syn_var_decl String Type    
+  | Syn_var_decl String Type
   | Syn_cond_expr (Syntree_node, (Syntree_node, Maybe Syntree_node)) Type
   | Syn_val Val Type
   | Syn_var String Type
@@ -941,6 +942,15 @@ syn_node_subst subst expr =
     Syn_expr_bin ope (expr1, expr2) ty -> Syn_expr_bin ope (syn_node_subst subst expr1, syn_node_subst subst expr2) (ty_subst subst ty)
     Syn_expr_seq equs ty -> Syn_expr_seq (Prelude.map (syn_node_subst subst) equs) (ty_subst subst ty)
     _ -> expr -- Syn_none
+
+
+data Excep_codes =
+  Excep_assert_failed
+  deriving (Eq, Ord, Show)
+
+data Error_Excep =
+  Error_Excep Excep_codes String
+  deriving (Eq, Ord, Show)
 
 
 data Error_codes =
@@ -1786,118 +1796,241 @@ succ_flesh_tvar prev =
   where
     last_id = (snd prev)
 
-
-ty_curve :: (Syntree_node, Fresh_tvar) -> (Syntree_node, Fresh_tvar)
-ty_curve (expr, prev_tvar) =
-  (case expr of
-     Syn_arg_decl arg_id Ty_abs -> (Syn_arg_decl arg_id (fst latest), latest)
-       where
-         latest = succ_flesh_tvar prev_tvar
-     Syn_var var_id Ty_abs -> (Syn_var var_id (fst latest), latest)
-       where
-         latest = succ_flesh_tvar prev_tvar
-     Syn_expr_par expr' Ty_abs -> let (expr'', prev_tvar') = ty_curve (expr', prev_tvar)
+ty_curve2 :: (Syntree_node, Fresh_tvar) -> ExceptT Error_Excep IO (Syntree_node, Fresh_tvar)
+ty_curve2 (expr, prev_tvar) = do
+  case expr of
+    Syn_arg_decl arg_id Ty_abs -> return (Syn_arg_decl arg_id (fst tvar_arg), tvar_arg)
+      where
+        tvar_arg = succ_flesh_tvar prev_tvar
+    Syn_var var_id Ty_abs -> let assert_msg  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                             in
+                               throwE (Error_Excep Excep_assert_failed assert_msg)
+    
+    Syn_expr_par expr' ty_par -> do
+      r <- lift (do
+                    r' <- runExceptT $ ty_curve2 (expr', prev_tvar)
+                    return $ case r' of
+                               Left err -> r'
+                               Right (expr'', prev_tvar') -> Right (case ty_par of
+                                                                      Ty_abs -> (Syn_expr_par expr'' (syn_retrieve_typeof expr''), prev_tvar')
+                                                                      _ -> (Syn_expr_par expr'' ty_par, prev_tvar')
+                                                                   )
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_expr_una ope_una expr' ty_una -> do
+      r <- lift (do
+                    r' <- runExceptT $ ty_curve2 (expr', prev_tvar)
+                    return $ case r' of
+                      Left err -> r'
+                      Right (expr'', prev_tvar') -> Right (case ty_una of
+                                                             Ty_abs -> (Syn_expr_una ope_una expr'' (fst tvar_una), tvar_una)
+                                                               where
+                                                                 tvar_una = succ_flesh_tvar prev_tvar'
+                                                             _ -> (Syn_expr_una ope_una expr'' ty_una, prev_tvar')
+                                                          )
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_expr_bin ope_bin (expr1, expr2) ty_bin -> do
+      r <- lift (do
+                    r1 <- runExceptT $ ty_curve2 (expr1, prev_tvar)
+                    case r1 of
+                      Left err -> return r1
+                      Right (expr1', prev_tvar') -> do
+                        r2 <- runExceptT $ ty_curve2 (expr2, prev_tvar')
+                        return $ case r2 of
+                                   Left err -> r2
+                                   Right (expr2', prev_tvar'') -> Right (case ty_bin of
+                                                                           Ty_abs -> (Syn_expr_bin ope_bin (expr1', expr2') (fst tvar_bin), tvar_bin)
+                                                                             where
+                                                                               tvar_bin = succ_flesh_tvar prev_tvar''
+                                                                           _ -> (Syn_expr_bin ope_bin (expr1', expr2') ty_bin, prev_tvar'')
+                                                                        )
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_expr_call fun_id args ty_call -> do
+      r <- lift (do
+                    r_args <- case args of
+                                [] -> return $ Right ([], prev_tvar)
+                                _ -> runExceptT $ curve_args args prev_tvar
+                    return r_args
+                )
+      case r of
+        Left err -> throwE err
+        Right (args', prev_tvar') -> return (case ty_call of
+                                               Ty_abs -> (Syn_expr_call fun_id args' (fst tvar_call), tvar_call)
+                                                 where
+                                                   tvar_call = succ_flesh_tvar prev_tvar'
+                                               _ -> (Syn_expr_call fun_id args' ty_call, prev_tvar')
+                                            )
+        where
+          curve_args = curve_decls
+    
+    Syn_cond_expr (cond_expr, (expr_true, expr_false)) ty_cond -> do
+      r <- lift (do
+                    r_cond <- runExceptT $ ty_curve2 (cond_expr, prev_tvar)
+                    case r_cond of
+                      Left err -> return r_cond
+                      Right (cond_expr', prev_tvar') -> do
+                        r_true <- runExceptT $ ty_curve2 (expr_true, prev_tvar')
+                        case r_true of
+                          Left err -> return r_true
+                          Right (expr_true', prev_tvar'') -> do
+                            r_false <- (case expr_false of
+                                          Nothing -> return $ Right (Nothing, prev_tvar'')
+                                          Just f_expr_body -> do
+                                            r_false' <- runExceptT $ ty_curve2 (f_expr_body, prev_tvar'')
+                                            case r_false' of
+                                              Left err -> return $ Left err
+                                              Right (f_expr_body', latest) -> return $ Right (Just f_expr_body', latest)
+                                       )
+                            case r_false of
+                              Left err -> return $ Left err
+                              Right (expr_false', latest') -> return $ Right (case ty_cond of
+                                                                                Ty_abs -> (Syn_cond_expr (cond_expr', (expr_true', expr_false')) (fst tvar_cond), tvar_cond)
+                                                                                  where
+                                                                                    tvar_cond = succ_flesh_tvar latest'
+                                                                                _ -> (Syn_cond_expr (cond_expr', (expr_true', expr_false')) ty_cond, latest')
+                                                                             )
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_fun_decl' fun_id args fun_body (_, ty_fun) -> do
+      r <- lift $ (do
+                      r_args <- case args of
+                                  [] -> return $ Right ([], prev_tvar)
+                                  _ -> runExceptT $ curve_decls args prev_tvar
+                      case r_args of
+                        Left err -> return $ Left err
+                        Right (args', prev_tvar') -> do
+                          r_body <- runExceptT $ ty_curve2 (fun_body, prev_tvar')
+                          case r_body of
+                            Left err -> return r_body
+                            Right (fun_body', prev_tvar'') -> return $ Right (Syn_fun_decl fun_id args' fun_body' ty_fun', latest)
+                              where
+                                (ty_fun', latest) = case ty_fun of
+                                                      Ty_abs -> curve_funty (args', ty_fun) prev_tvar''
+                                                      _ -> (ty_fun, prev_tvar'')
+                                curve_funty :: ([Syntree_node], Type) -> Fresh_tvar -> (Type, Fresh_tvar)
+                                curve_funty (args, fun_ty) prev_tvar =
+                                  let from_args = Prelude.foldl (\(as', prev_tv) -> (\a -> case syn_node_typeof a of
+                                                                                             Ty_abs -> (as' ++ [fst prev_tv'], prev_tv')
+                                                                                               where
+                                                                                                 prev_tv' = succ_flesh_tvar prev_tv
+                                                                                             (a_ty@_) -> (as' ++ [a_ty], prev_tv)
+                                                                                    )
+                                                                ) ([], prev_tvar) args
                                   in
-                                    (Syn_expr_par expr'' (fst prev_tvar'), prev_tvar')
-     Syn_expr_una ope_una expr' Ty_abs -> let (expr'', prev_tvar') = ty_curve (expr', prev_tvar)
-                                              tvar_una = succ_flesh_tvar prev_tvar'
-                                          in
-                                            (Syn_expr_una ope_una expr'' (fst tvar_una), tvar_una)
-     Syn_expr_bin ope_bin (expr1, expr2) Ty_abs -> let (expr1', prev_tvar') = ty_curve (expr1, prev_tvar)
-                                                       (expr2', prev_tvar'') = ty_curve (expr2, prev_tvar')
-                                                       tvar_bin = succ_flesh_tvar prev_tvar''
-                                                   in
-                                                     (Syn_expr_bin ope_bin (expr1', expr2') (fst tvar_bin), tvar_bin)
-     Syn_expr_call fun_id args Ty_abs -> (case args of
-                                            [] -> (Syn_expr_call fun_id [] (fst tvar_call_void), tvar_call_void)
-                                              where
-                                                tvar_call_void = succ_flesh_tvar prev_tvar
-                                            _ -> let (args', prev_tvar') = curve_args args prev_tvar
-                                                     tvar_call = succ_flesh_tvar prev_tvar'
-                                                 in
-                                                   (Syn_expr_call fun_id args' (fst tvar_call), tvar_call)
-                                              where
-                                                curve_args = abs_decls
-                                         )
-     Syn_cond_expr (cond_expr, (expr_true, expr_false)) Ty_abs -> let (cond_expr', prev_tvar') = ty_curve (cond_expr, prev_tvar)
-                                                                      (expr_true', prev_tvar'') = ty_curve (expr_true, prev_tvar')
-                                                                  in
-                                                                    case expr_false of
-                                                                      Nothing -> (Syn_cond_expr (cond_expr', (expr_true', Nothing)) (fst tvar_cond_it), tvar_cond_it)
-                                                                        where
-                                                                          tvar_cond_it = succ_flesh_tvar prev_tvar''
-                                                                      Just f_expr_body -> let (f_expr_body', latest) = ty_curve (f_expr_body, prev_tvar'')
-                                                                                              tvar_cond_ite = succ_flesh_tvar latest
-                                                                                          in
-                                                                                            (Syn_cond_expr (cond_expr', (expr_true', Just f_expr_body')) (fst tvar_cond_ite), tvar_cond_ite)
-     
-     Syn_fun_decl fun_id args fun_body fun_ty -> (case args of
-                                                    [] -> let (fun_body', prev_tvar') = ty_curve (fun_body, prev_tvar)
-                                                              tvar_fun_void = succ_flesh_tvar prev_tvar'
-                                                          in
-                                                            (Syn_fun_decl fun_id [] fun_body' (fst tvar_fun_void), tvar_fun_void)
-                                                    _ -> let (args', prev_tvar') = abs_decls args prev_tvar
-                                                             (fun_body', prev_tvar'') = ty_curve (fun_body, prev_tvar')
-                                                             (fun_ty', latest) = curve_funty (args', fun_ty) prev_tvar''
-                                                         in
-                                                           (Syn_fun_decl fun_id args' fun_body' fun_ty', latest)
-                                                      where
-                                                        curve_funty :: ([Syntree_node], Type) -> Fresh_tvar -> (Type, Fresh_tvar)
-                                                        curve_funty (args, fun_ty) prev_tvar =
-                                                          let from_args = Prelude.foldl (\(as', prev_tv) -> (\a -> case syn_node_typeof a of
-                                                                                                                     Ty_abs -> (as' ++ [fst prev_tv'], prev_tv')
-                                                                                                                       where
-                                                                                                                         prev_tv' = succ_flesh_tvar prev_tv
-                                                                                                                     (a_ty@_) -> (as' ++ [a_ty], prev_tv)
-                                                                                                            )
-                                                                                        ) ([], prev_tvar) args
-                                                          in
-                                                            case from_args of
-                                                              (args', prev_tvar') -> (case fun_ty of
-                                                                                        Ty_abs -> (Ty_fun args' (fst tvar_fun_decl), tvar_fun_decl)
-                                                                                          where
-                                                                                            tvar_fun_decl = succ_flesh_tvar prev_tvar'
-                                                                                        _ -> (Ty_fun args' fun_ty, prev_tvar')
-                                                                                     )
-                                                 )
-     Syn_var_decl var_id Ty_abs -> (Syn_var_decl var_id (fst tvar_var), tvar_var)
-       where
-         tvar_var = succ_flesh_tvar prev_tvar
-     
-     Syn_expr_seq exprs seq_ty | seq_ty == Ty_abs -> (case exprs of
-                                                        [] -> (Syn_expr_seq [] (fst tvar_seq_nil), tvar_seq_nil)
-                                                          where
-                                                            tvar_seq_nil = succ_flesh_tvar prev_tvar
-                                                        e:es -> let (e', prev_tvar') = ty_curve (e, prev_tvar)
-                                                                    (es', latest) = curve_seqs es prev_tvar'
-                                                                in
-                                                                  let seq_expr_raw = Syn_expr_seq (e':es') seq_ty
-                                                                  in
-                                                                    (Syn_expr_seq (e':es') (syn_retrieve_typeof seq_expr_raw), latest)
-                                                          where
-                                                            curve_seqs = abs_decls
-                                                     )
-     Syn_scope (decls, body) -> let (decls', prev_tvar') = abs_decls decls prev_tvar
-                                    (body', latest) = ty_curve (body, prev_tvar')
-                                in
-                                  (Syn_scope (decls', body'), latest)
-     
-     Syn_expr_asgn expr_l expr_r Ty_abs -> let (expr_l', prev_tvar') = ty_curve (expr_l, prev_tvar)
-                                               (expr_r', latest) = ty_curve (expr_r, prev_tvar')
-                                           in
-                                             (Syn_expr_asgn expr_l' expr_r' (syn_retrieve_typeof expr_l'), latest)
-     
-     _ -> (expr, prev_tvar) -- including the case of  Syn_tydef_decl, Syn_rec_decl, and Syn_val, Syn_none.
-  )
+                                    case from_args of
+                                      (args', prev_tvar') -> (case fun_ty of
+                                                                Ty_abs -> (Ty_fun args' (fst tvar_fun_decl), tvar_fun_decl)
+                                                                  where
+                                                                    tvar_fun_decl = succ_flesh_tvar prev_tvar'
+                                                                _ -> (Ty_fun args' fun_ty, prev_tvar')
+                                                             )
+                  )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_var_decl var_id Ty_abs -> return (Syn_var_decl var_id (fst tvar_var), tvar_var)
+      where
+        tvar_var = succ_flesh_tvar prev_tvar
+    
+    Syn_expr_seq exprs seq_ty -> do
+      r <- lift (do
+                    r_exprs <- case exprs of
+                                 [] -> return $ Right ([], prev_tvar)
+                                 e:es -> do
+                                   r_e <- runExceptT $ ty_curve2 (e, prev_tvar)
+                                   case r_e of
+                                     Left err -> return $ Left err
+                                     Right (e', prev_tvar') -> (do
+                                                                   r_es <- runExceptT $ curve_seqs es prev_tvar'
+                                                                   case r_es of
+                                                                     Left err -> return r_es
+                                                                     Right (es', prev_tvar'') -> return $ Right ((e':es'), prev_tvar'')
+                                                               )
+                                       where
+                                         curve_seqs = curve_decls
+                    case r_exprs of
+                      Left err -> return $ Left err
+                      Right (exprs', latest) -> return $ Right (case seq_ty of
+                                                                  Ty_abs -> (Syn_expr_seq exprs' (syn_retrieve_typeof seq_expr_raw), latest)
+                                                                    where
+                                                                      seq_expr_raw = Syn_expr_seq exprs' seq_ty
+                                                                  _ -> (Syn_expr_seq exprs' seq_ty, latest)
+                                                               )
+                )
+      case r of
+        Left err -> throwE err
+        Right r'-> return r'
+    
+    Syn_scope (decls, body) -> do
+      r <- lift (do
+                    r_decls <- runExceptT $ curve_decls decls prev_tvar
+                    case r_decls of
+                      Left err -> return $ Left err
+                      Right (decls', prev_tvar') -> do
+                        r_body <- runExceptT $ ty_curve2 (body, prev_tvar')
+                        case r_body of
+                          Left err -> return r_body
+                          Right (body', latest) -> return $ Right (Syn_scope (decls', body'), latest)
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_expr_asgn expr_l expr_r ty_asgn -> do
+      r <- lift (do
+                    r_l <- runExceptT $ ty_curve2 (expr_l, prev_tvar)
+                    case r_l of
+                      Left err -> return r_l
+                      Right (expr_l', prev_tvar') -> do
+                        r_r <- runExceptT $ ty_curve2 (expr_r, prev_tvar')
+                        case r_r of
+                          Left err -> return r_r
+                          Right (expr_r', prev_tvar'') -> return $ Right (Syn_expr_asgn expr_l' expr_r' ty_asgn', prev_tvar'')
+                          where
+                            ty_asgn' = case ty_asgn of
+                                         Ty_abs -> syn_retrieve_typeof expr_l'
+                                         _ -> ty_asgn
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    _ -> return (expr, prev_tvar) -- including the case of  Syn_tydef_decl, Syn_rec_decl, and Syn_val, Syn_none.
+  
   where
-    abs_decls :: [Syntree_node] -> Fresh_tvar -> ([Syntree_node], Fresh_tvar)
-    abs_decls decls prev_tvar =
-      case decls of
-        [] -> ([], prev_tvar)
-        a:as -> let (a', prev_tvar') = ty_curve (a, prev_tvar)
-                    (as', prev_tvar'') = abs_decls as prev_tvar'
-                in
-                  (a':as', prev_tvar'')
+    curve_decls :: [Syntree_node] -> Fresh_tvar -> ExceptT Error_Excep IO ([Syntree_node], Fresh_tvar)
+    curve_decls decls prev_tvar = do
+      r <- lift (do
+                    case decls of
+                      [] -> return $ Right ([], prev_tvar)
+                      a:as -> do
+                        r' <- runExceptT $ ty_curve2 (a, prev_tvar)
+                        case r' of
+                          Left err -> return (Left err)
+                          Right (a', prev_tvar') -> do
+                            r'' <- runExceptT $ curve_decls as prev_tvar'
+                            return $ case r'' of
+                                       Left err -> r''
+                                       Right (as', prev_tvar'') -> Right (a':as', prev_tvar'')
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
 
 
 type Equation = (Type, Type)
@@ -2713,6 +2846,7 @@ main = do
   h <- openFile "src.txt" ReadMode
   src <- read_src h
   
+
   let (tokens, src_remains) = conv2_tokens src
   --assert False $ putStrLn $ "source:  " ++ (show src)
   putStrLn $ "source:  " ++ (show src)
@@ -2741,15 +2875,33 @@ main = do
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
   
   putStr "ty-raw:  "
-  ty_curved <- return $ case syn_forest of
-                          Just s_trees -> let (forest_curved, _) = Prelude.foldl (\(stmts', prev_tv) -> (\stmt -> let (stmt_curved, crnt_tv) = ty_curve (stmt, prev_tv)
-                                                                                                                  in
-                                                                                                                    (stmts' ++ [stmt_curved], crnt_tv)
-                                                                                                        )
-                                                                                 ) ([], initial_flesh_tvar) s_trees
-                                          in
-                                            forest_curved
-                          _ -> []
+  ty_curved <- case syn_forest of
+                 Just s_trees -> do
+                   r <- runMaybeT $ Prelude.foldl (\stmts_tv -> (\stmt -> do
+                                                                    (stmts, prev_tv) <- stmts_tv
+                                                                    r' <- lift (do
+                                                                                   r_cur <- runExceptT $ ty_curve2 (stmt, prev_tv)
+                                                                                   case r_cur of
+                                                                                     Left err -> (do
+                                                                                                     putStrLn errmsg
+                                                                                                     return $ Nothing
+                                                                                                 )
+                                                                                       where
+                                                                                         errmsg = case err of
+                                                                                                    Error_Excep Excep_assert_failed assert_msg -> assert_msg
+                                                                                                    Error_Excep _ errmsg -> errmsg
+                                                                                     Right (stmt', prev_tv') -> return $ Just (stmts ++ [stmt'], prev_tv')
+                                                                               )
+                                                                    case r' of
+                                                                      Nothing -> mzero
+                                                                      Just (stmts', crnt_tv) -> return (stmts', crnt_tv)
+                                                                )
+                                                  ) (do
+                                                        return ([], initial_flesh_tvar)
+                                                    ) s_trees
+                   case r of
+                     Nothing -> return []
+                     Just (s_trees', _) -> return s_trees'
   mapM_ putStrLn $ Prelude.map show ty_curved
   
   putStr "ty-inf:  "
