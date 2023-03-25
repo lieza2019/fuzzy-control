@@ -946,6 +946,7 @@ syn_node_subst subst expr =
 
 data Excep_codes =
   Excep_assert_failed
+  | Excep_internal_error String
   deriving (Eq, Ord, Show)
 
 data Error_Excep =
@@ -1215,7 +1216,7 @@ cons_fun_tree' symtbl fun tokens =
                                 )
             parse_fun_body :: Symtbl -> Ty_env -> [Tk_code] -> (((Ty_env, [Syntree_node]), [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
             parse_fun_body symtbl contex tokens =
-              case cons_par_tree symtbl tokens (False, True, True) of
+              case cons_ptree symtbl tokens (False, True, True) of
                 --(Just fun_decl@(Syn_fun_decl fun_id args fun_body fun_ty), symtbl', tokens') ->
                 (Just fun_decl@(Syn_fun_decl' fun_id args fun_body (env0, fun_ty)), symtbl', tokens') ->
                   (case tokens' of
@@ -1462,7 +1463,7 @@ cons_fun_tree symtbl fun tokens =
             
             parse_fun_body :: Symtbl -> [Tk_code] -> (([Syntree_node], [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
             parse_fun_body symtbl tokens =
-              case cons_par_tree symtbl tokens (False, True, True) of
+              case cons_ptree symtbl tokens (False, True, True) of
                 --(Just fun_decl@(Syn_fun_decl' fun_id args fun_body (env, fun_ty)), symtbl', tokens') ->
                 (Just fun_decl@(Syn_fun_decl fun_id args fun_body fun_ty), symtbl', tokens') ->
                   (case tokens' of
@@ -1506,8 +1507,8 @@ cons_fun_tree symtbl fun tokens =
                          ((fun, symtbl, tokens), [Internal_error errmsg])
                       ) -}
 
-cons_par_tree :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> (Maybe Syntree_node, Symtbl, [Tk_code])
-cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
+cons_ptree :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> (Maybe Syntree_node, Symtbl, [Tk_code])
+cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
   let is_op t = (t == Tk_decre) || (t == Tk_incre) || (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_asgn)
       is_bin_op op = (op == Ope_add) || (op == Ope_sub) || (op == Ope_mul) || (op == Ope_div)
       is_gte_op ope1 ope2 = case ope1 of
@@ -1540,12 +1541,12 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
         in
           case ope of
             Nothing -> (Right subexpr1, symtbl, tokens)
-            Just ope' | ope' == Ope_asgn -> let right = cons_par_tree symtbl tokens' (False, False, True)
+            Just ope' | ope' == Ope_asgn -> let right = cons_ptree symtbl tokens' (False, False, True)
                                             in
                                               case right of
                                                 (Just right_expr, symtbl', tokens'') -> (Right (Syn_expr_asgn subexpr1 right_expr Ty_abs), symtbl', tokens'')
                                                 (Nothing, symtbl', tokens'') -> (Left Illegal_left_expression_for_assignment, symtbl', tokens'')
-            Just ope' | is_bin_op ope' -> let r2 = cons_par_tree symtbl tokens' (False, False, True)
+            Just ope' | is_bin_op ope' -> let r2 = cons_ptree symtbl tokens' (False, False, True)
                                           in
                                             case r2 of
                                               (Just subexpr2, symtbl', tokens'') -> (case subexpr2 of
@@ -1559,7 +1560,9 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                                                        _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
                                                                                     )
                                               (Nothing, symtbl', tokens'') -> (Left (Illegal_operands ope' Syn_none), symtbl', tokens'')
-            _ -> (Left (Internal_error "Invalid operator detecded, in cons_expr."), symtbl, tokens)
+            _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                 in
+                   (Left (Internal_error ("Unknow operator detecded in " ++ loc)), symtbl, tokens)
         
         where
           fetch_ope tokens = case tokens of
@@ -1581,7 +1584,7 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
           Syn_expr_call fun_id app_args fun_ty -> (case tokens of
                                                      [] -> (Right fun_app, symtbl, [])
                                                      Tk_R_par:ts -> (Right fun_app, symtbl, tokens)
-                                                     _ -> (case cons_par_tree symtbl tokens (False, False, False) of
+                                                     _ -> (case cons_ptree symtbl tokens (False, False, False) of
                                                              (Just expr, symtbl', tokens') ->
                                                                let arg = case expr of
                                                                            Syn_var v_id ty -> expr
@@ -1614,15 +1617,15 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
     in     
       case tokens of
         [] -> (Nothing, symtbl, [])
-        Tk_L_par:ts -> (case cons_par_tree symtbl ts (False, False, True) of
+        Tk_L_par:ts -> (case cons_ptree symtbl ts (False, False, True) of
                           (Just expr, symtbl', (Tk_R_par:ts')) -> cont_par symtbl' (Syn_expr_par expr (syn_node_typeof expr)) ts'
                           (_, symtbl',ts') -> (Nothing, symtbl', ts')
                        )
         Tk_if:ts ->
-          (case cons_par_tree symtbl ts (False, False, True) of
+          (case cons_ptree symtbl ts (False, False, True) of
              (Just cond_expr, symtbl', (Tk_then:ts')) ->
-               (case cons_par_tree symtbl' ts' (False, False, True) of               
-                  (Just true_expr, symtbl'_t, (t'':ts'')) | t'' == Tk_else -> (case cons_par_tree symtbl'_t ts'' (False, False, True) of
+               (case cons_ptree symtbl' ts' (False, False, True) of               
+                  (Just true_expr, symtbl'_t, (t'':ts'')) | t'' == Tk_else -> (case cons_ptree symtbl'_t ts'' (False, False, True) of
                                                                                  (Just false_expr, symtbl'', tokens') ->
                                                                                    (Just (Syn_cond_expr (cond_expr, (true_expr, Just false_expr)) Ty_abs), symtbl'', tokens')
                                                                                  (_, symtbl'', tokens') -> (Nothing, symtbl'', tokens')
@@ -1698,7 +1701,7 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
                         where
                           parse_fun_body :: Symtbl -> [Tk_code] -> (([Syntree_node], [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
                           parse_fun_body symtbl tokens =
-                            case cons_par_tree symtbl tokens (False, True, True) of
+                            case cons_ptree symtbl tokens (False, True, True) of
                               (Just var_decl@(Syn_var_decl _ _), symtbl', (Tk_smcl:tokens')) ->
                                 let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
                                 in
@@ -1783,6 +1786,255 @@ cons_par_tree symtbl tokens (fun_declp, var_declp, par_contp) =
                                    cont_par symtbl var ts -}
                                  
         _ -> (Nothing, symtbl, tokens)
+
+cons_ptree1 :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> ExceptT Error_Excep IO (Maybe Syntree_node, Symtbl, [Tk_code])
+cons_ptree1 symtbl tokens (fun_declp, var_declp, par_contp) =
+  let is_op t = (t == Tk_decre) || (t == Tk_incre) || (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_asgn)
+      is_bin_op op = (op == Ope_add) || (op == Ope_sub) || (op == Ope_mul) || (op == Ope_div)
+      is_gte_op ope1 ope2 = case ope1 of
+                          Ope_add -> (case ope2 of
+                                        Ope_add -> True
+                                        Ope_sub -> True
+                                        _ -> False
+                                     )
+                          Ope_sub -> (case ope2 of
+                                        Ope_add -> True
+                                        Ope_sub -> True
+                                        _ -> False
+                                     )
+                          Ope_mul -> (case ope2 of
+                                        Ope_add -> True
+                                        Ope_sub -> True
+                                        Ope_mul -> True
+                                        Ope_div -> True
+                                        -- _ -> False
+                                     )
+                          Ope_div -> (case ope2 of
+                                        Ope_add -> True
+                                        Ope_sub -> True
+                                        Ope_mul -> True
+                                        Ope_div -> True
+                                        -- _ -> False
+                                     )
+      cons_expr symtbl subexpr1 tokens = do
+        let (ope, tokens') = fetch_ope tokens
+        case ope of
+          Nothing -> return (Right subexpr1, symtbl, tokens)
+          Just ope' | ope' == Ope_asgn -> do
+                        r <- lift (do
+                                      rhs <- runExceptT $ cons_ptree1 symtbl tokens' (False, False, True)
+                                      case rhs of
+                                        Left err -> return $ Left err
+                                        Right (Just r_expr, symtbl', tokens'') -> return $ Right (Right (Syn_expr_asgn subexpr1 r_expr Ty_abs), symtbl', tokens'')
+                                        Right (Nothing, symtbl', tokens'') -> return $ Right (Left Illegal_left_expression_for_assignment, symtbl', tokens'')
+                                  )
+                        case r of
+                          Left err -> throwE err
+                          Right r' -> return r'
+          Just ope' | is_bin_op ope' -> do
+                        r <- lift (do
+                                      r2 <- runExceptT $ cons_ptree1 symtbl tokens' (False, False, True)
+                                      case r2 of
+                                        Left err -> return $ Left err
+                                        Right (Just subexpr2, symtbl', tokens'') ->
+                                          return $ Right (case subexpr2 of
+                                                            Syn_val _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
+                                                            Syn_var _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
+                                                            Syn_expr_bin bin_ope (expr_1, expr_2) _ ->
+                                                              if is_gte_op ope' bin_ope then
+                                                                (Right (Syn_expr_bin bin_ope ((lm_im subexpr1 ope' expr_1), expr_2) Ty_abs), symtbl', tokens'')
+                                                              else
+                                                                (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
+                                                            _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
+                                                         )
+                                        Right (Nothing, symtbl', tokens'') -> return $ Right (Left (Illegal_operands ope' Syn_none), symtbl', tokens'')
+                                  )
+                        case r of
+                          Left err -> throwE err
+                          Right r' -> return r'
+          _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+               in
+                 return (Left (Internal_error ("Unknown operator detecded in " ++ loc)), symtbl, tokens)
+        
+        where
+          fetch_ope tokens = case tokens of
+                               (Tk_asgn:ts) -> (Just Ope_asgn, ts)
+                               (Tk_slash:ts) -> (Just Ope_div, ts)
+                               (Tk_star:ts) -> (Just Ope_mul, ts)
+                               (Tk_shaft:ts) -> (Just Ope_sub, ts)
+                               (Tk_cross:ts) -> (Just Ope_add, ts)
+                               _ -> (Nothing, tokens)
+          lm_im expr_li bin_ope expr0 = -- Left-Most Inner-Most
+            case expr0 of
+              Syn_expr_bin ope_o (expr_o1@(Syn_val _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
+              Syn_expr_bin ope_o (expr_o1@(Syn_var _ _), expr_o2) _ | is_gte_op bin_ope  ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
+              Syn_expr_bin ope_o (expr_o1@(Syn_expr_bin ope_o1 _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o (lm_im expr_li bin_ope expr_o1, expr_o2) Ty_abs
+              _ -> Syn_expr_bin bin_ope (expr_li, expr0) Ty_abs
+      
+      par_fun_call symtbl fun_app tokens = do
+        r <- lift (case fun_app of
+                     Syn_expr_call fun_id app_args fun_ty -> do
+                       (case tokens of
+                          [] -> return $ Right (Right fun_app, symtbl, [])
+                          Tk_R_par:ts -> return $ Right (Right fun_app, symtbl, tokens)
+                          _ -> do
+                            r_a <- runExceptT $ cons_ptree1 symtbl tokens (False, False, False)
+                            case r_a of
+                              Left err -> return $ Left err
+                              Right (Just expr, symtbl', tokens') -> do
+                                let arg = case expr of
+                                            Syn_var v_id ty -> expr
+                                            Syn_expr_call f_id f_args ty -> expr
+                                            _ -> expr
+                                case tokens' of
+                                  Tk_comma:ts' -> do
+                                    r_as <- runExceptT $ par_fun_call symtbl' (Syn_expr_call fun_id [] fun_ty) ts'
+                                    case r_as of
+                                      Left err -> return r_as
+                                      Right as' -> do
+                                        r_as' <- return (case as' of
+                                                           (Right (Syn_expr_call _ args' _), stbl'', ts'') -> Right (Right (arg:args'), stbl'', ts'')
+                                                           (Right _, stbl'', ts'') -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                      in
+                                                                                        Left (Error_Excep Excep_assert_failed loc)
+                                                           (Left errs, stbl'', ts'') -> Right (Left errs, stbl'', ts'')
+                                                        )
+                                        return (case r_as' of
+                                                  Left err -> Left err
+                                                  Right (Right app_args', symtbl'', tokens'') -> Right (Right (Syn_expr_call fun_id app_args' fun_ty), symtbl'', tokens'')
+                                                  Right (Left errs, symtbl'', tokens'') -> Right (Left errs, symtbl'', tokens'')
+                                               )
+                                  _ -> return $ Right (Right (Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens')
+                              Right (Nothing, symtbl', tokens') -> return $ Right (Left [], symtbl', tokens')
+                         )
+                     _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                          in
+                            return $ Right (Left [Internal_error ("Calling the parser for function calling with non function calling parse-tree constructors, in " ++ loc)], symtbl, tokens)
+                  )
+        case r of
+          Left err -> throwE err
+          Right r' -> return r'
+  in
+    let cont_par symtbl subexpr tokens = do
+          if par_contp then (
+            do
+              r <- lift (do
+                            r_cont <- runExceptT $ cons_expr symtbl subexpr tokens
+                            return (case r_cont of
+                                      Left err -> Left err
+                                      Right (Right expr', symtbl', tokens') -> Right (Just expr', symtbl', tokens')
+                                      Right (Left err, symtbl', tokens') -> Right (Nothing, symtbl', tokens')
+                                   )
+                        )
+              case r of
+                Left err -> throwE err
+                Right r' -> return r'
+            )
+            else
+            return (Just subexpr, symtbl, tokens)
+    in
+      case tokens of
+        [] -> return (Nothing, symtbl, [])
+        Tk_L_par:ts -> do
+          r <- lift $ runExceptT $ cons_ptree1 symtbl ts (False, False, True)
+          case r of
+            Left err -> throwE err
+            Right (Just expr, symtbl', (Tk_R_par:ts')) -> cont_par symtbl' (Syn_expr_par expr (syn_node_typeof expr)) ts'
+            Right (_, symtbl',ts') -> return (Nothing, symtbl', ts')
+        
+        Tk_if:ts -> do
+          r <- lift (do
+                        r_cond <- runExceptT $ cons_ptree1 symtbl ts (False, False, True)
+                        case r_cond of
+                          Left err -> return $ Left err
+                          Right (Just cond_expr, symtbl', (Tk_then:ts')) -> do
+                            r_true <- runExceptT $ cons_ptree1 symtbl' ts' (False, False, True)
+                            case r_true of
+                              Left err -> return $ Left err
+                              Right (Just true_expr, symtbl'_t, (Tk_else:ts'')) -> do
+                                r_false <- runExceptT $ cons_ptree1 symtbl'_t ts'' (False, False, True)
+                                case r_false of
+                                  Left err -> return $ Left err
+                                  Right (Just false_expr, symtbl'', tokens') -> return $ Right (Just (Syn_cond_expr (cond_expr, (true_expr, Just false_expr)) Ty_abs), symtbl'', tokens')
+                                  Right (_, symtbl'', tokens') -> return $ Right (Nothing, symtbl'', tokens')
+                              Right (Just true_expr, symtbl'', tokens') -> return $ Right (Just (Syn_cond_expr (cond_expr, (true_expr, Nothing)) Ty_abs), symtbl'', tokens')
+                              Right (_, symtbl'', tokens') -> return $ Right (Nothing, symtbl'', tokens')
+                          Right (_, symtbl', tokens') -> return $ Right (Nothing, symtbl', tokens')
+                    )
+          case r of
+            Left err -> throwE err
+            Right r' -> return r'
+        
+        Tk_decre:ts -> (case ts of
+                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs) ts'
+                          _ -> return (Nothing, symtbl, ts)
+                       )
+        Tk_incre:ts -> (case ts of
+                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_incre (Syn_var ident Ty_abs) Ty_abs) ts'
+                          _ -> return (Nothing, symtbl, ts)
+                       )
+        Tk_shaft:ts -> (case ts of
+                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_neg (Syn_var ident Ty_abs) Ty_abs) ts'
+                          _ -> return (Nothing, symtbl, ts)
+                       )
+        
+        Tk_false:ts -> cont_par symtbl (Syn_val (Val_bool False) Ty_bool) ts
+        Tk_true:ts -> cont_par symtbl (Syn_val (Val_bool True) Ty_bool) ts
+        (Tk_nume n):ts -> cont_par symtbl (Syn_val (Val_int n) Ty_int) ts
+        (Tk_str s):ts -> cont_par symtbl (Syn_val (Val_str s) Ty_string) ts
+        
+        Tk_fun:ts -> do
+          if fun_declp then
+            case ts of
+              (Tk_ident fun_id):ts' -> do
+                let fun = Syn_fun_decl' fun_id [] (Syn_scope ([], Syn_none)) (Ty_env [], Ty_abs)
+                case cons_fun_tree' symtbl fun ts' of
+                  ((fun'@(Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty')), symtbl', tokens'), errs) -> return (Just fun', symtbl', tokens')
+                  ((_, symtbl', tokens'), errs) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                   in
+                                                     throwE (Error_Excep Excep_assert_failed loc)
+              _ -> return (Nothing, symtbl, ts)
+            else return (Nothing, symtbl, ts)
+        
+        Tk_var:ts -> if var_declp then
+                       case ts of
+                         (Tk_ident ident):ts' -> let var = Syn_var ident Ty_abs
+                                                 in
+                                                   case cons_var_decl symtbl var ts' of
+                                                     ((Just (var_decl@(Syn_var_decl var_id var_ty)), symtbl', tokens'), errs) ->
+                                                       let (symtbl'', err_symreg) = sym_regist False symtbl' Sym_cat_decl (var_id, var_decl)
+                                                           errs' = errs ++ (case err_symreg of
+                                                                              Just e_reg  -> [e_reg]
+                                                                              Nothing -> []
+                                                                           )
+                                                       in
+                                                         return (Just var_decl, symtbl'', tokens')
+                                                     ((_, symtbl', tokens'), errs) -> return (Nothing, symtbl', tokens')
+                         _ -> return (Nothing, symtbl, ts)
+                     else
+                       return (Nothing, symtbl, ts)
+        
+        (Tk_ident ident):ts -> do
+          let var = Syn_var ident Ty_abs
+          r <- lift (do
+                        case ts of
+                          Tk_L_par:ts' -> do
+                            let fun_app = Syn_expr_call ident [] Ty_abs
+                            r_call <- runExceptT $ par_fun_call symtbl fun_app ts'
+                            case r_call of
+                              Left err -> return $ Left err
+                              Right (Right (fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl', tokens') -> do
+                                case tokens' of
+                                  Tk_R_par:ts'' -> runExceptT $ cont_par symtbl' fun_app' ts''
+                                  _ -> return $ Right (Nothing, symtbl', tokens')
+                              Right (Left errs, symtbl', tokens') -> return $ Right (Nothing, symtbl', tokens')
+                          _ -> runExceptT $ cont_par symtbl var ts
+                    )
+          case r of
+            Left err -> throwE err
+            Right r' -> return r'
+        
+        _ -> return (Nothing, symtbl, tokens)
 
 
 type Fresh_tvar = (Type, Integer)
@@ -2010,9 +2262,9 @@ ty_curve (expr, prev_tvar) = do
         Left err -> throwE err
         Right r' -> return r'
 
-    Syn_val _ Ty_abs -> let assert_msg  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+    Syn_val _ Ty_abs -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                         in
-                          throwE (Error_Excep Excep_assert_failed assert_msg)
+                          throwE (Error_Excep Excep_assert_failed loc)
     
     _ -> return (expr, prev_tvar) -- including the case of  Syn_tydef_decl, Syn_rec_decl, and Syn_none.
   
@@ -2858,8 +3110,8 @@ main = do
   
   symtbl <- return $ sym_enter_scope Nothing Sym_cat_decl
   
-  (syn_forest, symtbl', tokens')  <- return $ case src_remains of
-                                                "" -> let (syn_tree, symtbl', tokens') = cons_par_tree symtbl tokens (True, True, True)
+  {- (syn_forest, symtbl', tokens')  <- return $ case src_remains of
+                                                "" -> let (syn_tree, symtbl', tokens') = cons_ptree symtbl tokens (True, True, True)
                                                       in
                                                         case syn_tree of
                                                           Just s_tree -> let (s_ts, symtbl'', tokens'') = cons_p_trees symtbl' tokens'
@@ -2869,7 +3121,7 @@ main = do
                                                   where
                                                     cons_p_trees symtbl [] = ([], symtbl, [])
                                                     cons_p_trees symtbl (Tk_smcl:ts) =
-                                                      let (syn_tree, symtbl', ts') = cons_par_tree symtbl ts (True, True, True)
+                                                      let (syn_tree, symtbl', ts') = cons_ptree symtbl ts (True, True, True)
                                                       in
                                                         case syn_tree of
                                                           Just s_tree -> let (s_trees, symtbl'', ts'') = cons_p_trees symtbl' ts'
@@ -2877,7 +3129,50 @@ main = do
                                                                            (s_tree:s_trees, symtbl'', ts'')
                                                           _ -> ([], symtbl', ts')
                                                     cons_p_trees symtbl ts = ([], symtbl, ts)
-                                                _ -> (Nothing, symtbl, tokens)
+                                                _ -> (Nothing, symtbl, tokens) -}
+
+  (syn_forest, symtbl', tokens') <- do
+    r <- (case src_remains of
+            "" -> do
+              r <- runExceptT $ cons_ptree1 symtbl tokens (True, True, True)
+              case r of
+                Left err -> (do
+                                print_excepts err
+                                return $ Left ()
+                            )
+                Right (syn_tree, symtbl', tokens') -> (case syn_tree of
+                                                         Just s_tree -> do
+                                                           r_ts <- cons_p_trees symtbl' tokens'
+                                                           case r_ts of
+                                                             Left () -> return $ Left ()
+                                                             Right (s_ts, symtbl'', tokens'') -> return $ Right (Just (s_tree:s_ts), symtbl'', tokens'')
+                                                         _ -> return $ Right (Nothing, symtbl', tokens')
+                                                      )
+                  where
+                    cons_p_trees symtbl tokens =
+                      case tokens of
+                        [] -> return $ Right ([], symtbl, [])
+                        (Tk_smcl:ts) -> do
+                          r <- runExceptT $ cons_ptree1 symtbl ts (True, True, True)
+                          case r of
+                            Left err -> (do
+                                            print_excepts err
+                                            return $ Left ()
+                                        )
+                            Right (syn_tree, symtbl', ts') -> (case syn_tree of
+                                                                 Just s_tree -> do
+                                                                   r_ts <- cons_p_trees symtbl' ts'
+                                                                   case r_ts of
+                                                                     Left () -> return $ Left ()
+                                                                     Right (s_trees, symtbl'', ts'') -> return $ Right (s_tree:s_trees, symtbl'', ts'')
+                                                                 _ -> return $ Right ([], symtbl', ts')
+                                                              )
+                        ts -> return $ Right ([], symtbl, ts)
+            _ -> return $ Right (Nothing, symtbl, tokens)
+         )
+    case r of
+      Left _ -> return (Nothing, symtbl, tokens)
+      Right r' -> return r'
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
   
   putStr "ty-raw:  "
@@ -2936,3 +3231,11 @@ main = do
           str <- hGetLine h
           str' <- read_src h
           return $ str ++ str'
+      
+      print_excepts :: Error_Excep -> IO ()
+      print_excepts err = do
+        let errmsg = case err of
+                       Error_Excep Excep_assert_failed assert_msg -> assert_msg
+                       Error_Excep _ errmsg -> errmsg
+        putStrLn errmsg
+        return ()
