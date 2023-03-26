@@ -1106,7 +1106,7 @@ par_fun_decl'1 :: Symtbl -> Syntree_node -> [Tk_code] -> ExceptT Error_Excep IO 
 par_fun_decl'1 symtbl fun tokens =
   let par_fun_type symtbl tokens = case tokens of
                                      Tk_typed_as:ts -> do
-                                       r_ty <- runExceptT $ par_type_decl1 tokens
+                                       r_ty <- runExceptT $ par_type_decl1 symtbl tokens
                                        return (case r_ty of
                                                  Left err -> Left err
                                                  Right (Right ty, symtbl', ts') -> Right ((ty, symtbl', ts'), [])
@@ -1115,103 +1115,106 @@ par_fun_decl'1 symtbl fun tokens =
                                      _ -> return $ Right ((Ty_abs, symtbl, tokens), [])
   in
     case fun of
-      Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty) -> do
+      Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty) ->
         case tokens of
-           Tk_L_par:Tk_R_par:ts -> do
-             r <- lift (do 
-                           r_ty <- par_fun_type symtbl ts
-                           return (case r_ty of
-                                     Left err -> Left err
-                                     Right ((fun_ty', symtbl', tokens'), errs) -> Right ((Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty'), symtbl', tokens'), errs)
-                                  )
-                       )
-             case r of
-               Left err -> throwE err
-               Right r' -> r'
+          Tk_L_par:Tk_R_par:ts -> do
+            r <- lift (do 
+                          r_ty <- par_fun_type symtbl ts
+                          return (case r_ty of
+                                    Left err -> Left err
+                                    Right ((fun_ty', symtbl', tokens'), errs) -> Right ((Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty'), symtbl', tokens'), errs)
+                                 )
+                      )
+            case r of
+              Left err -> throwE err
+              Right r' -> return r'
            
-           Tk_L_par:ts -> do
-             r <- lift (do
-                           r_args <- runExceptT $ par_args symtbl ts
-                           case r_args of
-                             Left err -> return $ Left err
-                             Right ((args', ts'), symtbl', arg_errs) ->
-                               return (case ts' of
-                                         Tk_R_par:ts'' -> do
-                                           r_ty <- par_fun_type symtbl' ts''
-                                           case r_ty of
+          Tk_L_par:ts -> do
+            r <- lift (do
+                          r_args <- runExceptT $ par_args symtbl ts
+                          case r_args of
+                            Left err -> return $ Left err
+                            Right ((args', ts'), symtbl', arg_errs) ->
+                              (case ts' of
+                                 Tk_R_par:ts'' -> do
+                                   r_ty <- par_fun_type symtbl' ts''
+                                   return (case r_ty of
                                              Left err -> Left err
                                              Right ((fun_ty', symtbl'', tokens'), fun_ty_errs) ->
                                                Right ((Syn_fun_decl' fun_id (args ++ args') fun_body (Ty_env binds, fun_ty'), symtbl'', tokens'), (arg_errs ++ fun_ty_errs))
-                                         _ -> do
-                                           r_ty <- par_fun_type symtbl' ts'
-                                           case r_ty of
+                                          )
+                                 _ -> do
+                                   r_ty <- par_fun_type symtbl' ts'
+                                   return (case r_ty of
                                              Left err -> Left err
                                              Right ((fun_ty', symtbl'', tokens'), fun_ty_errs) ->
                                                Right ((Syn_fun_decl' fun_id (args ++ args') fun_body (Ty_env binds, fun_ty'), symtbl'', tokens'), errs)
-                                             where
-                                               errmsg = "missing closing R-blace in function declaration."
-                                               errs = (arg_errs ++ [Imcomplete_function_declaration errmsg]) ++ fun_ty_errs
-                                      )
-                       )
-             case r of
-               Left err -> throwE err
-               Right r' -> return r
-               
-               where
-                 par_args :: Symtbl -> [Tk_code] -> ExceptT Error_Excep IO (([Syntree_node], [Tk_code]), Symtbl, [Error_codes])
-                 par_args symtbl tokens = do
-                   r <- lift (do
-                                 r_a <- runExceptT $ par_arg symtbl tokens
-                                 case r_a of
-                                   Left err -> return $ Left err
-                                   Right ((Nothing, tokens'), symtbl', errs) -> return $ Right (([], tokens'), symtbl', errs)
-                                   Right ((Just arg, tokens'), symtbl', errs) ->
-                                     return (case tokens' of
-                                               Tk_smcl:ts' -> do
-                                                 r_as <- runExceptT $ par_args symtbl' ts'
-                                                 case r_as of
-                                                   Left err -> return $ Left err
+                                               where
+                                                 errmsg = "missing closing R-blace in function declaration."
+                                                 errs = (arg_errs ++ [Imcomplete_function_declaration errmsg]) ++ fun_ty_errs
+                                          )
+                              )
+                      )
+            case r of
+              Left err -> throwE err
+              Right r' -> return r'
+              
+              where
+                par_args :: Symtbl -> [Tk_code] -> ExceptT Error_Excep IO (([Syntree_node], [Tk_code]), Symtbl, [Error_codes])
+                par_args symtbl tokens = do
+                  r <- lift (do
+                                r_a <- runExceptT $ par_arg symtbl tokens
+                                case r_a of
+                                  Left err -> return $ Left err
+                                  Right ((Nothing, tokens'), symtbl', errs) -> return $ Right (([], tokens'), symtbl', errs)
+                                  Right ((Just arg, tokens'), symtbl', errs) ->
+                                    (case tokens' of
+                                       Tk_smcl:ts' -> do
+                                         r_as <- runExceptT $ par_args symtbl' ts'
+                                         return (case r_as of
+                                                   Left err -> Left err
                                                    Right ((args, tokens''), symtbl'', errs') -> Right ((arg:args, tokens''), symtbl'', (errs ++ errs'))
-                                               _ -> Right (([arg], tokens'), symtbl', errs)
-                                            )
-                             )
-                   case r of
-                     Left err -> throwE err
-                     Right r' -> return r'
-                 
-                 par_arg :: Symtbl -> [Tk_code] -> ExceptT Error_Excep IO ((Maybe Syntree_node, [Tk_code]), Symtbl, [Error_codes])
-                 par_arg symtbl tokens =
-                   r <- lift (case tokens of
-                                (Tk_ident arg_id):ts -> do
-                                  let arg = Syn_var arg_id Ty_abs
-                                  r_arg <- runExceptT $ cons_var_decl symtbl arg ts
-                                  return (case r_arg of
-                                            Left err -> Left err
-                                            Right ((Just (Syn_var_decl arg_id arg_ty), symtbl', ts'), errs) -> Right ((Just (Syn_arg_decl arg_id arg_ty), ts'), symtbl', errs)
-                                            Right ((_, symtbl', ts'), errs) -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                               in
-                                                                                 Left (Error_Excep Excep_assert_failed loc)
-                                         )
-                                _ -> return $ Right ((Nothing, tokens), symtbl, [])
-                             )
-                   case r of
-                     Left err -> throwE err
-                     Right r' -> return r'
+                                                )
+                                       _ -> return $ Right (([arg], tokens'), symtbl', errs)
+                                    )
+                            )
+                  case r of
+                    Left err -> throwE err
+                    Right r' -> return r'
+                
+                par_arg :: Symtbl -> [Tk_code] -> ExceptT Error_Excep IO ((Maybe Syntree_node, [Tk_code]), Symtbl, [Error_codes])
+                par_arg symtbl tokens = do
+                  r <- lift (case tokens of
+                               (Tk_ident arg_id):ts -> do
+                                 let arg = Syn_var arg_id Ty_abs
+                                 r_arg <- runExceptT $ cons_var_decl1 symtbl arg ts
+                                 return (case r_arg of
+                                           Left err -> Left err
+                                           Right ((Just (Syn_var_decl arg_id arg_ty), symtbl', ts'), errs) -> Right ((Just (Syn_arg_decl arg_id arg_ty), ts'), symtbl', errs)
+                                           Right ((_, symtbl', ts'), errs) -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                              in
+                                                                                Left (Error_Excep Excep_assert_failed loc)
+                                        )
+                               _ -> return $ Right ((Nothing, tokens), symtbl, [])
+                            )
+                  case r of
+                    Left err -> throwE err
+                    Right r' -> return r'
            
-           _ -> do
-             r <- lift (do
-                           r_ty <- par_fun_type symtbl tokens
-                           return (case r_ty of
-                                     Left err -> Left err
-                                     Right ((fun_ty', tokens'), fun_ty_errs) -> Right ((Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty'), symtbl, tokens'), errs)             
-                                       where
-                                         errmsg = "missing opening L-blace in function declaration."
-                                         errs =  [Imcomplete_function_declaration errmsg] ++ fun_ty_errs
-                                  )
-                       )
-             case r of
-               Left err -> throwE err
-               Right r' -> return r'
+          _ -> do
+            r <- lift (do
+                          r_ty <- par_fun_type symtbl tokens
+                          return (case r_ty of
+                                    Left err -> Left err
+                                    Right ((fun_ty', symtbl', tokens'), fun_ty_errs) -> Right ((Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty'), symtbl', tokens'), errs)
+                                      where
+                                        errmsg = "missing opening L-blace in function declaration."
+                                        errs =  [Imcomplete_function_declaration errmsg] ++ fun_ty_errs
+                                 )
+                      )
+            case r of
+              Left err -> throwE err
+              Right r' -> return r'
       
       _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
            in
