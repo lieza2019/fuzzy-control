@@ -971,7 +971,7 @@ data Error_codes =
   deriving (Eq, Ord, Show)
 
 
-par_type_decl :: [Tk_code] -> (Either [Error_codes] Type, [Tk_code])
+{- par_type_decl :: [Tk_code] -> (Either [Error_codes] Type, [Tk_code])
 par_type_decl tokens =
   case tokens of
     Tk_typed_as:[] -> (Left [Imcomplete_type_specifier], [])
@@ -980,7 +980,7 @@ par_type_decl tokens =
                          Tk_int:ts' -> (Right Ty_int, ts')
                          t:ts' -> (Left [Illegal_type_specified t], ts)
                       )
-    _ -> (Left [Internal_error "Calling cons_var_decl with non variable constructor."], tokens)
+    _ -> (Left [Internal_error "Calling cons_var_decl with non variable constructor."], tokens) -}
     
 par_type_decl1 :: Symtbl -> [Tk_code] -> ExceptT Error_Excep IO (Either [Error_codes] Type, Symtbl, [Tk_code])
 par_type_decl1 symtbl tokens =
@@ -996,7 +996,7 @@ par_type_decl1 symtbl tokens =
            throwE (Error_Excep Excep_assert_failed loc)
 
 
-cons_var_decl :: Symtbl -> Syntree_node -> [Tk_code] -> ((Maybe Syntree_node, Symtbl, [Tk_code]), [Error_codes])
+{- cons_var_decl :: Symtbl -> Syntree_node -> [Tk_code] -> ((Maybe Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 cons_var_decl symtbl var tokens =
   case var of
     Syn_var var_id var_ty ->
@@ -1010,7 +1010,7 @@ cons_var_decl symtbl var tokens =
     _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                        in
                           ((Just Syn_none, symtbl, tokens), [Internal_error errmsg])
-                      )
+                      ) -}
 
 cons_var_decl1 :: Symtbl -> Syntree_node -> [Tk_code] -> ExceptT Error_Excep IO ((Maybe Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 cons_var_decl1 symtbl var tokens =
@@ -1034,7 +1034,7 @@ cons_var_decl1 symtbl var tokens =
            throwE (Error_Excep Excep_assert_failed loc)
 
 
-par_fun_decl' :: Symtbl -> Syntree_node -> [Tk_code] -> ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
+{- par_fun_decl' :: Symtbl -> Syntree_node -> [Tk_code] -> ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 par_fun_decl' symtbl fun tokens =
   let par_fun_type tokens = case tokens of
                               Tk_typed_as:ts -> (case par_type_decl tokens  of
@@ -1100,7 +1100,7 @@ par_fun_decl' symtbl fun tokens =
       _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                          in
                             ((fun, symtbl, tokens), [Internal_error errmsg])
-                        )
+                        ) -}
 
 par_fun_decl'1 :: Symtbl -> Syntree_node -> [Tk_code] -> ExceptT Error_Excep IO ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 par_fun_decl'1 symtbl fun tokens =
@@ -1222,7 +1222,7 @@ par_fun_decl'1 symtbl fun tokens =
              throwE (Error_Excep Excep_assert_failed loc)
 
 
-cons_fun_tree' symtbl fun tokens =
+{- cons_fun_tree' symtbl fun tokens =
   case fun of
     --Syn_fun_decl fun_id args fun_body fun_ty ->
     Syn_fun_decl' fun_id args fun_body (env, fun_ty) ->
@@ -1414,7 +1414,7 @@ cons_fun_tree' symtbl fun tokens =
     _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                        in
                          ((fun, symtbl, tokens), [Internal_error errmsg])
-                      )
+                      ) -}
 
 cons_fun_tree'1 :: Symtbl -> Syntree_node -> [Tk_code] -> ExceptT Error_Excep IO ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 cons_fun_tree'1 symtbl fun tokens =
@@ -1424,7 +1424,7 @@ cons_fun_tree'1 symtbl fun tokens =
                     r_decl <- runExceptT $ par_fun_decl'1 symtbl fun tokens
                     case r_decl of
                       Left err -> return $ Left err
-                      Right ((Syn_fun_decl' fun_id' args' fun_body' (env'@(Ty_env binds), fun_ty'), symtbl', tokens'), errs) ->
+                      Right ((fun@(Syn_fun_decl' fun_id' args' fun_body' (env'@(Ty_env binds), fun_ty')), symtbl', tokens'), errs) ->
                         if fun_id' /= fun_id then (do
                                                       let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                       return $ Left (Error_Excep Excep_assert_failed loc)
@@ -1437,10 +1437,15 @@ cons_fun_tree'1 symtbl fun tokens =
                                   errmsg = "Function declaration has no body at top level declarator."
                                   errs'' = errs ++ [Imcomplete_function_declaration errmsg]
                               _ -> (do
-                                       r_args <- runExceptT $ exam_redef args'
+                                       r_args <- runExceptT $ exam_redef (fun:args')
                                        case r_args of
                                          Left err -> return $ Left err
-                                         Right (args'', errs_args) -> do
+                                         Right (args0, errs_args) -> do
+                                           let args'' = Prelude.foldl (\as -> \a -> (case a of
+                                                                                       Syn_arg_decl _ _ -> as ++ [a]
+                                                                                       _ -> as
+                                                                                    )
+                                                                      ) [] args0
                                            let (ts', errs_parse) = case tokens' of
                                                                      Tk_L_bra:ts'' -> (ts'', [])
                                                                      t':ts'' -> (tokens', [Imcomplete_function_declaration errmsg])
@@ -1451,8 +1456,8 @@ cons_fun_tree'1 symtbl fun tokens =
                                            let lv_before = sym_crnt_level (sym_decl symtbl'')
                                            let (new_scope, errs_argreg) =
                                                  Prelude.foldl (\(stbl, es) -> \arg@(Syn_arg_decl id _) -> case sym_regist False stbl Sym_cat_decl (id, arg) of
-                                                                                                               (stbl', Just err_reg) -> (stbl', (es ++ [err_reg]))
-                                                                                                               (stbl', Nothing) -> (stbl', es)
+                                                                                                             (stbl', Just err_reg) -> (stbl', (es ++ [err_reg]))
+                                                                                                             (stbl', Nothing) -> (stbl', es)
                                                                ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) args''
                                            
                                            let errs0 = errs ++ errs_args ++ errs_parse ++ (case err_funreg of
@@ -1472,13 +1477,18 @@ cons_fun_tree'1 symtbl fun tokens =
                                                                                                   )
                                                                                      (Prelude.map (\(id, ty) -> (id, (id, ty))) binds') (Prelude.map (\(Syn_arg_decl a_id a_ty) -> (a_id, a_ty)) args'')
                                                                                    ) -}
-                                                     let fun_body'' = (decls, (case stmts of
-                                                                                  [] -> Syn_none
-                                                                                  [e] -> e
-                                                                                  es -> Syn_expr_seq es Ty_abs
-                                                                              )
-                                                                      )
-                                                     let fun'' = Syn_fun_decl' fun_id' args'' (Syn_scope fun_body'') (Ty_env binds', fun_ty')
+                                                     let decls' = Prelude.foldl (\ds -> \d -> (case d of
+                                                                                                 Syn_arg_decl _ _ -> ds
+                                                                                                 _ -> ds ++ [d]
+                                                                                              )
+                                                                                ) [] decls
+                                                     let fun_body'' = Syn_scope (decls', (case stmts of
+                                                                                           [] -> Syn_none
+                                                                                           [e] -> e
+                                                                                           es -> Syn_expr_seq es Ty_abs
+                                                                                        )
+                                                                                )
+                                                     let fun'' = Syn_fun_decl' fun_id' args'' fun_body'' (Ty_env binds', fun_ty')
                                                      
                                                      let prev_scope = sym_leave_scope new_scope' Sym_cat_decl
                                                      if sym_crnt_level (sym_decl prev_scope) /= lv_before then let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -1567,7 +1577,7 @@ parse_fun_body symtbl decls tokens = do
                   Left err -> return $ Left err
                   Right body -> do
                     case body of
-                      (Nothing, symtbl', tokens') -> return $ Right (((Ty_env [], []), []), symtbl', tokens', [])
+                      (Nothing, symtbl', tokens') -> return $ Right (((Ty_env [], decls), []), symtbl', tokens', [])
                       
                       (Just fun_decl@(Syn_fun_decl' fun_id args fun_body (env0, fun_ty)), symtbl', tokens') -> do
                         r_decls <- runExceptT $ exam_redef (decls ++ [fun_decl])
@@ -1883,7 +1893,7 @@ cons_fun_tree symtbl fun tokens =
                          ((fun, symtbl, tokens), [Internal_error errmsg])
                       ) -}
 
-cons_ptree :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> (Maybe Syntree_node, Symtbl, [Tk_code])
+{- cons_ptree :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> (Maybe Syntree_node, Symtbl, [Tk_code])
 cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
   let is_op t = (t == Tk_decre) || (t == Tk_incre) || (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_asgn)
       is_bin_op op = (op == Ope_add) || (op == Ope_sub) || (op == Ope_mul) || (op == Ope_div)
@@ -2161,7 +2171,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                  else
                                    cont_par symtbl var ts -}
                                  
-        _ -> (Nothing, symtbl, tokens)
+        _ -> (Nothing, symtbl, tokens) -}
 
 cons_ptree1 :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> ExceptT Error_Excep IO (Maybe Syntree_node, Symtbl, [Tk_code])
 cons_ptree1 symtbl tokens (fun_declp, var_declp, par_contp) =
@@ -2363,30 +2373,45 @@ cons_ptree1 symtbl tokens (fun_declp, var_declp, par_contp) =
           if fun_declp then
             case ts of
               (Tk_ident fun_id):ts' -> do
-                let fun = Syn_fun_decl' fun_id [] (Syn_scope ([], Syn_none)) (Ty_env [], Ty_abs)
-                case cons_fun_tree' symtbl fun ts' of
-                  ((fun'@(Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty')), symtbl', tokens'), errs) -> return (Just fun', symtbl', tokens')
-                  ((_, symtbl', tokens'), errs) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                   in
-                                                     throwE (Error_Excep Excep_assert_failed loc)
+                r <- lift (do
+                              let fun = Syn_fun_decl' fun_id [] (Syn_scope ([], Syn_none)) (Ty_env [], Ty_abs)
+                              r_fun <- runExceptT $ cons_fun_tree'1 symtbl fun ts'
+                              case r_fun of
+                                Left err -> return $ Left err
+                                Right ((fun'@(Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty')), symtbl', tokens'), errs) -> return $ Right (Just fun', symtbl', tokens')
+                                Right ((_, symtbl', tokens'), errs) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                       in
+                                                                         return $ Left (Error_Excep Excep_assert_failed loc)
+                          )
+                case r of
+                  Left err -> throwE err
+                  Right r' -> return r'
+              
               _ -> return (Nothing, symtbl, ts)
             else return (Nothing, symtbl, ts)
         
         Tk_var:ts -> if var_declp then
-                       case ts of
-                         (Tk_ident ident):ts' -> let var = Syn_var ident Ty_abs
-                                                 in
-                                                   case cons_var_decl symtbl var ts' of
-                                                     ((Just (var_decl@(Syn_var_decl var_id var_ty)), symtbl', tokens'), errs) ->
-                                                       let (symtbl'', err_symreg) = sym_regist False symtbl' Sym_cat_decl (var_id, var_decl)
-                                                           errs' = errs ++ (case err_symreg of
-                                                                              Just e_reg  -> [e_reg]
-                                                                              Nothing -> []
-                                                                           )
-                                                       in
-                                                         return (Just var_decl, symtbl'', tokens')
-                                                     ((_, symtbl', tokens'), errs) -> return (Nothing, symtbl', tokens')
-                         _ -> return (Nothing, symtbl, ts)
+                       do
+                         r <- lift (case ts of
+                                      (Tk_ident ident):ts' -> do
+                                        let var = Syn_var ident Ty_abs
+                                        r_v <- runExceptT $ cons_var_decl1 symtbl var ts'
+                                        case r_v of
+                                          Left err -> return $ Left err
+                                          Right ((Just (var_decl@(Syn_var_decl var_id var_ty)), symtbl', tokens'), errs) -> do
+                                            let (symtbl'', err_symreg) = sym_regist False symtbl' Sym_cat_decl (var_id, var_decl)
+                                            let errs' = errs ++ (case err_symreg of
+                                                                   Just e_reg  -> [e_reg]
+                                                                   Nothing -> []
+                                                                )
+                                            return $ Right  (Just var_decl, symtbl'', tokens')
+                                          Right ((_, symtbl', tokens'), errs) -> return $ Right (Nothing, symtbl', tokens')
+                                      
+                                      _ -> return $ Right (Nothing, symtbl, ts)
+                                   )
+                         case r of
+                           Left err ->throwE err
+                           Right r' -> return r'
                      else
                        return (Nothing, symtbl, ts)
         
