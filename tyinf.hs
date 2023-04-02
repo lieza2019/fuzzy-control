@@ -958,8 +958,10 @@ data Error_codes =
   Internal_error String
   | Parse_error String
   | Illtyped_constant
+  | Ill_formed_expression String
   | Type_constraint_mismatched String
   | Imcomplete_function_declaration String
+  | Imcomplete_variable_declaration String
   | Imcomplete_type_specifier
   | Illegal_left_expression_for_assignment
   | Illegal_type_specified Tk_code
@@ -2326,6 +2328,7 @@ cons_ptree1 symtbl tokens (fun_declp, var_declp, par_contp) =
           case r of
             Left err -> throwE err
             Right (Just expr, symtbl', (Tk_R_par:ts')) -> cont_par symtbl' (Syn_expr_par expr (syn_node_typeof expr)) ts'
+            --Right (Just expr, symtbl', (ts')) -> cont_par symtbl' (Syn_expr_par expr (syn_node_typeof expr)) ts'
             Right (_, symtbl',ts') -> return (Nothing, symtbl', ts')
         
         Tk_if:ts -> do
@@ -2437,9 +2440,14 @@ cons_ptree1 symtbl tokens (fun_declp, var_declp, par_contp) =
         
         _ -> return (Nothing, symtbl, tokens)
 
-cons_ptree2 :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> ExceptT Error_Excep IO (Maybe Syntree_node, Symtbl, [Tk_code])
+cons_ptree2 :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> ExceptT Error_Excep IO ((Maybe Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
-  let is_op t = (t == Tk_decre) || (t == Tk_incre) || (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_asgn)
+  let cat_err err expr =
+        case expr of
+          Left err_exc -> throwE err_exc
+          Right ((expr0, symtbl', tokens'), err') -> return $ ((expr0, symtbl', tokens'), (err ++ err'))
+      
+      is_op t = (t == Tk_decre) || (t == Tk_incre) || (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_asgn)
       is_bin_op op = (op == Ope_add) || (op == Ope_sub) || (op == Ope_mul) || (op == Ope_div)
       is_gte_op ope1 ope2 = case ope1 of
                           Ope_add -> (case ope2 of
@@ -2584,32 +2592,66 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
             return (Just subexpr, symtbl, tokens)
     in
       case tokens of
-        [] -> return (Nothing, symtbl, [])
+        [] -> return ((Nothing, symtbl, []), [])
         Tk_L_par:ts -> do
           r <- lift $ runExceptT $ cons_ptree2 symtbl ts (False, False, True)
           case r of
             Left err -> throwE err
-            Right (Just expr, symtbl', (Tk_R_par:ts')) -> cont_par symtbl' (Syn_expr_par expr (syn_node_typeof expr)) ts'
-            Right (_, symtbl',ts') -> return (Nothing, symtbl', ts')
+            Right ((Just par_expr, symtbl', (Tk_R_par:ts')), err) -> do
+              r_par <- runExceptT $ cont_par symtbl' (Syn_expr_par par_expr (syn_node_typeof par_expr)) ts'
+              case r_par of
+                Left err_exc -> throwE err_exc
+                Right (r_cont, err_cont) -> return (r_cont, (err ++ err_cont))
+            Right ((Just par_expr, symtbl', ts'), err) -> do
+              r_par <- (do
+                           r_cont <- runExceptT $ cont_par symtbl' (Syn_expr_par par_expr (syn_node_typeof par_expr)) ts'
+                           return (case r_cont of
+                                     Left err_exc -> Left err_exc
+                                     Right ((Just par_expr', symtbl'', ts''), err_cont) -> Right ((Just par_expr', symtbl'', ts''), err')
+                                       where
+                                         err' = err ++ [Ill_formed_expression errmsg] ++ err_cont
+                                     Right ((_, symtbl'', ts''), _) -> Right ((Nothing, symtbl', ts'), err')
+                                       where
+                                         err' = err ++ [Ill_formed_expression errmsg]
+                                  )
+                             where
+                               errmsg = "Missing R-paren of the expression."
+                       )
+              case r_par of
+                Left err_exc -:> throwE err_exc
+                Right r_par' -> return r_par'
+            Right ((_, symtbl',ts'), err) -> return ((Nothing, symtbl', ts'), err)
         
         Tk_if:ts -> do
           r <- lift (do
                         r_cond <- runExceptT $ cons_ptree2 symtbl ts (False, False, True)
                         case r_cond of
-                          Left err -> return $ Left err
-                          Right (Just cond_expr, symtbl', (Tk_then:ts')) -> do
-                            r_true <- runExceptT $ cons_ptree2 symtbl' ts' (False, False, True)
-                            case r_true of
-                              Left err -> return $ Left err
-                              Right (Just true_expr, symtbl'_t, (Tk_else:ts'')) -> do
-                                r_false <- runExceptT $ cons_ptree2 symtbl'_t ts'' (False, False, True)
-                                case r_false of
-                                  Left err -> return $ Left err
-                                  Right (Just false_expr, symtbl'', tokens') -> return $ Right (Just (Syn_cond_expr (cond_expr, (true_expr, Just false_expr)) Ty_abs), symtbl'', tokens')
-                                  Right (_, symtbl'', tokens') -> return $ Right (Nothing, symtbl'', tokens')
-                              Right (Just true_expr, symtbl'', tokens') -> return $ Right (Just (Syn_cond_expr (cond_expr, (true_expr, Nothing)) Ty_abs), symtbl'', tokens')
-                              Right (_, symtbl'', tokens') -> return $ Right (Nothing, symtbl'', tokens')
-                          Right (_, symtbl', tokens') -> return $ Right (Nothing, symtbl', tokens')
+                          Left err_exc -> return $ Left err_exc
+                          Right ((Just cond_expr, symtbl', tokens'), err_c) ->
+                            case tokens' of
+                              Tk_then:ts' -> do
+                                r_true <- runExceptT $ cat_err err_c $ cons_ptree2 symtbl' ts' (False, False, True)
+                                case r_true of
+                                  Left err_exc -> return $ Left err_exc
+                                  Right ((Just true_expr, symtbl'', (Tk_else:ts'')), err_ct) -> return $ par_else_clause err_ct symtbl'' ts''
+                                  Right ((Just true_expr, symtbl'', tokens'), err_ct) ->
+                                    return $ Right ((Just (Syn_cond_expr (cond_expr, (true_expr, Nothing)) Ty_abs), symtbl'', tokens'), err_ct)
+                                  Right ((_, symtbl'', tokens'), err) -> return $ Right ((Nothing, symtbl'', tokens'), err)
+                              _ -> return $ Right ((Nothing, symtbl', tokens'), err')
+                                where
+                                  errmsg = "Expected \"then\", in conditional expression."
+                                  err' = err_c ++ [Parse_error errmsg]
+                          Right ((_, symtbl', tokens'), err) -> return $ Right ((Nothing, symtbl', tokens'), err)
+                          
+                          where
+                            par_else_clause err symtbl tokens = do
+                              r_false <- runExceptT $ cat_err err $ cons_ptree2 symtbl tokens (False, False, True)
+                              return (case r_false of
+                                        Left err_exc -> Left err_exc
+                                        Right ((Just false_expr, symtbl', tokens'), err') ->
+                                          Right ((Just (Syn_cond_expr (cond_expr, (true_expr, Just false_expr)) Ty_abs), symtbl', tokens'), err')
+                                        Right ((_, symtbl'', tokens'), err') -> Right ((Nothing, symtbl'', tokens'), err')
+                                     )
                     )
           case r of
             Left err -> throwE err
@@ -2617,16 +2659,29 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
         
         Tk_decre:ts -> (case ts of
                           (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs) ts'
-                          _ -> return (Nothing, symtbl, ts)
+                          _ -> return ((Nothing, symtbl, ts), err)
+                            where
+                              errmsg = "Expression must be assignable."
+                              err = [Ill_formed_expression errmsg]
                        )
         Tk_incre:ts -> (case ts of
                           (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_incre (Syn_var ident Ty_abs) Ty_abs) ts'
-                          _ -> return (Nothing, symtbl, ts)
+                          _ -> return ((Nothing, symtbl, ts), err)
+                            where
+                              errmsg = "Expression must be assignable."
+                              err = [Ill_formed_expression errmsg]
                        )
-        Tk_shaft:ts -> (case ts of
-                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_neg (Syn_var ident Ty_abs) Ty_abs) ts'
-                          _ -> return (Nothing, symtbl, ts)
-                       )
+        Tk_shaft:ts -> do
+          r <- lift (do
+                        r0 <- runExceptT $ cons_ptree2 symtbl ts (False, False, False)
+                        case r0 of
+                          Left err -> return $ Left err
+                          Right ((Nothing, symtbl', ts'), err) -> return r0
+                          Right ((Just expr0, symtbl', ts'), err)-> return $ cat_err err $ cont_par symtbl' (Syn_expr_una Ope_neg expr0 Ty_abs) ts'
+                    )
+          case r of
+            Left err -> throwE err
+            Right r' -> return r'
         
         Tk_false:ts -> cont_par symtbl (Syn_val (Val_bool False) Ty_bool) ts
         Tk_true:ts -> cont_par symtbl (Syn_val (Val_bool True) Ty_bool) ts
@@ -2639,10 +2694,10 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
               (Tk_ident fun_id):ts' -> do
                 r <- lift (do
                               let fun = Syn_fun_decl' fun_id [] (Syn_scope ([], Syn_none)) (Ty_env [], Ty_abs)
-                              r_fun <- runExceptT $ cons_fun_tree'1 symtbl fun ts'
-                              case r_fun of
+                              r_fdecl <- runExceptT $ cons_fun_tree'1 symtbl fun ts'
+                              case r_fdecl of
                                 Left err -> return $ Left err
-                                Right ((fun'@(Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty')), symtbl', tokens'), errs) -> return $ Right (Just fun', symtbl', tokens')
+                                Right ((fun'@(Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty')), symtbl', tokens'), errs) -> return $ Right ((Just fun', symtbl', tokens'), errs)
                                 Right ((_, symtbl', tokens'), errs) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                        in
                                                                          return $ Left (Error_Excep Excep_assert_failed loc)
@@ -2651,9 +2706,16 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                   Left err -> throwE err
                   Right r' -> return r'
               
-              _ -> return (Nothing, symtbl, ts)
-            else return (Nothing, symtbl, ts)
-        
+              _ -> return ((Nothing, symtbl, ts), err)
+                where
+                  errmg = "Invalid function declaration."
+                  err = Imcomplete_function_declaration errmsg
+            
+            else let errmsg = "Illegal function declaration."
+                     err = Parse_error errmsg
+                 in
+                   return ((Nothing, symtbl, ts), err)
+            
         Tk_var:ts -> if var_declp then
                        do
                          r <- lift (case ts of
@@ -2668,16 +2730,21 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                                                    Just e_reg  -> [e_reg]
                                                                    Nothing -> []
                                                                 )
-                                            return $ Right  (Just var_decl, symtbl'', tokens')
-                                          Right ((_, symtbl', tokens'), errs) -> return $ Right (Nothing, symtbl', tokens')
+                                            return $ Right ((Just var_decl, symtbl'', tokens'), errs')
+                                          Right ((_, symtbl', tokens'), errs) -> return $ Right ((Nothing, symtbl', tokens'), errs)
                                       
-                                      _ -> return $ Right (Nothing, symtbl, ts)
+                                      _ -> return $ Right ((Nothing, symtbl, ts), err)
+                                        where
+                                          errmsg = "Invalid variable declaration."
+                                          err = Imcomplete_variable_declaration errmsg
                                    )
                          case r of
                            Left err ->throwE err
                            Right r' -> return r'
-                     else
-                       return (Nothing, symtbl, ts)
+                     else let errmsg = "Illegal variable declaration."
+                              err = Parse_error errmsg
+                          in
+                            return ((Nothing, symtbl, ts), err)
         
         (Tk_ident ident):ts -> do
           let var = Syn_var ident Ty_abs
@@ -2688,18 +2755,21 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                             r_call <- runExceptT $ par_fun_call symtbl fun_app ts'
                             case r_call of
                               Left err -> return $ Left err
-                              Right (Right (fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl', tokens') -> do
+                              Right ((Right (fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl', tokens'), err) -> do
                                 case tokens' of
-                                  Tk_R_par:ts'' -> runExceptT $ cont_par symtbl' fun_app' ts''
-                                  _ -> return $ Right (Nothing, symtbl', tokens')
-                              Right (Left errs, symtbl', tokens') -> return $ Right (Nothing, symtbl', tokens')
+                                  Tk_R_par:ts'' -> runExceptT $ cat_err err $ cont_par symtbl' fun_app' ts''
+                                  _ -> return $ Right ((Nothing, symtbl', tokens'), err)
+                                    where
+                                      errmg = "Missing closing R paren in function calling."
+                                      err = Imcomplete_function_declaration errmsg
+                              Right ((Left errs, symtbl', tokens'), err) -> return $ Right ((Nothing, symtbl', tokens'), err)
                           _ -> runExceptT $ cont_par symtbl var ts
                     )
           case r of
             Left err -> throwE err
             Right r' -> return r'
         
-        _ -> return (Nothing, symtbl, tokens)
+        _ -> return (Nothing, symtbl, tokens) -}
 
 
 type Fresh_tvar = (Type, Integer)
