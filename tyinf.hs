@@ -2477,14 +2477,14 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
       cons_expr symtbl subexpr1 tokens = do
         let (ope, tokens') = fetch_ope tokens
         case ope of
-          Nothing -> return (Right subexpr1, symtbl, tokens)
+          Nothing -> return (Right subexpr1, symtbl, tokens, [])
           Just ope' | ope' == Ope_asgn -> do
                         r <- lift (do
                                       rhs <- runExceptT $ cons_ptree2 symtbl tokens' (False, False, True)
                                       case rhs of
                                         Left err -> return $ Left err
-                                        Right (Just r_expr, symtbl', tokens'') -> return $ Right (Right (Syn_expr_asgn subexpr1 r_expr Ty_abs), symtbl', tokens'')
-                                        Right (Nothing, symtbl', tokens'') -> return $ Right (Left Illegal_left_expression_for_assignment, symtbl', tokens'')
+                                        Right (Just r_expr, symtbl', tokens'', err) -> return $ Right (Right (Syn_expr_asgn subexpr1 r_expr Ty_abs), symtbl', tokens'', err)
+                                        Right (Nothing, symtbl', tokens'', err) -> return $ Right (Left Illegal_left_expression_for_assignment, symtbl', tokens'', err)
                                   )
                         case r of
                           Left err -> throwE err
