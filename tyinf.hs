@@ -2448,7 +2448,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
           Right ((expr0, symtbl', tokens'), err') -> return $ ((expr0, symtbl', tokens'), (err ++ err'))
       
       is_op t = (t == Tk_decre) || (t == Tk_incre) || (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_asgn)
-      is_bin_op op = (op == Ope_add) || (op == Ope_sub) || (op == Ope_mul) || (op == Ope_div)
+      -- returns true if ope1 >= ope2, otherwise false.
       is_gte_op ope1 ope2 = case ope1 of
                           Ope_add -> (case ope2 of
                                         Ope_add -> True
@@ -2465,69 +2465,92 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                         Ope_sub -> True
                                         Ope_mul -> True
                                         Ope_div -> True
-                                        -- _ -> False
+                                        _ -> False
                                      )
                           Ope_div -> (case ope2 of
                                         Ope_add -> True
                                         Ope_sub -> True
                                         Ope_mul -> True
                                         Ope_div -> True
-                                        -- _ -> False
+                                        _ -> False
                                      )
+      
       cons_expr symtbl subexpr1 tokens = do
         let (ope, tokens') = fetch_ope tokens
         case ope of
-          Nothing -> return (Right subexpr1, symtbl, tokens, [])
+          Nothing -> return ((Just subexpr1, symtbl, tokens, []), [])
           Just ope' | ope' == Ope_asgn -> do
                         r <- lift (do
                                       rhs <- runExceptT $ cons_ptree2 symtbl tokens' (False, False, True)
                                       case rhs of
-                                        Left err -> return $ Left err
-                                        Right (Just r_expr, symtbl', tokens'', err) -> return $ Right (Right (Syn_expr_asgn subexpr1 r_expr Ty_abs), symtbl', tokens'', err)
-                                        Right (Nothing, symtbl', tokens'', err) -> return $ Right (Left Illegal_left_expression_for_assignment, symtbl', tokens'', err)
+                                        Left err_exc -> return $ Left err_exc
+                                        Right ((Just expr_r, symtbl', tokens''), err) -> return $ Right ((Just (Syn_expr_asgn subexpr1 expr_r Ty_abs), symtbl', tokens''), err)
+                                        Right (Nothing, symtbl', tokens'', err) -> return $ Right ((Just subexpr1, symtbl', tokens''), err)
                                   )
                         case r of
-                          Left err -> throwE err
+                          Left err_exc -> throwE err_exc
                           Right r' -> return r'
           Just ope' | is_bin_op ope' -> do
                         r <- lift (do
                                       r2 <- runExceptT $ cons_ptree2 symtbl tokens' (False, False, True)
                                       case r2 of
-                                        Left err -> return $ Left err
-                                        Right (Just subexpr2, symtbl', tokens'') ->
-                                          return $ Right (case subexpr2 of
-                                                            Syn_val _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                            Syn_var _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                            Syn_expr_bin bin_ope (expr_1, expr_2) _ ->
-                                                              if is_gte_op ope' bin_ope then
-                                                                (Right (Syn_expr_bin bin_ope ((lm_im subexpr1 ope' expr_1), expr_2) Ty_abs), symtbl', tokens'')
-                                                              else
-                                                                (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                            _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                         )
-                                        Right (Nothing, symtbl', tokens'') -> return $ Right (Left (Illegal_operands ope' Syn_none), symtbl', tokens'')
+                                        Left err_exc -> return $ Left err_exc
+                                        Right ((Just subexpr2, symtbl', tokens''), err) ->
+                                          {- return (case subexpr2 of
+                                                    Syn_val _ _ -> Right ((Just (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens''), err)
+                                                    Syn_var _ _ -> Right ((Just (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens''), err)
+                                                    Syn_expr_bin bin_ope (expr_21, expr_22) _ ->
+                                                      if is_gte_op ope' bin_ope then
+                                                        ((Right (Syn_expr_bin bin_ope ((lm_im subexpr1 ope' expr_21), expr_22) Ty_abs), symtbl', tokens''), err)
+                                                      else
+                                                        ((Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens''), err)
+                                                    _ -> ((Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens''), err)
+                                                 ) -}
+                                          (case combine subexpr1 ope' subexpr2 of
+                                             Right expr' -> return $ Right ((Just expr', symtbl', tokens''), err)
+                                             Left exc -> return $ Left exc
+                                          )
+                                        Right ((Nothing, symtbl', tokens''), err) -> return $ Right ((Just subexpr1, symtbl', tokens''), err)
                                   )
                         case r of
                           Left err -> throwE err
                           Right r' -> return r'
           _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                in
-                 return (Left (Internal_error ("Unknown operator detecded in " ++ loc)), symtbl, tokens)
+                 throwE  (Error_Excep Excep_assert_failed loc)
         
         where
+          is_bin_op op = (op == Ope_div) || (op == Ope_mul) || (op == Ope_sub) || (op == Ope_add)
           fetch_ope tokens = case tokens of
-                               (Tk_asgn:ts) -> (Just Ope_asgn, ts)
                                (Tk_slash:ts) -> (Just Ope_div, ts)
                                (Tk_star:ts) -> (Just Ope_mul, ts)
                                (Tk_shaft:ts) -> (Just Ope_sub, ts)
                                (Tk_cross:ts) -> (Just Ope_add, ts)
+                               (Tk_asgn:ts) -> (Just Ope_asgn, ts)
                                _ -> (Nothing, tokens)
-          lm_im expr_li bin_ope expr0 = -- Left-Most Inner-Most
+          combine expr1 op expr2 =
+            case expr2 of
+              Syn_expr_par _ _ -> Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
+              Syn_val _ _ -> Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
+              Syn_var _ _ -> Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
+              Syn_expr_call _ _ _ -> Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
+              Syn_expr_una _ _ _ -> Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
+              Syn_expr_bin op2 (expr21, expr22) ty2 ->
+                if is_gte op op2 then
+                  case combine expr1 op expr21 of
+                    Right expr21' -> Right $ Syn_expr_bin op2 (expr21', expr22) Ty_abs
+                    Left exc -> Left exc
+                else
+                  Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
+              _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                   in
+                     Left (Error_Excep Excep_assert_failed loc)
+          {- lm_im expr_li bin_ope expr0 = -- means "Left-Most_Inner-Most".
             case expr0 of
               Syn_expr_bin ope_o (expr_o1@(Syn_val _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
-              Syn_expr_bin ope_o (expr_o1@(Syn_var _ _), expr_o2) _ | is_gte_op bin_ope  ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
+              Syn_expr_bin ope_o (expr_o1@(Syn_var _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
               Syn_expr_bin ope_o (expr_o1@(Syn_expr_bin ope_o1 _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o (lm_im expr_li bin_ope expr_o1, expr_o2) Ty_abs
-              _ -> Syn_expr_bin bin_ope (expr_li, expr0) Ty_abs
+              _ -> Syn_expr_bin bin_ope (expr_li, expr0) Ty_abs -- including Syn_expr_una and Sym_expr_par -}
       
       par_fun_call symtbl fun_app tokens = do
         r <- lift (case fun_app of
@@ -2580,8 +2603,8 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                             r_cont <- runExceptT $ cons_expr symtbl subexpr tokens
                             return (case r_cont of
                                       Left err -> Left err
-                                      Right (Right expr', symtbl', tokens') -> Right (Just expr', symtbl', tokens')
-                                      Right (Left err, symtbl', tokens') -> Right (Nothing, symtbl', tokens')
+                                      Right ((Just expr', symtbl', tokens'), err) -> Right ((Just expr', symtbl', tokens'), err)
+                                      Right ((Nothing, symtbl', tokens'), err) -> Right ((Nothing, symtbl', tokens'), err)
                                    )
                         )
               case r of
@@ -2589,7 +2612,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                 Right r' -> return r'
             )
             else
-            return (Just subexpr, symtbl, tokens)
+            return ((Just subexpr, symtbl, tokens), [])
     in
       case tokens of
         [] -> return ((Nothing, symtbl, []), [])
