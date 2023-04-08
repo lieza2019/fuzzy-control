@@ -3898,47 +3898,54 @@ main = do
                                                     cons_p_trees symtbl ts = ([], symtbl, ts)
                                                 _ -> (Nothing, symtbl, tokens) -}
   (syn_forest, symtbl', tokens') <- do
-    r <- (case src_remains of
-            "" -> do
-              r <- runExceptT $ cons_ptree1 symtbl tokens (True, True, True)
-              case r of
-                Left err -> (do
-                                print_excepts err
-                                return $ Left ()
-                            )
-                Right (syn_tree, symtbl', tokens') -> (case syn_tree of
-                                                         Just s_tree -> do
-                                                           r_ts <- cons_p_trees symtbl' tokens'
-                                                           case r_ts of
-                                                             Left () -> return $ Left ()
-                                                             Right (s_ts, symtbl'', tokens'') -> return $ Right (Just (s_tree:s_ts), symtbl'', tokens'')
-                                                         _ -> return $ Right (Nothing, symtbl', tokens')
-                                                      )
-                  where
-                    cons_p_trees symtbl tokens =
-                      case tokens of
-                        [] -> return $ Right ([], symtbl, [])
-                        (Tk_smcl:ts) -> do
-                          r <- runExceptT $ cons_ptree1 symtbl ts (True, True, True)
-                          case r of
-                            Left err -> (do
-                                            print_excepts err
-                                            return $ Left ()
-                                        )
-                            Right (syn_tree, symtbl', ts') -> (case syn_tree of
-                                                                 Just s_tree -> do
-                                                                   r_ts <- cons_p_trees symtbl' ts'
-                                                                   case r_ts of
-                                                                     Left () -> return $ Left ()
-                                                                     Right (s_trees, symtbl'', ts'') -> return $ Right (s_tree:s_trees, symtbl'', ts'')
-                                                                 _ -> return $ Right ([], symtbl', ts')
-                                                              )
-                        ts -> return $ Right ([], symtbl, ts)
-            _ -> return $ Right (Nothing, symtbl, tokens)
+    r <- (do
+             r <- runExceptT $ cons_ptree2 symtbl tokens (True, True, True)
+             case r of
+               Left err_exc -> (do
+                                   print_excepts err_exc
+                                   return $ Left ()
+                               )
+               Right ((syn_tree, symtbl', tokens'), err) -> (case syn_tree of
+                                                               Just s_tree -> do
+                                                                 {- do
+                                                                   putStrLn $ "*****: " ++ (show s_tree)
+                                                                   putStrLn $ "#####: " ++ (show tokens')
+                                                                 -}
+                                                                 r_ts <- cons_p_trees symtbl' tokens'
+                                                                 return (case r_ts of
+                                                                           Right ((s_ts, symtbl'', tokens''), err) -> Right ((Just (s_tree:s_ts), symtbl'', tokens''), err)
+                                                                           _ -> Left ()
+                                                                        )
+                                                               _ -> return $ Right ((Nothing, symtbl', tokens'), err)
+                                                            )
+                 where
+                   cons_p_trees symtbl tokens =
+                     case tokens of
+                       [] -> return $ Right (([], symtbl, []), [])
+                       (Tk_smcl:ts) -> do
+                         r <- runExceptT $ cons_ptree2 symtbl ts (True, True, True)
+                         case r of
+                           Left err_exc -> (do
+                                               print_excepts err_exc
+                                               return $ Left ()
+                                           )
+                           Right ((syn_tree, symtbl', ts'), err) -> (case syn_tree of
+                                                                       Just s_tree -> do
+                                                                         r_ts <- cons_p_trees symtbl' ts'
+                                                                         return (case r_ts of
+                                                                                   Right ((s_trees, symtbl'', ts''), err') -> Right ((s_tree:s_trees, symtbl'', ts''), (err ++ err'))
+                                                                                   _ -> Left ()
+                                                                                )
+                                                                       _ -> return $ Right (([], symtbl', ts'), err)
+                                                                    )
+                       ts -> return $ Right (([], symtbl, ts), [])
          )
     case r of
       Left _ -> return (Nothing, symtbl, tokens)
-      Right r' -> return r'
+      Right (r', err) -> (do
+                             mapM_ (putStrLn . show) err
+                             return r'
+                         )
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
   
   putStr "ty-raw:  "
