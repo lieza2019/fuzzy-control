@@ -283,32 +283,6 @@ walk_on_scope sym_cluster (ident, entity) =
   )
 
 
-{-
-sym_regist :: Bool -> Symtbl -> Sym_category -> Syntree_node -> (Symtbl, Maybe Error_codes)
-sym_regist ovwt symtbl cat entity =
-  ras_trace "in sym_regist" (
-  let reg_sym sym_tbl (ident, sym) =
-        case sym_tbl of
-          Scope_empty -> ((Scope_add (0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, (Sym_add sym Sym_empty)) Scope_empty), Nothing)            
-          Scope_add (lv, anon_idents, syms) sym_tbls -> (case syms of
-                                                           Sym_empty -> ((Scope_add (lv, anon_idents, (Sym_add sym Sym_empty)) sym_tbls), Nothing)
-                                                           Sym_add s_node _ -> (case walk_on_scope syms (ident, (sym_attr_entity . sym_attr) s_node) of
-                                                                                  Just e -> if (not ovwt) then (sym_tbl, Just Symbol_redefinition)
-                                                                                            else ((Scope_add (lv, anon_idents, (Sym_add sym syms)) sym_tbls), Nothing)
-                                                                                  Nothing -> ((Scope_add (lv, anon_idents, (Sym_add sym syms)) sym_tbls), Nothing)
-                                                                               )
-                                                        )
-      sym_tbl = sym_categorize symtbl cat
-  in
-    let (sym_tbl', err) = case entity of
-          Syn_tydef_decl ty_id _ -> reg_sym sym_tbl (ty_id, Sym_entry {sym_ident = ty_id, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
-          Syn_fun_decl fun_id _ _ _ -> reg_sym sym_tbl (fun_id, Sym_entry {sym_ident = fun_id, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
-          Syn_rec_decl rec_id _ -> reg_sym sym_tbl (rec_id, Sym_entry {sym_ident = rec_id, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
-          Syn_var_decl var_id _ -> reg_sym sym_tbl (var_id, Sym_entry {sym_ident = var_id, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
-    in
-      ((sym_update symtbl cat sym_tbl'), err)
-  ) -}
-
 sym_regist :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> (Symtbl, Maybe Error_codes)
 sym_regist ovwt symtbl cat (ident, entity) =
   ras_trace "in sym_regist" (
@@ -973,17 +947,6 @@ data Error_codes =
   deriving (Eq, Ord, Show)
 
 
-{- par_type_decl :: [Tk_code] -> (Either [Error_codes] Type, [Tk_code])
-par_type_decl tokens =
-  case tokens of
-    Tk_typed_as:[] -> (Left [Imcomplete_type_specifier], [])
-    Tk_typed_as:ts -> (case ts of
-                         Tk_bool:ts' -> (Right Ty_bool, ts')
-                         Tk_int:ts' -> (Right Ty_int, ts')
-                         t:ts' -> (Left [Illegal_type_specified t], ts)
-                      )
-    _ -> (Left [Internal_error "Calling cons_var_decl with non variable constructor."], tokens) -}
-    
 par_type_decl1 :: Symtbl -> [Tk_code] -> ExceptT Error_Excep IO (Either [Error_codes] Type, Symtbl, [Tk_code])
 par_type_decl1 symtbl tokens =
   case tokens of
@@ -997,22 +960,6 @@ par_type_decl1 symtbl tokens =
          in
            throwE (Error_Excep Excep_assert_failed loc)
 
-
-{- cons_var_decl :: Symtbl -> Syntree_node -> [Tk_code] -> ((Maybe Syntree_node, Symtbl, [Tk_code]), [Error_codes])
-cons_var_decl symtbl var tokens =
-  case var of
-    Syn_var var_id var_ty ->
-      (case tokens of
-         Tk_typed_as:ts -> (case par_type_decl tokens of
-                              (Right var_ty', ts') -> ((Just (Syn_var_decl var_id var_ty'), symtbl, ts'), [])
-                              (Left err, ts') -> ((Just (Syn_var_decl var_id var_ty), symtbl, ts'), err)
-                           )
-         _ -> ((Just (Syn_var_decl var_id var_ty), symtbl, tokens), [])
-      )
-    _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                       in
-                          ((Just Syn_none, symtbl, tokens), [Internal_error errmsg])
-                      ) -}
 
 cons_var_decl1 :: Symtbl -> Syntree_node -> [Tk_code] -> ExceptT Error_Excep IO ((Maybe Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 cons_var_decl1 symtbl var tokens =
@@ -1035,74 +982,6 @@ cons_var_decl1 symtbl var tokens =
          in
            throwE (Error_Excep Excep_assert_failed loc)
 
-
-{- par_fun_decl' :: Symtbl -> Syntree_node -> [Tk_code] -> ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
-par_fun_decl' symtbl fun tokens =
-  let par_fun_type tokens = case tokens of
-                              Tk_typed_as:ts -> (case par_type_decl tokens  of
-                                                   (Right ty, ts') -> ((ty, ts'), [])
-                                                   (Left err, ts') -> ((Ty_abs, ts'), err)
-                                                )
-                              _ -> ((Ty_abs, tokens), [])
-  in
-    case fun of
-      Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty) ->
-        (case tokens of
-           Tk_L_par:Tk_R_par:ts -> ((Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty'), symtbl, tokens'), errs)
-             where
-               ((fun_ty', tokens'), errs) = par_fun_type ts
-           Tk_L_par:ts -> let ((args', ts'), symtbl', arg_errs) = par_args symtbl ts
-                              {- binds' = Prelude.map snd $ Prelude.foldl (\bs -> \(a_id, _) -> case Prelude.lookup a_id bs of
-                                                                                               Just b -> Set.toList $ Set.difference (Set.fromList bs) (Set.fromList [(a_id, b)])
-                                                                                               Nothing -> bs
-                                                                       ) (Prelude.map (\(id, ty) -> (id, (id, ty))) binds) (Prelude.map (\(Syn_var_decl a_id a_ty) -> (a_id, a_ty)) args') -}
-                          in
-                            case ts' of
-                              Tk_R_par:ts'' -> ((Syn_fun_decl' fun_id (args ++ args') fun_body (Ty_env binds, fun_ty'), symtbl', tokens'), (arg_errs ++ fun_ty_errs))
-                                where
-                                  ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts''
-                              _ -> ((Syn_fun_decl' fun_id (args ++ args') fun_body (Ty_env binds, fun_ty'), symtbl', tokens'), errs)
-                                where
-                                  ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts'
-                                  errs = (arg_errs ++ [Imcomplete_function_declaration errmsg]) ++ fun_ty_errs
-                                  errmsg = "missing closing R-blace in function declaration."
-             where
-               par_args :: Symtbl -> [Tk_code] -> (([Syntree_node], [Tk_code]), Symtbl, [Error_codes])
-               par_args symtbl tokens =
-                 case par_arg symtbl tokens of
-                   ((Nothing, tokens'), symtbl', errs) -> (([], tokens'), symtbl', errs)
-                   ((Just arg, tokens'), symtbl', errs) -> (case tokens' of
-                                                              Tk_smcl:ts' -> ((arg:args, tokens''), symtbl'', (errs ++ errs'))
-                                                                where
-                                                                  ((args, tokens''), symtbl'', errs') = par_args symtbl' ts'
-                                                              _ -> (([arg], tokens'), symtbl', errs)
-                                                           )
-               par_arg :: Symtbl -> [Tk_code] -> ((Maybe Syntree_node, [Tk_code]), Symtbl, [Error_codes])
-               par_arg symtbl tokens =
-                 case tokens of
-                   (Tk_ident arg_id):ts ->
-                     let arg = Syn_var arg_id Ty_abs
-                     in
-                       case cons_var_decl symtbl arg ts of
-                         ((Nothing, symtbl', ts'), errs) -> ((Just (Syn_arg_decl arg_id Ty_abs), ts'), symtbl', errs)
-                         ((Just (Syn_var_decl arg_id arg_ty), symtbl', ts'), errs) -> ((Just (Syn_arg_decl arg_id arg_ty), ts'), symtbl', errs)
-                         ((Just wrong, symtbl', ts'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                             in
-                                                                               ((Just wrong, ts'), symtbl', (errs ++ [Internal_error errmsg]))
-                                                                            )
-                   _ -> ((Nothing, tokens), symtbl, [])
-           
-           _ -> ((Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty'), symtbl, tokens'), errs)
-             where
-               ((fun_ty', tokens'), fun_ty_errs) = par_fun_type tokens
-               errs =  [Imcomplete_function_declaration errmsg] ++ fun_ty_errs
-               errmsg = "missing opening L-blace in function declaration."
-        )
-      
-      _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                         in
-                            ((fun, symtbl, tokens), [Internal_error errmsg])
-                        ) -}
 
 par_fun_decl'1 :: Symtbl -> Syntree_node -> [Tk_code] -> ExceptT Error_Excep IO ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 par_fun_decl'1 symtbl fun tokens =
@@ -1223,352 +1102,6 @@ par_fun_decl'1 symtbl fun tokens =
            in
              throwE (Error_Excep Excep_assert_failed loc)
 
-
-{- cons_fun_tree' symtbl fun tokens =
-  case fun of
-    --Syn_fun_decl fun_id args fun_body fun_ty ->
-    Syn_fun_decl' fun_id args fun_body (env, fun_ty) ->
-      case par_fun_decl' symtbl fun tokens of
-        --((Syn_fun_decl fun_id' args' fun_body' fun_ty', symtbl', tokens'), errs) ->
-        ((Syn_fun_decl' fun_id' args' fun_body' (env'@(Ty_env binds), fun_ty'), symtbl', tokens'), errs) ->
-          assert (fun_id' == fun_id) (
-            if tokens == [] then
-              --((Syn_fun_decl fun_id' args' fun_body' fun_ty', symtbl', []), errs)
-              ((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', []), errs)
-            else
-              let (args'', errs') = case chk_args args' of
-                                      (Right args'', errs_args) -> (args'', (Right errs):[(Right errs_args)])
-                                      (Left args'', errs_args) -> (args'', (Right errs):[(Left errs_args)])
-              in
-                do
-                  let (ts', errs_parse) = assert (tokens' /= []) (case tokens' of
-                                                                    t':ts'' | t' == Tk_L_bra -> (ts'', Right [])
-                                                                    t':ts'' -> (ts'', Left [Parse_error errmsg])
-                                                                      where
-                                                                        errmsg = "missing left brace to begin declaration of function body."
-                                                                 )
-                  --let fun' = Syn_fun_decl fun_id' args'' fun_body' fun_ty'
-                  let fun' = Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')
-                  let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', fun')
-                  let (new_scope, errs_argreg) = Prelude.foldl (\(sytbl, errs) -> \arg@(Syn_arg_decl id _) -> case sym_regist False sytbl Sym_cat_decl (id, arg) of
-                                                                                                                (sytbl', Just err_reg) -> (sytbl', (errs ++ [err_reg]))
-                                                                                                                (sytbl', Nothing) -> (symtbl', errs)
-                                                               ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) args''
-                  let errs0 = errs' ++ [errs_parse] ++ [(mkup_errs err_funreg)] ++ [(Right errs_argreg)]
-                  case fun_body' of
-                    (Syn_scope ([], Syn_none)) -> let (((Ty_env binds', var_decls), expr_par_trees), new_scope', ts'', errs_body) = parse_fun_body new_scope env' ts'
-                                                      binds'' = Prelude.map snd (Prelude.foldl (\bs -> \(a_id, _) -> case Prelude.lookup a_id bs of
-                                                                                                   Just b -> Set.toList $ Set.difference (Set.fromList bs) (Set.fromList [(a_id, b)])
-                                                                                                   Nothing -> bs
-                                                                                               )
-                                                                                  (Prelude.map (\(id, ty) -> (id, (id, ty))) binds')
-                                                                                  (Prelude.map (\(Syn_arg_decl a_id a_ty) -> (a_id, a_ty)) args'')
-                                                                                )
-                                                      --((var_decls, expr_par_trees), new_scope', ts'', errs_body) = parse_fun_body new_scope ts'
-                                                      fun_body'' = (var_decls, (case expr_par_trees of
-                                                                                  [] -> Syn_none
-                                                                                  [e] -> e
-                                                                                  es -> Syn_expr_seq es Ty_abs
-                                                                               )
-                                                                   )
-                                                      --fun'' = Syn_fun_decl fun_id' args'' (Syn_scope fun_body'') fun_ty'
-                                                      fun'' = Syn_fun_decl' fun_id' args'' (Syn_scope fun_body'') (Ty_env binds'', fun_ty')
-                                                      errs1 = errs0 ++ [(Right errs_body)]
-                                                  in
-                                                    let prev_scope = sym_leave_scope new_scope' Sym_cat_decl
-                                                        (prev_scope', err_funreg') = if (sym_crnt_level (sym_decl prev_scope)) <= 1 then
-                                                                                       sym_regist False prev_scope Sym_cat_func (fun_id', fun'')
-                                                                                     else
-                                                                                       (prev_scope, Nothing)
-                                                        errs1' = errs1 ++ [(mkup_errs err_funreg')]
-                                                        errmsg = "missing right brace to end declaration of function body."
-                                                    in
-                                                      case cat_errs (fun'', errs1') of
-                                                        (Right r, errs'') -> (case ts'' of
-                                                                                Tk_R_bra:tokens'' -> ((r, prev_scope', tokens''), errs'')
-                                                                                _ -> ((r, prev_scope', ts''), (errs'' ++ [Parse_error errmsg]))
-                                                                             )
-                                                        (Left r, errs'') -> (case ts'' of
-                                                                               Tk_R_bra:tokens'' -> ((r, prev_scope', tokens''), errs'')
-                                                                               _ -> ((r, prev_scope', ts''), (errs'' ++ [Parse_error errmsg]))
-                                                                            )
-                    
-                    _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                       in
-                                         ((r, new_scope, ts'), (errs'' ++ [Internal_error errmsg]))
-                                      )
-                      where
-                        (r, errs'') = case cat_errs (fun', errs0) of
-                                        (Right r', errs0') -> (r', errs0')
-                                        (Left r', errs0') -> (r', errs0')
-            )
-          where
-            mkup_errs :: (Maybe Error_codes) -> Either [Error_codes] [Error_codes]
-            mkup_errs err =
-              case err of
-                Just err' -> Right [err']
-                Nothing -> Right []
-            
-            cat_errs :: (Syntree_node, [Either [Error_codes] [Error_codes]]) -> (Either Syntree_node Syntree_node, [Error_codes])
-            cat_errs (syntree, errs) =
-              case errs of
-                [] -> (Right syntree, [])
-                _ -> let r = Prelude.foldl (\acc -> \es -> (do
-                                                               (done, yet) <- acc
-                                                               assert (yet /= []) (
-                                                                 case yet of
-                                                                   y:yet' -> assert (y == es) (
-                                                                     case es of
-                                                                       Right es' -> Right ((done ++ es'), yet')
-                                                                       Left es' -> Left (done, yet)
-                                                                     )
-                                                                 )
-                                                           )
-                                           ) (Right ([], errs)) errs
-                     in
-                       case r of
-                         Right (errs', remains) -> assert (remains == []) (Right syntree, errs')
-                         Left (errs', remains) -> (Left syntree, (errs' ++ remains'))
-                           where
-                             remains' = Prelude.foldl (\acc -> \es -> case es of
-                                                                        Right es' -> (acc ++ es')
-                                                                        Left es' -> (acc ++ es')
-                                                      ) [] remains
-            
-            chk_args :: [Syntree_node] -> (Either [Syntree_node] [Syntree_node], [Error_codes])
-            chk_args args =
-              let chk_decls (as, omits) =
-                    case as of
-                      [] -> (Right [], [])
-                      [a] -> (Right [(snd a)], [])
-                      a:as' -> (case Prelude.lookup (fst a) omits of
-                                  Just _ -> chk_decls (as', omits)
-                                  Nothing -> (case Prelude.lookup (fst a) as' of
-                                                Nothing -> (case chk_decls (as', omits) of
-                                                              (Right as'', errs) -> (Right ((snd a) : as''), errs)
-                                                              (Left as'', errs) ->  (Left ((snd a) : as''), errs)
-                                                           )
-                                                Just a' -> (case chk_decls (as', (a:omits)) of
-                                                              (Right as'', errs) -> (Left ((snd a) : as''), ((Symbol_redefinition errmsg) : errs))
-                                                              (Left ill_decls, errs) -> (Left ((snd a) : ill_decls), ((Symbol_redefinition errmsg) : errs))
-                                                           )
-                                                  where
-                                                    errmsg = "redefinition of " ++ (show $ fst a) ++ " in function arguments."
-                                             )
-                               )
-              in
-                chk_decls (args', [])
-              where
-                args' = Prelude.foldl (\as -> \a -> case a of
-                                          (Syn_arg_decl id _) -> as ++ [(id, a)]
-                                          _ -> assert False as
-                                      ) [] args
-            
-            merge_env' :: Ty_env -> Ty_env -> Ty_env
-            merge_env' env1 env2 =
-              case env1 of
-                Ty_env [] -> env2
-                Ty_env env1' -> (case env2 of
-                                   Ty_env [] -> env1
-                                   Ty_env env2' -> Ty_env $ concat [env1', env2']
-                                )
-            parse_fun_body :: Symtbl -> Ty_env -> [Tk_code] -> (((Ty_env, [Syntree_node]), [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
-            parse_fun_body symtbl contex tokens =
-              case cons_ptree symtbl tokens (False, True, True) of
-                --(Just fun_decl@(Syn_fun_decl fun_id args fun_body fun_ty), symtbl', tokens') ->
-                (Just fun_decl@(Syn_fun_decl' fun_id args fun_body (env0, fun_ty)), symtbl', tokens') ->
-                  (case tokens' of
-                     [] -> (((env, [fun_decl]), []), symtbl', [], [])
-                     _ -> let (((env1, var_decls), expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' contex tokens'
-                          in
-                            ((((merge_env' env0 env1), fun_decl:var_decls), expr_trees), symtbl'', tokens'', errs)
-                  )
-                (Just var_decl@(Syn_var_decl _ _), symtbl', tokens') ->
-                  (case tokens' of
-                     [] -> (((Ty_env [], [var_decl]), []), symtbl', [], [Parse_error errmsg])
-                     Tk_smcl:ts' -> let (((env1, var_decls), expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' contex ts'
-                                    in
-                                      (((env1, var_decl:var_decls), expr_trees), symtbl'', tokens'', errs)
-                     _ -> let (((env1, var_decls), expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' contex tokens'
-                          in
-                            (((env1, var_decl:var_decls), expr_trees), symtbl'', tokens'', (Parse_error errmsg):errs)
-                  )
-                  where
-                    errmsg = "missing semicolon at the end of declaration."
-                (Just expr_par_tree, symtbl', tokens') ->
-                  (case tokens' of
-                     [] -> (((Ty_env [], []), [expr_par_tree]), symtbl', [], [Parse_error errmsg])
-                     Tk_smcl:ts' -> let (((env1, var_decls), expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' contex ts'
-                                    in
-                                      (((env1, var_decls), expr_par_tree:expr_trees), symtbl'', tokens'', errs)
-                     _ -> let (((env1, var_decls), expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' contex tokens'
-                          in
-                            (((env1, var_decls), expr_par_tree:expr_trees), symtbl'', tokens'', (Parse_error errmsg):errs)
-                  )
-                  where
-                    errmsg = "missing semicolon at the end of semtence."
-                (Nothing, symtbl', tokens') -> (((Ty_env [], []), []), symtbl', tokens', [])
-                
-        ((wrong, symtbl', tokens'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                           in
-                                                             ((wrong, symtbl', tokens'), (errs ++ [Internal_error errmsg]))
-                                                          )
-    _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                       in
-                         ((fun, symtbl, tokens), [Internal_error errmsg])
-                      ) -}
-
-cons_fun_tree'1 :: Symtbl -> Syntree_node -> [Tk_code] -> ExceptT Error_Excep IO ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
-cons_fun_tree'1 symtbl fun tokens =
-  case fun of
-    Syn_fun_decl' fun_id args fun_body (env, fun_ty) -> do
-      r <- lift (do
-                    r_decl <- runExceptT $ par_fun_decl'1 symtbl fun tokens
-                    case r_decl of
-                      Left err -> return $ Left err
-                      Right ((fun@(Syn_fun_decl' fun_id' args' fun_body' (env'@(Ty_env binds), fun_ty')), symtbl', tokens'), errs)
-                        | fun_id' == fun_id -> do
-                            case tokens' of
-                              [] -> return $ Right ((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', []), errs'')
-                                where
-                                  errmsg = "Function declaration has no body at top level declarator."
-                                  errs'' = errs ++ [Imcomplete_function_declaration errmsg]
-                              _ -> (do
-                                       r_args <- runExceptT $ exam_redef ((fun:args'), [])
-                                       case r_args of
-                                         Left err -> return $ Left err
-                                         Right ((args0, omits), errs_args) -> do
-                                           let args'' = Prelude.foldl (\as -> \a -> (case a of
-                                                                                       Syn_arg_decl _ _ -> as ++ [a]
-                                                                                       _ -> as
-                                                                                    )
-                                                                      ) [] args0
-                                           let (ts', errs_parse) = case tokens' of
-                                                                     Tk_L_bra:ts'' -> (ts'', [])
-                                                                     _ -> (tokens', [Imcomplete_function_declaration errmsg])
-                                                                       where
-                                                                         errmsg = "Missing beginning L brace for declaration of function body."
-                                           let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', (Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')))
-                                           let lv_before = sym_crnt_level (sym_decl symtbl'')
-                                           let (new_scope, errs_argreg) =
-                                                 Prelude.foldl (\(stbl, es) -> \arg@(Syn_arg_decl id _) -> case sym_regist False stbl Sym_cat_decl (id, arg) of
-                                                                                                             (stbl', Just err_reg) -> (stbl', (es ++ [err_reg]))
-                                                                                                             (stbl', Nothing) -> (stbl', es)
-                                                               ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) args''
-                                           
-                                           let errs0 = errs ++ errs_args ++ errs_parse ++ (case err_funreg of
-                                                                                             Just e -> [e]
-                                                                                             Nothing -> []
-                                                                                          ) ++ errs_argreg
-                                           case fun_body' of
-                                             (Syn_scope ([], Syn_none)) -> do
-                                               r_body <- runExceptT $ parse_fun_body new_scope (args'', omits) ts'
-                                               case r_body of
-                                                 Left err -> return $ Left err
-                                                 Right (((Ty_env binds', (decls, _)), stmts), new_scope', ts'', errs_body) ->
-                                                   do
-                                                     {- let binds'' = Prelude.map snd (Prelude.foldl (\bs -> \(a_id, _) -> case Prelude.lookup a_id bs of
-                                                                                                      Just b -> Set.toList $ Set.difference (Set.fromList bs) (Set.fromList [(a_id, b)])
-                                                                                                      Nothing -> bs
-                                                                                                  )
-                                                                                     (Prelude.map (\(id, ty) -> (id, (id, ty))) binds') (Prelude.map (\(Syn_arg_decl a_id a_ty) -> (a_id, a_ty)) args'')
-                                                                                   ) -}
-                                                     let decls' = Prelude.foldl (\ds -> \d -> (case d of
-                                                                                                 Syn_arg_decl _ _ -> ds
-                                                                                                 _ -> ds ++ [d]
-                                                                                              )
-                                                                                ) [] decls
-                                                     let fun_body'' = Syn_scope (decls', (case stmts of
-                                                                                           [] -> Syn_none
-                                                                                           [e] -> e
-                                                                                           es -> Syn_expr_seq es Ty_abs
-                                                                                        )
-                                                                                )
-                                                     let fun'' = Syn_fun_decl' fun_id' args'' fun_body'' (Ty_env binds', fun_ty')
-                                                     
-                                                     let prev_scope = sym_leave_scope new_scope' Sym_cat_decl
-                                                     if sym_crnt_level (sym_decl prev_scope) /= lv_before then let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                                               in
-                                                                                                                 return $ Left (Error_Excep Excep_assert_failed loc)
-                                                       else
-                                                       do
-                                                         let (prev_scope', err_funreg') = sym_regist (case err_funreg of
-                                                                                                        Just (Symbol_redefinition _) -> False
-                                                                                                        _ -> True
-                                                                                                     ) prev_scope Sym_cat_func (fun_id', fun'')
-                                                         let errs1 = errs0 ++ errs_body ++ (case err_funreg' of
-                                                                                              Just e -> [e]
-                                                                                              Nothing -> []
-                                                                                           )
-                                                         return (case ts'' of
-                                                                   Tk_R_bra:tokens'' -> Right ((fun'', prev_scope', tokens''), errs1)
-                                                                   _ -> Right ((fun'', prev_scope', ts''), (errs1 ++ [Imcomplete_function_declaration errmsg]))
-                                                                     where
-                                                                       errmsg = "Missing R brace to end up declaration of function body."
-                                                                )
-                                           
-                                             _ -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                  in
-                                                    return $ Left (Error_Excep Excep_assert_failed loc)
-                                   )
-                      
-                      _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                           in
-                             return $ Left (Error_Excep Excep_assert_failed loc)
-                )
-      case r of
-        Left err -> throwE err
-        Right r' -> return r'
-    
-    _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-         in
-           throwE (Error_Excep Excep_assert_failed loc)
-
-{- exam_redef :: [Syntree_node] -> ExceptT Error_Excep IO ([Syntree_node], [Error_codes])
-exam_redef args =
-  let chk_decls (as, omits) =
-        case as of
-          [] -> (Right [], [])
-          [a] -> (Right [(snd a)], [])
-          a:as' -> (case Prelude.lookup (fst a) omits of
-                      Just _ -> chk_decls ((elim a ([], as')), omits)
-                      Nothing -> (case Prelude.lookup (fst a) as' of
-                                    Nothing -> (case chk_decls (as', omits) of
-                                                  (Right as'', errs) -> (Right ((snd a) : as''), errs)
-                                                  (Left as'', errs) ->  (Left ((snd a) : as''), errs)
-                                               )
-                                    Just _ -> (case chk_decls ((elim a ([], as')), (a:omits)) of
-                                                 (Right as'', errs) -> (Left ((snd a) : as''), ((Symbol_redefinition errmsg) : errs))
-                                                 (Left as'', errs) -> (Left ((snd a) : as''), ((Symbol_redefinition errmsg) : errs))
-                                              )
-                                      where
-                                        errmsg = "Redefinition of " ++ (show $ fst a) ++ " in function arguments declaration."
-                                 )
-                   )
-            where
-              elim e decls = case decls of
-                               (purged, []) -> purged
-                               (purged, d:ds) | (fst d) == (fst e) -> elim e (purged, ds)
-                               (purged, d:ds) -> elim e ((purged ++ [d]), ds)                                                      
-  in
-    do
-      args' <- return $ Prelude.foldl (\as -> \a -> (do
-                                                        as' <- as
-                                                        case a of
-                                                          (Syn_fun_decl' id _ _ _) -> Right (as' ++ [(id, a)])
-                                                          (Syn_arg_decl id _) -> Right (as' ++ [(id, a)])
-                                                          (Syn_var_decl id _) -> Right (as' ++ [(id, a)])
-                                                          _ -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                               in
-                                                                 Left (Error_Excep Excep_assert_failed loc)
-                                                    )
-                                      ) (Right []) args
-      case args' of
-        Left err_exc -> throwE err_exc
-        Right args'' -> return (case chk_decls (args'', []) of
-                                  (Right as'', errs_args) -> (as'', errs_args)
-                                  (Left as'', errs_args) -> (as'', errs_args)
-                               ) -}
 
 type Redef_omits = [(String, Syntree_node)]
 
@@ -1700,875 +1233,112 @@ parse_fun_body symtbl (decls, omits) tokens = do
     Left err -> throwE err
     Right r' -> return r'
 
-{- parse_fun_body :: Symtbl -> [Syntree_node] -> [Tk_code] -> ExceptT Error_Excep IO (((Ty_env, [Syntree_node]), [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
-parse_fun_body symtbl decls tokens = do
-  r <- lift (do
-                r_body <- runExceptT $ cons_ptree2 symtbl tokens (True, True, True)
-                case r_body of
-                  Left err_exc -> return $ Left err_exc
-                  Right body -> do
-                    case body of
-                      ((Nothing, symtbl', tokens'), err) -> return $ Right (((Ty_env [], decls), []), symtbl', tokens', err)
-                      
-                      ((Just fun_decl@(Syn_fun_decl' fun_id args fun_body (env0, fun_ty)), symtbl', tokens'), err) -> do
-                        r_decls <- runExceptT $ exam_redef (decls ++ [fun_decl])
-                        case r_decls of
-                          Left err_exc -> return $ Left err_exc
-                          Right (decls', err_decl) -> (case tokens' of
-                                                         [] -> return $ Right (((env0, decls'), []), symtbl', [], (err ++ err_decl))
-                                                         _ -> do
-                                                           r_body' <- runExceptT $ parse_fun_body symtbl' decls' tokens'
-                                                           return (case r_body' of
-                                                                     Left err_exc -> Left err_exc
-                                                                     Right (((env1, decls''), stmts), symtbl'', tokens'', err_cont) ->
-                                                                       Right ((((ty_ovwt_env env0 env1), decls''), stmts), symtbl'', tokens'', (err ++ err_decl ++ err_cont))
-                                                                  )
-                                                      )
-                      
-                      ((Just var_decl@(Syn_var_decl _ _), symtbl', tokens'), err) -> do
-                        r_decls <- runExceptT $ exam_redef (decls ++ [var_decl])
-                        case r_decls of
-                          Left err_exc -> return $ Left err_exc
-                          Right (decls', err_decl) -> (case tokens' of
-                                                         [] -> return $ Right (((Ty_env [], decls'), []), symtbl', [], (err ++ err_decl ++ [Parse_error errmsg]))
-                                                         Tk_smcl:ts' -> do
-                                                           r_body' <- runExceptT $ parse_fun_body symtbl' decls' ts'
-                                                           return (case r_body' of
-                                                                     Left err_exc -> Left err_exc
-                                                                     Right (((env1, decls''), stmts), symtbl'', tokens'', err_cont) ->
-                                                                       Right (((env1, decls''), stmts), symtbl'', tokens'', (err ++ err_decl ++ err_cont))
-                                                                  )
-                                                         _ -> do
-                                                           r_body' <- runExceptT $ parse_fun_body symtbl' decls' tokens'
-                                                           return (case r_body' of
-                                                                     Left err_exc -> Left err_exc
-                                                                     Right (((env1, decls''), stmts), symtbl'', tokens'', err_cont) ->
-                                                                       Right (((env1, decls''), stmts), symtbl'', tokens'', (err ++ err_decl ++ ((Parse_error errmsg):err_cont)))
-                                                                  )
-                                                      )
-                            where
-                              errmsg = "missing semicolon at the end of declaration."
-                      
-                      ((Just stmt, symtbl', tokens'), err) ->
-                        (case tokens' of
-                           [] -> return $ Right (((Ty_env [], decls), [stmt]), symtbl', [], (err ++ [Parse_error errmsg]))
-                           Tk_smcl:ts' -> do
-                             r_body' <- runExceptT $ parse_fun_body symtbl' decls ts'
-                             return (case r_body' of
-                                       Left err_exc -> Left err_exc
-                                       Right (((env1, decls'), stmts), symtbl'', tokens'', err_cont) ->
-                                         Right (((env1, decls'), stmt:stmts), symtbl'', tokens'', (err ++ err_cont))
-                                    )
-                           
-                           _ -> do
-                             r_body' <- runExceptT $ parse_fun_body symtbl' decls tokens'
-                             return (case r_body' of
-                                       Left err_exc -> Left err_exc
-                                       Right (((env1, decls'), exprs), symtbl'', tokens'', err_cont) ->
-                                         Right (((env1, decls'), stmt:exprs), symtbl'', tokens'', (err ++ ((Parse_error errmsg):err_cont)))
-                                    )
-                        )
-                        where
-                          errmsg = "missing semicolon at end of sentence."
-                      
-                      ((_, symtbl', tokens'), err) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                      in
-                                                        return $ Left (Error_Excep Excep_assert_failed loc)
-            )
-  case r of
-    Left err -> throwE err
-    Right r' -> return r' -}
-
-{- par_fun_decl :: Symtbl -> Syntree_node -> [Tk_code] -> ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
-par_fun_decl symtbl fun tokens =
-  let par_fun_type tokens =
-        case tokens of
-          Tk_typed_as:ts -> (case par_type_decl tokens  of
-                               (Right ty, ts') -> ((ty, ts'), [])
-                               (Left err, ts') -> ((Ty_abs, ts'), err)
-                            )
-          _ -> ((Ty_abs, tokens), [])
-  in
-    case fun of
-      Syn_fun_decl fun_id args fun_body fun_ty -> (case tokens of
-                                                     Tk_L_par:Tk_R_par:ts -> let ((fun_ty', tokens'), errs) = par_fun_type ts
-                                                                                 fun_decl = Syn_fun_decl fun_id args fun_body fun_ty'
-                                                                             in
-                                                                               ((fun_decl, symtbl, tokens'), errs)
-                                                     Tk_L_par:ts -> let ((args', ts'), symtbl', arg_errs) = cons_args_decl symtbl ts
-                                                                    in
-                                                                      case ts' of
-                                                                        Tk_R_par:ts'' -> let fun_decl = Syn_fun_decl fun_id (args ++ args') fun_body fun_ty'
-                                                                                         in
-                                                                                           ((fun_decl, symtbl', tokens'), errs)
-                                                                          where
-                                                                            ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts''
-                                                                            errs = arg_errs ++ fun_ty_errs
-                                                                        
-                                                                        _ -> let fun_decl = Syn_fun_decl fun_id (args ++ args') fun_body fun_ty'
-                                                                             in
-                                                                               ((fun_decl, symtbl', tokens'), errs)
-                                                                          where
-                                                                            ((fun_ty', tokens'), fun_ty_errs) = par_fun_type ts'
-                                                                            errs = arg_errs ++ [Imcomplete_function_declaration errmsg] ++ fun_ty_errs
-                                                                            errmsg = "missing closing R-blace in function declaration."
-                                                       where
-                                                         cons_args_decl :: Symtbl -> [Tk_code] -> (([Syntree_node], [Tk_code]), Symtbl, [Error_codes])
-                                                         cons_args_decl symtbl tokens =
-                                                           case par_arg symtbl tokens of
-                                                             (Nothing, symtbl', errs) -> (([], tokens), symtbl', errs)
-                                                             (Just (arg, tokens'), symtbl', errs) -> (case tokens' of
-                                                                                                        Tk_smcl:ts' -> ((arg:args, tokens''), symtbl'', errs ++ errs')
-                                                                                                          where
-                                                                                                            ((args, tokens''), symtbl'', errs') = cons_args_decl symtbl' ts'
-                                                                                                        _ -> (([arg], tokens'), symtbl', errs)
-                                                                                                     )
-                                                         par_arg :: Symtbl -> [Tk_code] -> (Maybe (Syntree_node, [Tk_code]), Symtbl, [Error_codes])
-                                                         par_arg symtbl tokens =
-                                                           case tokens of
-                                                             (Tk_ident arg_id):ts ->
-                                                               let arg = Syn_var arg_id Ty_abs
-                                                               in
-                                                                 case cons_var_decl symtbl arg ts of
-                                                                   ((Nothing, symtbl', ts'), errs) -> (Just (Syn_arg_decl arg_id Ty_abs, ts'), symtbl', errs)
-                                                                   ((Just (Syn_var_decl arg_id arg_ty), symtbl', ts'), errs) -> (Just (Syn_arg_decl arg_id arg_ty, ts'), symtbl', errs)
-                                                                   ((_, symtbl', ts'), errs) -> (Just (Syn_none, ts'), symtbl', errs)
-                                                             _ -> (Nothing, symtbl, [])
-                                                         
-                                                         
-                                                     _ -> let fun_decl = Syn_fun_decl fun_id args fun_body fun_ty'
-                                                          in
-                                                            ((fun_decl, symtbl, tokens'), errs)
-                                                       where
-                                                         ((fun_ty', tokens'), fun_ty_errs) = par_fun_type tokens
-                                                         errs =  [Imcomplete_function_declaration errmsg] ++ fun_ty_errs
-                                                         errmsg = "missing opening L-blace in function declaration."
-                                                  )
-      
-      _ -> ((Syn_none, symtbl, tokens), [Internal_error "Calling cons_var_decl with non variable constructor."])
-
-cons_fun_tree symtbl fun tokens =
+cons_fun_tree'1 :: Symtbl -> Syntree_node -> [Tk_code] -> ExceptT Error_Excep IO ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
+cons_fun_tree'1 symtbl fun tokens =
   case fun of
-    --Syn_fun_decl' fun_id args fun_body (env, fun_ty) ->
-    Syn_fun_decl fun_id args fun_body fun_ty ->
-      case par_fun_decl symtbl fun tokens of
-        --((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', tokens'), errs) ->
-        ((Syn_fun_decl fun_id' args' fun_body' fun_ty', symtbl', tokens'), errs) ->
-          assert (fun_id' == fun_id') (
-            if tokens == [] then
-              --((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', []), errs)
-              ((Syn_fun_decl fun_id' args' fun_body' fun_ty', symtbl', []), errs)
-            else
-              let (args'', errs') = case chk_args args' of
-                                      (Right args'', errs_args) -> (args'', (Right errs):[(Right errs_args)])
-                                      (Left args'', errs_args) -> (args'', (Right errs):[(Left errs_args)])
-              in
-                do
-                  let (ts', errs_parse) = assert (tokens' /= []) (case tokens' of
-                                                                    t':ts'' | t' == Tk_L_bra -> (ts'', Right [])
-                                                                    t':ts'' -> (ts'', Left [Parse_error errmsg])
-                                                                      where
-                                                                        errmsg = "missing left brace to begin declaration of function body."
-                                                                 )
-                  --let fun' = Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')
-                  let fun' = Syn_fun_decl fun_id' args'' fun_body' fun_ty'
-                  let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', fun')
-                  let (new_scope, errs_argreg) = Prelude.foldl (\(sytbl, errs) -> \arg@(Syn_arg_decl id _) -> case sym_regist False sytbl Sym_cat_decl (id, arg) of
-                                                                                                                (sytbl', Just err_reg) -> (sytbl', (errs ++ [err_reg]))
-                                                                                                                (sytbl', Nothing) -> (symtbl', errs)
-                                                               ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) args''
-                  let errs0 = errs' ++ [errs_parse] ++ [(mkup_errs err_funreg)] ++ [(Right errs_argreg)]
-                  case fun_body' of
-                    (Syn_scope ([], Syn_none)) -> let ((var_decls, expr_par_trees), new_scope', ts'', errs_body) = parse_fun_body new_scope ts'
-                                                      fun_body'' = (var_decls, (case expr_par_trees of
-                                                                                  [] -> Syn_none
-                                                                                  [e] -> e
-                                                                                  es -> Syn_expr_seq es Ty_abs
-                                                                               )
-                                                                   )
-                                                      --fun'' = Syn_fun_decl' fun_id' args'' (Syn_scope fun_body'') (env',fun_ty')
-                                                      fun'' = Syn_fun_decl fun_id' args'' (Syn_scope fun_body'') fun_ty'
-                                                      errs1 = errs0 ++ [(Right errs_body)]
-                                                  in
-                                                    let prev_scope = sym_leave_scope new_scope' Sym_cat_decl
-                                                        (prev_scope', err_funreg') = if (sym_crnt_level (sym_decl prev_scope)) <= 1 then
-                                                                                       sym_regist False prev_scope Sym_cat_func (fun_id', fun'')
-                                                                                     else
-                                                                                       (prev_scope, Nothing)
-                                                        errs1' = errs1 ++ [(mkup_errs err_funreg')]
-                                                        errmsg = "missing right brace to end declaration of function body."
-                                                    in
-                                                      case cat_errs (fun'', errs1') of
-                                                        (Right r, errs'') -> (case ts'' of
-                                                                                Tk_R_bra:tokens'' -> ((r, prev_scope', tokens''), errs'')
-                                                                                _ -> ((r, prev_scope', ts''), (errs'' ++ [Parse_error errmsg]))
-                                                                             )
-                                                        (Left r, errs'') -> (case ts'' of
-                                                                               Tk_R_bra:tokens'' -> ((r, prev_scope', tokens''), errs'')
-                                                                               _ -> ((r, prev_scope', ts''), (errs'' ++ [Parse_error errmsg]))
-                                                                            )
-                    
-                    _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                       in
-                                         ((r, new_scope, ts'), (errs'' ++ [Internal_error errmsg]))
-                                      )
-                      where
-                        (r, errs'') = case cat_errs (fun', errs0) of
-                                        (Right r', errs0') -> (r', errs0')
-                                        (Left r', errs0') -> (r', errs0')
-            )
-          where
-            mkup_errs :: (Maybe Error_codes) -> Either [Error_codes] [Error_codes]
-            mkup_errs err =
-              case err of
-                Just err' -> Right [err']
-                Nothing -> Right []
-            
-            cat_errs :: (Syntree_node, [Either [Error_codes] [Error_codes]]) -> (Either Syntree_node Syntree_node, [Error_codes])
-            cat_errs (syntree, errs) =
-              case errs of
-                [] -> (Right syntree, [])
-                _ -> let r = Prelude.foldl (\acc -> \es -> (do
-                                                               (done, yet) <- acc
-                                                               assert (yet /= []) (
-                                                                 case yet of
-                                                                   y:yet' -> assert (y == es) (
-                                                                     case es of
-                                                                       Right es' -> Right ((done ++ es'), yet')
-                                                                       Left es' -> Left (done, yet)
-                                                                     )
-                                                                 )
-                                                           )
-                                           ) (Right ([], errs)) errs
-                     in
-                       case r of
-                         Right (errs', remains) -> assert (remains == []) (Right syntree, errs')
-                         Left (errs', remains) -> (Left syntree, (errs' ++ remains'))
-                           where
-                             remains' = Prelude.foldl (\acc -> \es -> case es of
-                                                                        Right es' -> (acc ++ es')
-                                                                        Left es' -> (acc ++ es')
-                                                      ) [] remains
-            
-            chk_args :: [Syntree_node] -> (Either [Syntree_node] [Syntree_node], [Error_codes])
-            chk_args args =
-              let chk_decls (as, omits) =
-                    case as of
-                      [] -> (Right [], [])
-                      [a] -> (Right [(snd a)], [])
-                      a:as' -> (case Prelude.lookup (fst a) omits of
-                                  Just _ -> chk_decls (as', omits)
-                                  Nothing -> (case Prelude.lookup (fst a) as' of
-                                                Nothing -> (case chk_decls (as', omits) of
-                                                              (Right as'', errs) -> (Right ((snd a) : as''), errs)
-                                                              (Left as'', errs) ->  (Left ((snd a) : as''), errs)
-                                                           )
-                                                Just a' -> (case chk_decls (as', (a:omits)) of
-                                                              (Right as'', errs) -> (Left ((snd a) : as''), ((Symbol_redefinition errmsg) : errs))
-                                                              (Left ill_decls, errs) -> (Left ((snd a) : ill_decls), ((Symbol_redefinition errmsg) : errs))
-                                                           )
-                                                  where
-                                                    errmsg = "redefinition of " ++ (show $ fst a) ++ " in function arguments."
-                                             )
-                               )
-              in
-                chk_decls (args', [])
-              where
-                args' = Prelude.foldl (\as -> \a -> case a of
-                                          (Syn_arg_decl id _) -> as ++ [(id, a)]
-                                          _ -> assert False as
-                                      ) [] args
-            
-            parse_fun_body :: Symtbl -> [Tk_code] -> (([Syntree_node], [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
-            parse_fun_body symtbl tokens =
-              case cons_ptree symtbl tokens (False, True, True) of
-                --(Just fun_decl@(Syn_fun_decl' fun_id args fun_body (env, fun_ty)), symtbl', tokens') ->
-                (Just fun_decl@(Syn_fun_decl fun_id args fun_body fun_ty), symtbl', tokens') ->
-                  (case tokens' of
-                     [] -> (([fun_decl], []), symtbl', [], [])
-                     _ -> let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
-                          in
-                            ((fun_decl:var_decls, expr_trees), symtbl'', tokens'', errs)
-                  )
-                (Just var_decl@(Syn_var_decl _ _), symtbl', tokens') ->
-                  (case tokens' of
-                     [] -> (([var_decl], []), symtbl', [], [Parse_error errmsg])
-                     Tk_smcl:ts' -> let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' ts'
-                                    in
-                                      ((var_decl:var_decls, expr_trees), symtbl'', tokens'', errs)
-                     _ -> let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
-                          in
-                            ((var_decl:var_decls, expr_trees), symtbl'', tokens'', (Parse_error errmsg):errs)
-                  )
-                  where
-                    errmsg = "missing semicolon at the end of declaration."
-                (Just expr_par_tree, symtbl', tokens') ->
-                  (case tokens' of
-                     [] -> (([], [expr_par_tree]), symtbl', tokens', [Parse_error errmsg])
-                     Tk_smcl:ts' -> let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' ts'
-                                    in
-                                      ((var_decls, expr_par_tree:expr_trees), symtbl'', tokens'', errs)
-                     _ -> let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
-                          in
-                            ((var_decls, expr_par_tree:expr_trees), symtbl'', tokens'', (Parse_error errmsg):errs)
-                  )
-                  where
-                    errmsg = "missing semicolon at the end of semtence."
-                (Nothing, symtbl', tokens') -> (([], []), symtbl', tokens', [])
-        
-        ((wrong, symtbl', tokens'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                           in
-                                                             ((wrong, symtbl', tokens'), (errs ++ [Internal_error errmsg]))
-                                                          )
-    _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                       in
-                         ((fun, symtbl, tokens), [Internal_error errmsg])
-                      ) -}
-
-{- cons_ptree :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> (Maybe Syntree_node, Symtbl, [Tk_code])
-cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
-  let is_op t = (t == Tk_decre) || (t == Tk_incre) || (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_asgn)
-      is_bin_op op = (op == Ope_add) || (op == Ope_sub) || (op == Ope_mul) || (op == Ope_div)
-      is_gte_op ope1 ope2 = case ope1 of
-                          Ope_add -> (case ope2 of
-                                        Ope_add -> True
-                                        Ope_sub -> True
-                                        _ -> False
-                                     )
-                          Ope_sub -> (case ope2 of
-                                        Ope_add -> True
-                                        Ope_sub -> True
-                                        _ -> False
-                                     )
-                          Ope_mul -> (case ope2 of
-                                        Ope_add -> True
-                                        Ope_sub -> True
-                                        Ope_mul -> True
-                                        Ope_div -> True
-                                        -- _ -> False
-                                     )
-                          Ope_div -> (case ope2 of
-                                        Ope_add -> True
-                                        Ope_sub -> True
-                                        Ope_mul -> True
-                                        Ope_div -> True
-                                        -- _ -> False
-                                     )
-      cons_expr symtbl subexpr1 tokens =
-        let (ope, tokens') = fetch_ope tokens
-        in
-          case ope of
-            Nothing -> (Right subexpr1, symtbl, tokens)
-            Just ope' | ope' == Ope_asgn -> let right = cons_ptree symtbl tokens' (False, False, True)
-                                            in
-                                              case right of
-                                                (Just right_expr, symtbl', tokens'') -> (Right (Syn_expr_asgn subexpr1 right_expr Ty_abs), symtbl', tokens'')
-                                                (Nothing, symtbl', tokens'') -> (Left Illegal_left_expression_for_assignment, symtbl', tokens'')
-            Just ope' | is_bin_op ope' -> let r2 = cons_ptree symtbl tokens' (False, False, True)
-                                          in
-                                            case r2 of
-                                              (Just subexpr2, symtbl', tokens'') -> (case subexpr2 of
-                                                                                       Syn_val _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                                                       Syn_var _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                                                       Syn_expr_bin bin_ope (expr_1, expr_2) _ ->
-                                                                                         if is_gte_op ope' bin_ope then
-                                                                                           (Right (Syn_expr_bin bin_ope ((leftmost_innermst subexpr1 ope' expr_1), expr_2) Ty_abs), symtbl', tokens'')
-                                                                                         else
-                                                                                           (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                                                       _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
+    Syn_fun_decl' fun_id args fun_body (env, fun_ty) -> do
+      r <- lift (do
+                    r_decl <- runExceptT $ par_fun_decl'1 symtbl fun tokens
+                    case r_decl of
+                      Left err -> return $ Left err
+                      Right ((fun@(Syn_fun_decl' fun_id' args' fun_body' (env'@(Ty_env binds), fun_ty')), symtbl', tokens'), errs)
+                        | fun_id' == fun_id -> do
+                            case tokens' of
+                              [] -> return $ Right ((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', []), errs'')
+                                where
+                                  errmsg = "Function declaration has no body at top level declarator."
+                                  errs'' = errs ++ [Imcomplete_function_declaration errmsg]
+                              _ -> (do
+                                       r_args <- runExceptT $ exam_redef ((fun:args'), [])
+                                       case r_args of
+                                         Left err -> return $ Left err
+                                         Right ((args0, omits), errs_args) -> do
+                                           let args'' = Prelude.foldl (\as -> \a -> (case a of
+                                                                                       Syn_arg_decl _ _ -> as ++ [a]
+                                                                                       _ -> as
                                                                                     )
-                                              (Nothing, symtbl', tokens'') -> (Left (Illegal_operands ope' Syn_none), symtbl', tokens'')
-            _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                 in
-                   (Left (Internal_error ("Unknow operator detecded in " ++ loc)), symtbl, tokens)
-        
-        where
-          fetch_ope tokens = case tokens of
-                               (Tk_asgn:ts) -> (Just Ope_asgn, ts)
-                               (Tk_slash:ts) -> (Just Ope_div, ts)
-                               (Tk_star:ts) -> (Just Ope_mul, ts)
-                               (Tk_shaft:ts) -> (Just Ope_sub, ts)
-                               (Tk_cross:ts) -> (Just Ope_add, ts)
-                               _ -> (Nothing, tokens)
-          leftmost_innermst expr_li bin_ope expr0 =
-            case expr0 of
-              Syn_expr_bin ope_o (expr_o1@(Syn_val _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
-              Syn_expr_bin ope_o (expr_o1@(Syn_var _ _), expr_o2) _ | is_gte_op bin_ope  ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
-              Syn_expr_bin ope_o (expr_o1@(Syn_expr_bin ope_o1 _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o (leftmost_innermst expr_li bin_ope expr_o1, expr_o2) Ty_abs
-              _ -> Syn_expr_bin bin_ope (expr_li, expr0) Ty_abs
-      
-      par_fun_call symtbl fun_app tokens =
-        case fun_app of
-          Syn_expr_call fun_id app_args fun_ty -> (case tokens of
-                                                     [] -> (Right fun_app, symtbl, [])
-                                                     Tk_R_par:ts -> (Right fun_app, symtbl, tokens)
-                                                     _ -> (case cons_ptree symtbl tokens (False, False, False) of
-                                                             (Just expr, symtbl', tokens') ->
-                                                               let arg = case expr of
-                                                                           Syn_var v_id ty -> expr
-                                                                           Syn_expr_call f_id f_args ty -> expr
-                                                                           _ -> expr
-                                                               in
-                                                                 (case tokens' of
-                                                                    Tk_comma:ts' ->
-                                                                      (case (case par_fun_call symtbl' (Syn_expr_call fun_id [] fun_ty) ts' of
-                                                                               (Right (Syn_expr_call _ args' _), stbl'', ts'') -> Right (arg:args', stbl'', ts'')
-                                                                               (Left errs, stbl'', ts'') -> Left (errs, stbl'', ts'')
-                                                                            ) of
-                                                                         Right (app_args', symtbl'', tokens'') -> (Right (Syn_expr_call fun_id app_args' fun_ty), symtbl'', tokens'')
-                                                                         Left (errs, symtbl'', tokens'') -> (Left errs, symtbl'', tokens'')
-                                                                      )
-                                                                    _ -> (Right (Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens')
-                                                                 )
-                                                             (Nothing, symtbl', tokens') -> (Left [], symtbl', tokens')
-                                                          )
-                                                  )
-          _ -> (Left [Internal_error "Calling cons_var_decl with non variable constructor."], symtbl, tokens)
-  in
-    let cont_par symtbl subexpr tokens =
-          if par_contp then (case cons_expr symtbl subexpr tokens of
-                               (Right expr', symtbl', tokens') -> (Just expr', symtbl', tokens')
-                               (Left err, symtbl', tokens') -> (Nothing, symtbl', tokens')
-                            )
-          else
-            (Just subexpr, symtbl, tokens)
-    in     
-      case tokens of
-        [] -> (Nothing, symtbl, [])
-        Tk_L_par:ts -> (case cons_ptree symtbl ts (False, False, True) of
-                          (Just expr, symtbl', (Tk_R_par:ts')) -> cont_par symtbl' (Syn_expr_par expr (syn_node_typeof expr)) ts'
-                          (_, symtbl',ts') -> (Nothing, symtbl', ts')
-                       )
-        Tk_if:ts ->
-          (case cons_ptree symtbl ts (False, False, True) of
-             (Just cond_expr, symtbl', (Tk_then:ts')) ->
-               (case cons_ptree symtbl' ts' (False, False, True) of               
-                  (Just true_expr, symtbl'_t, (t'':ts'')) | t'' == Tk_else -> (case cons_ptree symtbl'_t ts'' (False, False, True) of
-                                                                                 (Just false_expr, symtbl'', tokens') ->
-                                                                                   (Just (Syn_cond_expr (cond_expr, (true_expr, Just false_expr)) Ty_abs), symtbl'', tokens')
-                                                                                 (_, symtbl'', tokens') -> (Nothing, symtbl'', tokens')
-                                                                              )
-                  (Just true_expr, symtbl'', tokens') -> (Just (Syn_cond_expr (cond_expr, (true_expr, Nothing)) Ty_abs), symtbl'', tokens')
-                  (_, symtbl'', tokens') -> (Nothing, symtbl'', tokens')
-               )
-             (_, symtbl', tokens') -> (Nothing, symtbl', tokens')
-          )                                        
-        Tk_decre:ts -> (case ts of
-                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs) ts'
-                          _ -> (Nothing, symtbl, ts)
-                       )
-        Tk_incre:ts -> (case ts of
-                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_incre (Syn_var ident Ty_abs) Ty_abs) ts'
-                          _ -> (Nothing, symtbl, ts)
-                       )
-        Tk_shaft:ts -> (case ts of
-                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_neg (Syn_var ident Ty_abs) Ty_abs) ts'
-                          _ -> (Nothing, symtbl, ts)
-                       )
-        Tk_false:ts -> cont_par symtbl (Syn_val (Val_bool False) Ty_bool) ts
-        Tk_true:ts -> cont_par symtbl (Syn_val (Val_bool True) Ty_bool) ts
-        (Tk_nume n):ts -> cont_par symtbl (Syn_val (Val_int n) Ty_int) ts
-        (Tk_str s):ts -> cont_par symtbl (Syn_val (Val_str s) Ty_string) ts
-        Tk_fun:ts -> if fun_declp then
-          case ts of
-            (Tk_ident fun_id):ts' -> 
-              let fun = Syn_fun_decl' fun_id [] (Syn_scope ([], Syn_none)) (Ty_env [], Ty_abs)
-                  --fun = Syn_fun_decl fun_id [] (Syn_scope ([], Syn_none)) Ty_abs
-              in
-                case cons_fun_tree' symtbl fun ts' of
-                --case cons_fun_tree symtbl fun ts' of
-                  --((fun'@(Syn_fun_decl fun_id' args' fun_body' fun_ty'), symtbl', tokens'), errs) -> (Just fun', symtbl', tokens')
-                  ((fun'@(Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty')), symtbl', tokens'), errs) -> (Just fun', symtbl', tokens')
-                  ((_, symtbl', tokens'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                 in
-                                                                   (Nothing, symtbl', tokens')
-                                                                )
-                
-                {- case par_fun_decl symtbl fun ts' of
-                  ((fun@(Syn_fun_decl fun_id fun_args fun_body fun_ty), symtbl', (Tk_L_bra:ts'')), errs) -> do
-                    let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id, fun)
-                    let (new_scope, errs_argreg) = Prelude.foldl (\(symtbl, errs) -> \arg@(Syn_arg_decl arg_id _) -> case sym_regist False symtbl Sym_cat_decl (arg_id, arg) of
-                                                                                                                       (symtbl', Just e_reg) -> (symtbl', errs ++ [e_reg])
-                                                                                                                       (symtbl', Nothing) -> (symtbl', errs)
-                                                                 ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) fun_args
-                    let errs' = errs ++ (case err_funreg of
-                                           Nothing -> []
-                                           Just e_reg -> [e_reg]
-                                        ) ++ errs_argreg
-                    case fun_body of
-                      (Syn_scope ([], Syn_none)) -> let ((var_decls, expr_par_trees), new_scope', us, errs_body) = parse_fun_body new_scope ts''
-                                                        fun_body' = (var_decls, (case expr_par_trees of
-                                                                                    [] -> Syn_none
-                                                                                    [e] -> e
-                                                                                    es -> Syn_expr_seq es Ty_abs
+                                                                      ) [] args0
+                                           let (ts', errs_parse) = case tokens' of
+                                                                     Tk_L_bra:ts'' -> (ts'', [])
+                                                                     _ -> (tokens', [Imcomplete_function_declaration errmsg])
+                                                                       where
+                                                                         errmsg = "Missing beginning L brace for declaration of function body."
+                                           let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', (Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')))
+                                           let lv_before = sym_crnt_level (sym_decl symtbl'')
+                                           let (new_scope, errs_argreg) =
+                                                 Prelude.foldl (\(stbl, es) -> \arg@(Syn_arg_decl id _) -> case sym_regist False stbl Sym_cat_decl (id, arg) of
+                                                                                                             (stbl', Just err_reg) -> (stbl', (es ++ [err_reg]))
+                                                                                                             (stbl', Nothing) -> (stbl', es)
+                                                               ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) args''
+                                           
+                                           let errs0 = errs ++ errs_args ++ errs_parse ++ (case err_funreg of
+                                                                                             Just e -> [e]
+                                                                                             Nothing -> []
+                                                                                          ) ++ errs_argreg
+                                           case fun_body' of
+                                             (Syn_scope ([], Syn_none)) -> do
+                                               r_body <- runExceptT $ parse_fun_body new_scope (args'', omits) ts'
+                                               case r_body of
+                                                 Left err -> return $ Left err
+                                                 Right (((Ty_env binds', (decls, _)), stmts), new_scope', ts'', errs_body) ->
+                                                   do
+                                                     {- let binds'' = Prelude.map snd (Prelude.foldl (\bs -> \(a_id, _) -> case Prelude.lookup a_id bs of
+                                                                                                      Just b -> Set.toList $ Set.difference (Set.fromList bs) (Set.fromList [(a_id, b)])
+                                                                                                      Nothing -> bs
+                                                                                                  )
+                                                                                     (Prelude.map (\(id, ty) -> (id, (id, ty))) binds') (Prelude.map (\(Syn_arg_decl a_id a_ty) -> (a_id, a_ty)) args'')
+                                                                                   ) -}
+                                                     let decls' = Prelude.foldl (\ds -> \d -> (case d of
+                                                                                                 Syn_arg_decl _ _ -> ds
+                                                                                                 _ -> ds ++ [d]
+                                                                                              )
+                                                                                ) [] decls
+                                                     let fun_body'' = Syn_scope (decls', (case stmts of
+                                                                                           [] -> Syn_none
+                                                                                           [e] -> e
+                                                                                           es -> Syn_expr_seq es Ty_abs
+                                                                                        )
                                                                                 )
-                                                                    )
-                                                        (fun', tokens') = (Syn_fun_decl fun_id fun_args (Syn_scope fun_body') fun_ty, us)
-                                                        errs'' = errs' ++ errs_body
-                                                    in
-                                                      case tokens' of
-                                                        Tk_R_bra:tokens'' -> let prev_scope = sym_leave_scope new_scope' Sym_cat_decl
-                                                                             in                                                                              
-                                                                               if (sym_crnt_level (sym_decl prev_scope)) <= 1 then
-                                                                                 let (prev_scope', err_funreg') = sym_regist False prev_scope Sym_cat_func (fun_id, fun')
-                                                                                 in
-                                                                                   (Just fun', prev_scope', tokens'')
-                                                                               else
-                                                                                 (Just fun', prev_scope, tokens'')
-                                                        _ -> (Nothing, new_scope', tokens')
-                        where
-                          parse_fun_body :: Symtbl -> [Tk_code] -> (([Syntree_node], [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
-                          parse_fun_body symtbl tokens =
-                            case cons_ptree symtbl tokens (False, True, True) of
-                              (Just var_decl@(Syn_var_decl _ _), symtbl', (Tk_smcl:tokens')) ->
-                                let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
-                                in
-                                  ((var_decl:var_decls, expr_trees), symtbl'', tokens'', errs)
-                              (Just var_decl@(Syn_var_decl _ _), symtbl', tokens') ->
-                                let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
-                                in
-                                  case var_decls of
-                                    [] -> (([var_decl], expr_trees), symtbl'', tokens'', errs)
-                                    _ -> (([var_decl], expr_trees), symtbl'', tokens'', [Illegal_symbol_declaration] ++ errs)
-                              (Just expr_par_tree, symtbl', Tk_smcl:tokens') ->
-                                let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
-                                in
-                                  case var_decls of
-                                    [] -> (([], expr_par_tree:expr_trees), symtbl'', tokens'', errs)
-                                    _ -> (([], expr_par_tree:expr_trees), symtbl'', tokens'', errs ++ [Illegal_symbol_declaration])
-                              (Just expr_par_tree, symtbl', tokens') ->
-                                let ((var_decls, expr_trees), symtbl'', tokens'', errs) = parse_fun_body symtbl' tokens'
-                                in
-                                  case (var_decls, expr_trees) of
-                                    ([], []) -> (([], [expr_par_tree]), symtbl'', tokens'', errs)
-                                    _ -> (([], [expr_par_tree]), symtbl'', tokens'', errs ++ [Illegal_symbol_declaration])
-                              (Nothing, symtbl', tokens') -> (([], []), symtbl', tokens', [])
-                      
-                      _ -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                         in
-                                           (Nothing, new_scope, ts')
-                                        )
-                  
-                  ((_, symtbl',tokens'), errs) -> assert False (let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                in
-                                                                  (Nothing, symtbl', tokens')
-                                                               ) -}
-            
-            _ -> (Nothing, symtbl, ts)
-          else (Nothing, symtbl, ts)
-        Tk_var:ts -> if var_declp then
-                       case ts of
-                         (Tk_ident ident):ts' -> let var = Syn_var ident Ty_abs
-                                                 in
-                                                   case cons_var_decl symtbl var ts' of
-                                                     --((Just var_decl, symtbl', tokens'), errs) -> (Just var_decl, symtbl', tokens')
-                                                     ((Just (var_decl@(Syn_var_decl var_id var_ty)), symtbl', tokens'), errs) ->
-                                                       let (symtbl'', err_symreg) = sym_regist False symtbl' Sym_cat_decl (var_id, var_decl)
-                                                           errs' = (case err_symreg of
-                                                                      Just e_reg  -> [e_reg]
-                                                                      Nothing -> []
-                                                                   ) ++ errs
-                                                       in
-                                                         (Just var_decl, symtbl'', tokens')
-                                                     ((_, symtbl', tokens'), errs) -> (Nothing, symtbl', tokens')
-                         _ -> (Nothing, symtbl, ts)
-                     else
-                       (Nothing, symtbl, ts)
-        (Tk_ident ident):ts -> let var = Syn_var ident Ty_abs
-                               in
-                                 case ts of
-                                   --tokens'@(t:ts') | not (is_op t) -> let fun_app = Syn_expr_call ident [] Ty_abs
-                                   Tk_L_par:ts' ->
-                                     let fun_app = Syn_expr_call ident [] Ty_abs
-                                     in
-                                       case par_fun_call symtbl fun_app ts' of
-                                         (Right (fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl', tokens') -> (case tokens' of
-                                                                                                                           Tk_R_par:ts'' -> cont_par symtbl' fun_app' ts''
-                                                                                                                           _ -> (Nothing, symtbl', tokens')
-                                                                                                                        )
-                                         (Left errs, symtbl', tokens') -> (Nothing, symtbl', tokens')
-                                   _ -> cont_par symtbl var ts
-                                 
-                                 {- if var_declp then
-                                   case cons_var_decl symtbl var ts of
-                                     ((Just var_decl, symtbl', tokens'), errs) -> (Just var_decl, symtbl', tokens')
-                                     ((Nothing, symtbl', tokens'@(t:ts')), errs) | not (is_op t) ->
-                                                                                   let fun_app = Syn_expr_call ident [] Ty_abs 
-                                                                                   in
-                                                                                     case par_fun_call symtbl' fun_app tokens' of
-                                                                                       (Right (fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl'', tokens'') ->
-                                                                                         cont_par symtbl'' fun_app' tokens''
-                                                                                       (Left err, symtbl'', tokens'') -> (Nothing, symtbl'', tokens'')
-                                     ((_, symtbl', tokens'), errs) -> cont_par symtbl' var tokens'
-                                 else
-                                   cont_par symtbl var ts -}
-                                 
-        _ -> (Nothing, symtbl, tokens) -}
-
-{- cons_ptree1 :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> ExceptT Error_Excep IO (Maybe Syntree_node, Symtbl, [Tk_code])
-cons_ptree1 symtbl tokens (fun_declp, var_declp, par_contp) =
-  let is_op t = (t == Tk_decre) || (t == Tk_incre) || (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_asgn)
-      is_bin_op op = (op == Ope_add) || (op == Ope_sub) || (op == Ope_mul) || (op == Ope_div)
-      is_gte_op ope1 ope2 = case ope1 of
-                          Ope_add -> (case ope2 of
-                                        Ope_add -> True
-                                        Ope_sub -> True
-                                        _ -> False
-                                     )
-                          Ope_sub -> (case ope2 of
-                                        Ope_add -> True
-                                        Ope_sub -> True
-                                        _ -> False
-                                     )
-                          Ope_mul -> (case ope2 of
-                                        Ope_add -> True
-                                        Ope_sub -> True
-                                        Ope_mul -> True
-                                        Ope_div -> True
-                                        -- _ -> False
-                                     )
-                          Ope_div -> (case ope2 of
-                                        Ope_add -> True
-                                        Ope_sub -> True
-                                        Ope_mul -> True
-                                        Ope_div -> True
-                                        -- _ -> False
-                                     )
-      cons_expr symtbl subexpr1 tokens = do
-        let (ope, tokens') = fetch_ope tokens
-        case ope of
-          Nothing -> return (Right subexpr1, symtbl, tokens)
-          Just ope' | ope' == Ope_asgn -> do
-                        r <- lift (do
-                                      rhs <- runExceptT $ cons_ptree1 symtbl tokens' (False, False, True)
-                                      case rhs of
-                                        Left err -> return $ Left err
-                                        Right (Just r_expr, symtbl', tokens'') -> return $ Right (Right (Syn_expr_asgn subexpr1 r_expr Ty_abs), symtbl', tokens'')
-                                        Right (Nothing, symtbl', tokens'') -> return $ Right (Left Illegal_left_expression_for_assignment, symtbl', tokens'')
-                                  )
-                        case r of
-                          Left err -> throwE err
-                          Right r' -> return r'
-          Just ope' | is_bin_op ope' -> do
-                        r <- lift (do
-                                      r2 <- runExceptT $ cons_ptree1 symtbl tokens' (False, False, True)
-                                      case r2 of
-                                        Left err -> return $ Left err
-                                        Right (Just subexpr2, symtbl', tokens'') ->
-                                          return $ Right (case subexpr2 of
-                                                            Syn_val _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                            Syn_var _ _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                            Syn_expr_bin bin_ope (expr_1, expr_2) _ ->
-                                                              if is_gte_op ope' bin_ope then
-                                                                (Right (Syn_expr_bin bin_ope ((lm_im subexpr1 ope' expr_1), expr_2) Ty_abs), symtbl', tokens'')
-                                                              else
-                                                                (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                            _ -> (Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens'')
-                                                         )
-                                        Right (Nothing, symtbl', tokens'') -> return $ Right (Left (Illegal_operands ope' Syn_none), symtbl', tokens'')
-                                  )
-                        case r of
-                          Left err -> throwE err
-                          Right r' -> return r'
-          _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-               in
-                 return (Left (Internal_error ("Unknown operator detecded in " ++ loc)), symtbl, tokens)
-        
-        where
-          fetch_ope tokens = case tokens of
-                               (Tk_asgn:ts) -> (Just Ope_asgn, ts)
-                               (Tk_slash:ts) -> (Just Ope_div, ts)
-                               (Tk_star:ts) -> (Just Ope_mul, ts)
-                               (Tk_shaft:ts) -> (Just Ope_sub, ts)
-                               (Tk_cross:ts) -> (Just Ope_add, ts)
-                               _ -> (Nothing, tokens)
-          lm_im expr_li bin_ope expr0 = -- Left-Most Inner-Most
-            case expr0 of
-              Syn_expr_bin ope_o (expr_o1@(Syn_val _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
-              Syn_expr_bin ope_o (expr_o1@(Syn_var _ _), expr_o2) _ | is_gte_op bin_ope  ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
-              Syn_expr_bin ope_o (expr_o1@(Syn_expr_bin ope_o1 _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o (lm_im expr_li bin_ope expr_o1, expr_o2) Ty_abs
-              _ -> Syn_expr_bin bin_ope (expr_li, expr0) Ty_abs
-      
-      par_fun_call symtbl fun_app tokens = do
-        r <- lift (case fun_app of
-                     Syn_expr_call fun_id app_args fun_ty -> do
-                       (case tokens of
-                          [] -> return $ Right (Right fun_app, symtbl, [])
-                          Tk_R_par:ts -> return $ Right (Right fun_app, symtbl, tokens)
-                          _ -> do
-                            r_a <- runExceptT $ cons_ptree1 symtbl tokens (False, False, False)
-                            case r_a of
-                              Left err -> return $ Left err
-                              Right (Just expr, symtbl', tokens') -> do
-                                let arg = case expr of
-                                            Syn_var v_id ty -> expr
-                                            Syn_expr_call f_id f_args ty -> expr
-                                            _ -> expr
-                                case tokens' of
-                                  Tk_comma:ts' -> do
-                                    r_as <- runExceptT $ par_fun_call symtbl' (Syn_expr_call fun_id [] fun_ty) ts'
-                                    case r_as of
-                                      Left err -> return r_as
-                                      Right as' -> do
-                                        r_as' <- return (case as' of
-                                                           (Right (Syn_expr_call _ args' _), stbl'', ts'') -> Right (Right (arg:args'), stbl'', ts'')
-                                                           (Right _, stbl'', ts'') -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                      in
-                                                                                        Left (Error_Excep Excep_assert_failed loc)
-                                                           (Left errs, stbl'', ts'') -> Right (Left errs, stbl'', ts'')
-                                                        )
-                                        return (case r_as' of
-                                                  Left err -> Left err
-                                                  Right (Right app_args', symtbl'', tokens'') -> Right (Right (Syn_expr_call fun_id app_args' fun_ty), symtbl'', tokens'')
-                                                  Right (Left errs, symtbl'', tokens'') -> Right (Left errs, symtbl'', tokens'')
-                                               )
-                                  _ -> return $ Right (Right (Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens')
-                              Right (Nothing, symtbl', tokens') -> return $ Right (Left [], symtbl', tokens')
-                         )
-                     _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                          in
-                            return $ Right (Left [Internal_error ("Calling the parser for function calling with non function calling parse-tree constructors, in " ++ loc)], symtbl, tokens)
-                  )
-        case r of
-          Left err -> throwE err
-          Right r' -> return r'
-  in
-    let cont_par symtbl subexpr tokens = do
-          if par_contp then (
-            do
-              r <- lift (do
-                            r_cont <- runExceptT $ cons_expr symtbl subexpr tokens
-                            return (case r_cont of
-                                      Left err -> Left err
-                                      Right (Right expr', symtbl', tokens') -> Right (Just expr', symtbl', tokens')
-                                      Right (Left err, symtbl', tokens') -> Right (Nothing, symtbl', tokens')
-                                   )
-                        )
-              case r of
-                Left err -> throwE err
-                Right r' -> return r'
-            )
-            else
-            return (Just subexpr, symtbl, tokens)
-    in
-      case tokens of
-        [] -> return (Nothing, symtbl, [])
-        Tk_L_par:ts -> do
-          r <- lift $ runExceptT $ cons_ptree1 symtbl ts (False, False, True)
-          case r of
-            Left err -> throwE err
-            Right (Just expr, symtbl', (Tk_R_par:ts')) -> cont_par symtbl' (Syn_expr_par expr (syn_node_typeof expr)) ts'
-            --Right (Just expr, symtbl', (ts')) -> cont_par symtbl' (Syn_expr_par expr (syn_node_typeof expr)) ts'
-            Right (_, symtbl',ts') -> return (Nothing, symtbl', ts')
-        
-        Tk_if:ts -> do
-          r <- lift (do
-                        r_cond <- runExceptT $ cons_ptree1 symtbl ts (False, False, True)
-                        case r_cond of
-                          Left err -> return $ Left err
-                          Right (Just cond_expr, symtbl', (Tk_then:ts')) -> do
-                            r_true <- runExceptT $ cons_ptree1 symtbl' ts' (False, False, True)
-                            case r_true of
-                              Left err -> return $ Left err
-                              Right (Just true_expr, symtbl'_t, (Tk_else:ts'')) -> do
-                                r_false <- runExceptT $ cons_ptree1 symtbl'_t ts'' (False, False, True)
-                                case r_false of
-                                  Left err -> return $ Left err
-                                  Right (Just false_expr, symtbl'', tokens') -> return $ Right (Just (Syn_cond_expr (cond_expr, (true_expr, Just false_expr)) Ty_abs), symtbl'', tokens')
-                                  Right (_, symtbl'', tokens') -> return $ Right (Nothing, symtbl'', tokens')
-                              Right (Just true_expr, symtbl'', tokens') -> return $ Right (Just (Syn_cond_expr (cond_expr, (true_expr, Nothing)) Ty_abs), symtbl'', tokens')
-                              Right (_, symtbl'', tokens') -> return $ Right (Nothing, symtbl'', tokens')
-                          Right (_, symtbl', tokens') -> return $ Right (Nothing, symtbl', tokens')
-                    )
-          case r of
-            Left err -> throwE err
-            Right r' -> return r'
-        
-        Tk_decre:ts -> (case ts of
-                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs) ts'
-                          _ -> return (Nothing, symtbl, ts)
-                       )
-        Tk_incre:ts -> (case ts of
-                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_incre (Syn_var ident Ty_abs) Ty_abs) ts'
-                          _ -> return (Nothing, symtbl, ts)
-                       )
-        Tk_shaft:ts -> (case ts of
-                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_neg (Syn_var ident Ty_abs) Ty_abs) ts'
-                          _ -> return (Nothing, symtbl, ts)
-                       )
-        
-        Tk_false:ts -> cont_par symtbl (Syn_val (Val_bool False) Ty_bool) ts
-        Tk_true:ts -> cont_par symtbl (Syn_val (Val_bool True) Ty_bool) ts
-        (Tk_nume n):ts -> cont_par symtbl (Syn_val (Val_int n) Ty_int) ts
-        (Tk_str s):ts -> cont_par symtbl (Syn_val (Val_str s) Ty_string) ts
-        
-        Tk_fun:ts -> do
-          if fun_declp then
-            case ts of
-              (Tk_ident fun_id):ts' -> do
-                r <- lift (do
-                              let fun = Syn_fun_decl' fun_id [] (Syn_scope ([], Syn_none)) (Ty_env [], Ty_abs)
-                              r_fun <- runExceptT $ cons_fun_tree'1 symtbl fun ts'
-                              case r_fun of
-                                Left err -> return $ Left err
-                                Right ((fun'@(Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty')), symtbl', tokens'), errs) -> return $ Right (Just fun', symtbl', tokens')
-                                Right ((_, symtbl', tokens'), errs) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                       in
-                                                                         return $ Left (Error_Excep Excep_assert_failed loc)
-                          )
-                case r of
-                  Left err -> throwE err
-                  Right r' -> return r'
-              
-              _ -> return (Nothing, symtbl, ts)
-            else return (Nothing, symtbl, ts)
-        
-        Tk_var:ts -> if var_declp then
-                       do
-                         r <- lift (case ts of
-                                      (Tk_ident ident):ts' -> do
-                                        let var = Syn_var ident Ty_abs
-                                        r_v <- runExceptT $ cons_var_decl1 symtbl var ts'
-                                        case r_v of
-                                          Left err -> return $ Left err
-                                          Right ((Just (var_decl@(Syn_var_decl var_id var_ty)), symtbl', tokens'), errs) -> do
-                                            let (symtbl'', err_symreg) = sym_regist False symtbl' Sym_cat_decl (var_id, var_decl)
-                                            let errs' = errs ++ (case err_symreg of
-                                                                   Just e_reg  -> [e_reg]
-                                                                   Nothing -> []
+                                                     let fun'' = Syn_fun_decl' fun_id' args'' fun_body'' (Ty_env binds', fun_ty')
+                                                     
+                                                     let prev_scope = sym_leave_scope new_scope' Sym_cat_decl
+                                                     if sym_crnt_level (sym_decl prev_scope) /= lv_before then let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                               in
+                                                                                                                 return $ Left (Error_Excep Excep_assert_failed loc)
+                                                       else
+                                                       do
+                                                         let (prev_scope', err_funreg') = sym_regist (case err_funreg of
+                                                                                                        Just (Symbol_redefinition _) -> False
+                                                                                                        _ -> True
+                                                                                                     ) prev_scope Sym_cat_func (fun_id', fun'')
+                                                         let errs1 = errs0 ++ errs_body ++ (case err_funreg' of
+                                                                                              Just e -> [e]
+                                                                                              Nothing -> []
+                                                                                           )
+                                                         return (case ts'' of
+                                                                   Tk_R_bra:tokens'' -> Right ((fun'', prev_scope', tokens''), errs1)
+                                                                   _ -> Right ((fun'', prev_scope', ts''), (errs1 ++ [Imcomplete_function_declaration errmsg]))
+                                                                     where
+                                                                       errmsg = "Missing R brace to end up declaration of function body."
                                                                 )
-                                            return $ Right  (Just var_decl, symtbl'', tokens')
-                                          Right ((_, symtbl', tokens'), errs) -> return $ Right (Nothing, symtbl', tokens')
-                                      
-                                      _ -> return $ Right (Nothing, symtbl, ts)
+                                           
+                                             _ -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                  in
+                                                    return $ Left (Error_Excep Excep_assert_failed loc)
                                    )
-                         case r of
-                           Left err ->throwE err
-                           Right r' -> return r'
-                     else
-                       return (Nothing, symtbl, ts)
-        
-        (Tk_ident ident):ts -> do
-          let var = Syn_var ident Ty_abs
-          r <- lift (do
-                        case ts of
-                          Tk_L_par:ts' -> do
-                            let fun_app = Syn_expr_call ident [] Ty_abs
-                            r_call <- runExceptT $ par_fun_call symtbl fun_app ts'
-                            case r_call of
-                              Left err -> return $ Left err
-                              Right (Right (fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl', tokens') -> do
-                                case tokens' of
-                                  Tk_R_par:ts'' -> runExceptT $ cont_par symtbl' fun_app' ts''
-                                  _ -> return $ Right (Nothing, symtbl', tokens')
-                              Right (Left errs, symtbl', tokens') -> return $ Right (Nothing, symtbl', tokens')
-                          _ -> runExceptT $ cont_par symtbl var ts
-                    )
-          case r of
-            Left err -> throwE err
-            Right r' -> return r'
-        
-        _ -> return (Nothing, symtbl, tokens) -}
+                      
+                      _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                           in
+                             return $ Left (Error_Excep Excep_assert_failed loc)
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+         in
+           throwE (Error_Excep Excep_assert_failed loc)
+
 
 cons_ptree2 :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> ExceptT Error_Excep IO ((Maybe Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
@@ -2628,16 +1398,6 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                       case r2 of
                                         Left err_exc -> return $ Left err_exc
                                         Right ((Just subexpr2, symtbl', tokens''), err) ->
-                                          {- return (case subexpr2 of
-                                                    Syn_val _ _ -> Right ((Just (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens''), err)
-                                                    Syn_var _ _ -> Right ((Just (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens''), err)
-                                                    Syn_expr_bin bin_ope (expr_21, expr_22) _ ->
-                                                      if is_gte_op ope' bin_ope then
-                                                        ((Right (Syn_expr_bin bin_ope ((lm_im subexpr1 ope' expr_21), expr_22) Ty_abs), symtbl', tokens''), err)
-                                                      else
-                                                        ((Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens''), err)
-                                                    _ -> ((Right (Syn_expr_bin ope' (subexpr1, subexpr2) Ty_abs), symtbl', tokens''), err)
-                                                 ) -}
                                           (case combine subexpr1 ope' subexpr2 of
                                              Right expr' -> return $ Right ((Just expr', symtbl', tokens''), err)
                                              Left exc -> return $ Left exc
@@ -2676,12 +1436,6 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
               _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                    in
                      Left (Error_Excep Excep_assert_failed loc)
-          {- lm_im expr_li bin_ope expr0 = -- means "Left-Most_Inner-Most".
-            case expr0 of
-              Syn_expr_bin ope_o (expr_o1@(Syn_val _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
-              Syn_expr_bin ope_o (expr_o1@(Syn_var _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o ((Syn_expr_bin bin_ope (expr_li, expr_o1) Ty_abs), expr_o2) Ty_abs
-              Syn_expr_bin ope_o (expr_o1@(Syn_expr_bin ope_o1 _ _), expr_o2) _ | is_gte_op bin_ope ope_o -> Syn_expr_bin ope_o (lm_im expr_li bin_ope expr_o1, expr_o2) Ty_abs
-              _ -> Syn_expr_bin bin_ope (expr_li, expr0) Ty_abs -- including Syn_expr_una and Sym_expr_par -}
       
       par_fun_call symtbl fun_app tokens = do
         r <- lift (case fun_app of
