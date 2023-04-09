@@ -1434,7 +1434,7 @@ cons_fun_tree'1 symtbl fun tokens =
                                   errmsg = "Function declaration has no body at top level declarator."
                                   errs'' = errs ++ [Imcomplete_function_declaration errmsg]
                               _ -> (do
-                                       r_args <- runExceptT $ exam_redef (fun:args')
+                                       r_args <- runExceptT $ exam_redef ((fun:args'), [])
                                        case r_args of
                                          Left err -> return $ Left err
                                          Right ((args0, omits), errs_args) -> do
@@ -1465,7 +1465,7 @@ cons_fun_tree'1 symtbl fun tokens =
                                                r_body <- runExceptT $ parse_fun_body new_scope (args'', omits) ts'
                                                case r_body of
                                                  Left err -> return $ Left err
-                                                 Right (((Ty_env binds', (decls, [])), stmts), new_scope', ts'', errs_body) ->
+                                                 Right (((Ty_env binds', (decls, _)), stmts), new_scope', ts'', errs_body) ->
                                                    do
                                                      {- let binds'' = Prelude.map snd (Prelude.foldl (\bs -> \(a_id, _) -> case Prelude.lookup a_id bs of
                                                                                                       Just b -> Set.toList $ Set.difference (Set.fromList bs) (Set.fromList [(a_id, b)])
@@ -1572,8 +1572,8 @@ exam_redef args =
 
 type Redef_omits = [(String, Syntree_node)]
 
-exam_redef :: [Syntree_node] -> ExceptT Error_Excep IO (([Syntree_node], Redef_omits), [Error_codes])
-exam_redef args =
+exam_redef :: ([Syntree_node], Redef_omits) -> ExceptT Error_Excep IO (([Syntree_node], Redef_omits), [Error_codes])
+exam_redef (args, omits) =
   let chk_decls (as, omits) =
         case as of
           [] -> ((Right [], omits), [])
@@ -1585,7 +1585,7 @@ exam_redef args =
                                                   ((Right as'', omits'), errs) -> ((Right ((snd a):as''), omits'), errs)
                                                   ((Left as'', omits'), errs) -> ((Left ((snd a):as''), omits'), errs)
                                                )
-                                    Just _ -> (case chk_decls ((elim a ([], as')), (a:omits)) of
+                                    Just _ -> (case chk_decls ((elim a ([], as')), a:omits) of
                                                  ((Right as'', omits'), errs) -> ((Left ((snd a):as''), omits'), ((Symbol_redefinition errmsg) : errs))
                                                  ((Left as'', omits'), errs) -> ((Left ((snd a):as''), omits'), ((Symbol_redefinition errmsg) : errs))
                                               )
@@ -1613,9 +1613,9 @@ exam_redef args =
                                       ) (Right []) args
       case args' of
         Left err_exc -> throwE err_exc
-        Right args'' -> return (case chk_decls (args'', []) of
-                                  ((Right as'', omits), errs_args) -> ((as'', omits), errs_args)
-                                  ((Left as'', omits), errs_args) -> ((as'', omits), errs_args)
+        Right args'' -> return (case chk_decls (args'', omits) of
+                                  ((Right as'', omits'), errs_args) -> ((as'', omits'), errs_args)
+                                  ((Left as'', omits'), errs_args) -> ((as'', omits'), errs_args)
                                )
 
 parse_fun_body :: Symtbl -> ([Syntree_node], Redef_omits) -> [Tk_code] -> ExceptT Error_Excep IO (((Ty_env, ([Syntree_node], Redef_omits)), [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
@@ -1629,7 +1629,7 @@ parse_fun_body symtbl (decls, omits) tokens = do
                       ((Nothing, symtbl', tokens'), err) -> return $ Right (((Ty_env [], (decls, omits)), []), symtbl', tokens', err)
                       
                       ((Just fun_decl@(Syn_fun_decl' fun_id args fun_body (env0, fun_ty)), symtbl', tokens'), err) -> do
-                        r_decls <- runExceptT $ exam_redef (decls ++ [fun_decl])
+                        r_decls <- runExceptT $ exam_redef ((decls ++ [fun_decl]), omits)
                         case r_decls of
                           Left err_exc -> return $ Left err_exc
                           Right ((decls', omits'), err_decl) -> (case tokens' of
@@ -1644,7 +1644,8 @@ parse_fun_body symtbl (decls, omits) tokens = do
                                                                 )
                       
                       ((Just var_decl@(Syn_var_decl _ _), symtbl', tokens'), err) -> do
-                        r_decls <- runExceptT $ exam_redef (decls ++ [var_decl])
+                        r_decls <- runExceptT $ exam_redef ((decls ++ [var_decl]), omits)
+                        putStrLn $ "%%%%%: " ++ (show ((decls ++ [var_decl]), omits))
                         case r_decls of
                           Left err_exc -> return $ Left err_exc
                           Right ((decls', omits'), err_decl) -> (case tokens' of
