@@ -1579,7 +1579,10 @@ exam_redef (args, omits) =
           [] -> ((Right [], omits), [])
           [a] -> ((Right [snd a], omits), [])
           a:as' -> (case Prelude.lookup (fst a) omits of
-                      Just _ -> chk_decls ((elim a ([], as')), omits)
+                      Just _ -> (case chk_decls ((elim a ([], as')), omits) of
+                                   ((Right as'', omits'), err) -> ((Right ((snd a):as''), omits'), err)
+                                   ((Left as'', omits'), err) -> ((Left ((snd a):as''), omits'), err)
+                                )
                       Nothing -> (case Prelude.lookup (fst a) as' of
                                     Nothing -> (case chk_decls (as', omits) of
                                                   ((Right as'', omits'), errs) -> ((Right ((snd a):as''), omits'), errs)
@@ -1645,7 +1648,6 @@ parse_fun_body symtbl (decls, omits) tokens = do
                       
                       ((Just var_decl@(Syn_var_decl _ _), symtbl', tokens'), err) -> do
                         r_decls <- runExceptT $ exam_redef ((decls ++ [var_decl]), omits)
-                        putStrLn $ "%%%%%: " ++ (show ((decls ++ [var_decl]), omits))
                         case r_decls of
                           Left err_exc -> return $ Left err_exc
                           Right ((decls', omits'), err_decl) -> (case tokens' of
