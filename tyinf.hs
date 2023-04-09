@@ -1552,23 +1552,68 @@ exam_redef args =
                                (purged, d:ds) -> elim e ((purged ++ [d]), ds)                                                      
   in
     do
-      args' <- return (Prelude.foldl (\as -> \a -> (do
-                                                       as' <- as
-                                                       case a of
-                                                         (Syn_fun_decl' id _ _ _) -> Right (as' ++ [(id, a)])
-                                                         (Syn_arg_decl id _) -> Right (as' ++ [(id, a)])
-                                                         (Syn_var_decl id _) -> Right (as' ++ [(id, a)])
-                                                         _ -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                              in
-                                                                Left (Error_Excep Excep_assert_failed loc)
-                                                   )
-                                     ) (Right []) args
-                      )
+      args' <- return $ Prelude.foldl (\as -> \a -> (do
+                                                        as' <- as
+                                                        case a of
+                                                          (Syn_fun_decl' id _ _ _) -> Right (as' ++ [(id, a)])
+                                                          (Syn_arg_decl id _) -> Right (as' ++ [(id, a)])
+                                                          (Syn_var_decl id _) -> Right (as' ++ [(id, a)])
+                                                          _ -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                               in
+                                                                 Left (Error_Excep Excep_assert_failed loc)
+                                                    )
+                                      ) (Right []) args
       case args' of
         Left err_exc -> throwE err_exc
         Right args'' -> return (case chk_decls (args'', []) of
                                   (Right as'', errs_args) -> (as'', errs_args)
                                   (Left as'', errs_args) -> (as'', errs_args)
+                               )
+
+exam_redef' :: [Syntree_node] -> ExceptT Error_Excep IO (([Syntree_node], [(String, Syntree_node)]), [Error_codes])
+exam_redef' args =
+  let chk_decls' (as, omits) =
+        case as of
+          [] -> ((Right [], omits), [])
+          [a] -> ((Right [snd a], omits), [])
+          a:as' -> (case Prelude.lookup (fst a) omits of
+                      Just _ -> chk_decls' ((elim a ([], as')), omits)
+                      Nothing -> (case Prelude.lookup (fst a) as' of
+                                    Nothing -> (case chk_decls' (as', omits) of
+                                                  ((Right as'', omits'), errs) -> ((Right ((snd a):as''), omits'), errs)
+                                                  ((Left as'', omits'), errs) -> ((Left ((snd a):as''), omits'), errs)
+                                               )
+                                    Just _ -> (case chk_decls' ((elim a ([], as')), (a:omits)) of
+                                                 ((Right as'', omits'), errs) -> ((Left ((snd a):as''), omits'), ((Symbol_redefinition errmsg) : errs))
+                                                 ((Left as'', omits'), errs) -> ((Left ((snd a):as''), omits'), ((Symbol_redefinition errmsg) : errs))
+                                              )
+                                      where
+                                        errmsg = "Redefinition of " ++ (show $ fst a) ++ " in function arguments declaration."
+                                 )
+                   )
+            where
+              elim e decls = case decls of
+                               (purged, []) -> purged
+                               (purged, d:ds) | (fst d) == (fst e) -> elim e (purged, ds)
+                               (purged, d:ds) -> elim e ((purged ++ [d]), ds)                                                      
+  in
+    do
+      args' <- return $ Prelude.foldl (\as -> \a -> (do
+                                                        as' <- as
+                                                        case a of
+                                                          (Syn_fun_decl' id _ _ _) -> Right (as' ++ [(id, a)])
+                                                          (Syn_arg_decl id _) -> Right (as' ++ [(id, a)])
+                                                          (Syn_var_decl id _) -> Right (as' ++ [(id, a)])
+                                                          _ -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                               in
+                                                                 Left (Error_Excep Excep_assert_failed loc)
+                                                    )
+                                      ) (Right []) args
+      case args' of
+        Left err_exc -> throwE err_exc
+        Right args'' -> return (case chk_decls' (args'', []) of
+                                  ((Right as'', omits), errs_args) -> ((as'', omits), errs_args)
+                                  ((Left as'', omits), errs_args) -> ((as'', omits), errs_args)
                                )
 
 parse_fun_body :: Symtbl -> [Syntree_node] -> [Tk_code] -> ExceptT Error_Excep IO (((Ty_env, [Syntree_node]), [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
