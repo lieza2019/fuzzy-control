@@ -2794,6 +2794,87 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
             err = Parse_error errmsg
 
 
+prn_expr :: Syntree_node -> String
+prn_expr prg =
+  let prn_val v = case v of
+                    Val_str s -> s
+                    Val_bool b -> show b
+                    Val_int i -> show i
+      prn_op op = case op of
+                    Ope_asgn -> ":="
+                    Ope_decre -> "--"
+                    Ope_incre -> "++"
+                    Ope_neg -> "-"
+                    Ope_add -> "+"
+                    Ope_sub -> "-"
+                    Ope_mul -> "*"
+                    Ope_div -> "/"
+      prn_ty ty = case ty of
+                    Ty_top -> "TOP"
+                    Ty_bool -> "bool"
+                    Ty_string -> "string"
+                    Ty_int -> "int"
+                    Ty_var tv_id -> "tvar_" ++ tv_id
+                    Ty_pair (ty1, ty2) -> "(" ++ (prn_ty ty1) ++ ", " ++ (prn_ty ty2) ++ ")"
+                    Ty_fun args ty -> let str_args = Prelude.foldl (\s -> \a -> (s ++ (prn_ty a) ++ " -> ")) "" args
+                                      in
+                                        case str_args of
+                                          "" -> prn_ty ty
+                                          _ -> "(" ++ (prn_ty ty) ++ ")"
+                    Ty_abs -> "ABS"
+                    Ty_btm -> "BTM"
+                    Ty_prom ty_prev ty_prom -> prn_ty ty_prom
+                    Ty_ovride ty_prev ty_ovrd -> prn_ty ty_ovrd
+                    Ty_unknown -> "UNKNWN"
+  in
+    case prg of
+      --Syn_scope ([Syntree_node], Syntree_node)
+      Syn_scope (decls, body) -> (Prelude.foldl (\s -> \d -> (s ++ (prn_expr d) ++ "; ")) "" decls) ++ (prn_expr body)
+      --Syn_tydef_decl String Type
+      Syn_tydef_decl def_id ty -> ""
+      --Syn_fun_decl' String [Syntree_node] Syntree_node (Ty_env, Type)
+      Syn_fun_decl' fun_id fun_args fun_body (_, fun_ty) -> "fun " ++ fun_id ++
+        " (" ++ (Prelude.foldl (\s -> \a -> (s ++ (prn_expr a) ++ "; ")) "" fun_args) ++ ")" ++
+        " as " ++ (prn_ty fun_ty) ++
+        " {" ++ (prn_expr fun_body) ++ " }"
+      --Syn_arg_decl String Type
+      Syn_arg_decl arg_id arg_ty -> arg_id ++ " as " ++ (prn_ty arg_ty)
+      --Syn_rec_decl String Type
+      Syn_rec_decl rec_id ty -> ""
+      --Syn_var_decl String Type
+      Syn_var_decl var_id ty -> "var " ++ var_id ++ " as " ++ (prn_ty ty)
+      --Syn_cond_expr (Syntree_node, (Syntree_node, Maybe Syntree_node)) Type
+      Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> "if " ++ "(" ++ (prn_expr cond_expr) ++ ")" ++ " then " ++ "{" ++ (prn_expr true_expr) ++ "}" ++
+        (case false_expr of
+           Nothing -> ""
+           Just f_clause -> " else " ++ "{" ++ (prn_expr f_clause) ++ "}"
+        )
+      --Syn_val Val Type
+      Syn_val val ty -> prn_val val
+      --Syn_var String Type
+      Syn_var v_id ty -> v_id
+      --Syn_expr_asgn Syntree_node Syntree_node Type
+      Syn_expr_asgn l_expr r_expr ty -> (prn_expr l_expr) ++ (" " ++ (prn_op Ope_asgn) ++ " ") ++ (prn_expr r_expr)
+      --Syn_expr_par Syntree_node Type
+      Syn_expr_par expr ty -> "(" ++ (prn_expr expr) ++ ")"
+      --Syn_expr_call String [Syntree_node] Type
+      Syn_expr_call fun_id app_args ty -> fun_id ++ "(" ++
+        Prelude.foldl (\s -> \a -> (case s of
+                                      "" -> prn_expr a
+                                      _ -> ", " ++ (prn_expr a)
+                                   )
+                      ) "" app_args
+        ++ ")"
+      --Syn_expr_una Operation Syntree_node Type
+      Syn_expr_una op_una expr0 ty -> (prn_op op_una) ++ (prn_expr expr0)
+      --Syn_expr_bin Operation (Syntree_node, Syntree_node) Type
+      Syn_expr_bin op_bin (expr1, expr2) ty -> "(" ++ (prn_expr expr1) ++ (" " ++ (prn_op op_bin) ++ " ") ++ (prn_expr expr2) ++ ")"
+      --Syn_expr_seq [Syntree_node] Type
+      Syn_expr_seq stmts ty -> Prelude.foldl (\str -> \s -> (str ++ (prn_expr s) ++ "; ")) "" stmts
+      --Syn_none
+      Syn_none -> "expr_NONE"
+
+
 type Fresh_tvar = (Type, Integer)
 
 initial_flesh_tvar :: Fresh_tvar
@@ -3907,10 +3988,6 @@ main = do
                                )
                Right ((syn_tree, symtbl', tokens'), err) -> (case syn_tree of
                                                                Just s_tree -> do
-                                                                 {- do
-                                                                   putStrLn $ "*****: " ++ (show s_tree)
-                                                                   putStrLn $ "#####: " ++ (show tokens')
-                                                                 -}
                                                                  r_ts <- cons_p_trees symtbl' tokens'
                                                                  return (case r_ts of
                                                                            Right ((s_ts, symtbl'', tokens''), err) -> Right ((Just (s_tree:s_ts), symtbl'', tokens''), err)
@@ -3947,6 +4024,10 @@ main = do
                              return r'
                          )
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
+  putStrLn $ "reconstruction: " ++ (case syn_forest of
+                                      Nothing -> ""
+                                      Just ss -> Prelude.foldl (\str -> \s -> (str ++ (prn_expr s) ++ " ")) "" ss
+                                   )
   
   putStr "ty-raw:  "
   ty_curved <- case syn_forest of
@@ -4012,3 +4093,4 @@ main = do
                        Error_Excep _ errmsg -> errmsg
         putStrLn errmsg
         return ()
+
