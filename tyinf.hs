@@ -1112,7 +1112,7 @@ exam_redef (args, omits) =
           [] -> ((Right [], omits), [])
           [a] -> ((Right [snd a], omits), [])
           a:as' -> (case Prelude.lookup (fst a) omits of
-                      Just _ -> (case chk_decls ((elim a ([], as')), omits) of
+                      Just _ -> (case chk_decls ((elide a ([], as')), omits) of
                                    ((Right as'', omits'), err) -> ((Right ((snd a):as''), omits'), err)
                                    ((Left as'', omits'), err) -> ((Left ((snd a):as''), omits'), err)
                                 )
@@ -1121,7 +1121,7 @@ exam_redef (args, omits) =
                                                   ((Right as'', omits'), errs) -> ((Right ((snd a):as''), omits'), errs)
                                                   ((Left as'', omits'), errs) -> ((Left ((snd a):as''), omits'), errs)
                                                )
-                                    Just _ -> (case chk_decls ((elim a ([], as')), a:omits) of
+                                    Just _ -> (case chk_decls ((elide a ([], as')), a:omits) of
                                                  ((Right as'', omits'), errs) -> ((Left ((snd a):as''), omits'), ((Symbol_redefinition errmsg) : errs))
                                                  ((Left as'', omits'), errs) -> ((Left ((snd a):as''), omits'), ((Symbol_redefinition errmsg) : errs))
                                               )
@@ -1130,10 +1130,10 @@ exam_redef (args, omits) =
                                  )
                    )
             where
-              elim e decls = case decls of
+              elide e decls = case decls of
                                (purged, []) -> purged
-                               (purged, d:ds) | (fst d) == (fst e) -> elim e (purged, ds)
-                               (purged, d:ds) -> elim e ((purged ++ [d]), ds)                                                      
+                               (purged, d:ds) | (fst d) == (fst e) -> elide e (purged, ds)
+                               (purged, d:ds) -> elide e ((purged ++ [d]), ds)                                                      
   in
     do
       args' <- return $ Prelude.foldl (\as -> \a -> (do
@@ -1713,7 +1713,7 @@ prn_expr prg =
   in
     case prg of
       --Syn_scope ([Syntree_node], Syntree_node)
-      Syn_scope (decls, body) -> (Prelude.foldl (\s -> \d -> (s ++ (prn_expr d) ++ "; ")) "" decls) ++ (prn_expr body)
+      Syn_scope (decls, body) -> (Prelude.foldl (\s -> \d -> (s ++ (prn_expr d) ++ "; ")) "" decls) ++ ("{" ++ (prn_expr body) ++ "}")
       --Syn_tydef_decl String Type
       Syn_tydef_decl def_id ty -> ""
       --Syn_fun_decl' String [Syntree_node] Syntree_node (Ty_env, Type)
@@ -1728,10 +1728,10 @@ prn_expr prg =
       --Syn_var_decl String Type
       Syn_var_decl var_id ty -> "var " ++ var_id ++ " as " ++ (prn_ty ty)
       --Syn_cond_expr (Syntree_node, (Syntree_node, Maybe Syntree_node)) Type
-      Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> "if " ++ "(" ++ (prn_expr cond_expr) ++ ")" ++ " then " ++ "{" ++ (prn_expr true_expr) ++ "}" ++
+      Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> "if " ++ "(" ++ (prn_expr cond_expr) ++ ")" ++ " then " ++ "<" ++ (prn_expr true_expr) ++ ">" ++
         (case false_expr of
            Nothing -> ""
-           Just f_clause -> " else " ++ "{" ++ (prn_expr f_clause) ++ "}"
+           Just f_clause -> " else " ++ "<" ++ (prn_expr f_clause) ++ ">"
         )
       --Syn_val Val Type
       Syn_val val ty -> prn_val val
@@ -1745,7 +1745,7 @@ prn_expr prg =
       Syn_expr_call fun_id app_args ty -> fun_id ++ "(" ++
         Prelude.foldl (\s -> \a -> (case s of
                                       "" -> prn_expr a
-                                      _ -> ", " ++ (prn_expr a)
+                                      _ -> s ++ ", " ++ (prn_expr a)
                                    )
                       ) "" app_args
         ++ ")"
