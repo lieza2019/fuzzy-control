@@ -1346,7 +1346,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
         expr' <- expr
         return (case expr' of
                   Left err_exc -> Left err_exc
-                  Right ((expr0, symtbl', tokens'), err') -> return $ ((expr0, symtbl', tokens'), (err ++ err'))
+                  Right ((expr0, symtbl', tokens'), err') -> Right ((expr0, symtbl', tokens'), (err ++ err'))
                )
       
       is_op t = (t == Tk_decre) || (t == Tk_incre) || (t == Tk_slash) || (t == Tk_star) || (t == Tk_shaft) || (t == Tk_cross) || (t == Tk_asgn)
@@ -1489,6 +1489,82 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
     in
       case tokens of
         [] -> return ((Nothing, symtbl, []), [])
+
+        Tk_L_bra:ts ->
+          case ts of
+            [] -> return ((Nothing, symtbl, []), err)
+              where
+                errmsg = "Missing closing R brace of compound statement."
+                err = [Parse_error errmsg]
+            
+            Tk_R_bra:ts' -> return ((Nothing, symtbl, ts'), [])
+            _ -> do
+              r <- lift (do
+                            r_comp <- runExceptT $ cons_ptree2 symtbl ts (True, True, True)
+                            case r_comp of
+                              Left err_exc -> return $ Left err_exc
+                              Right ((Just fragment, symtbl', ts'), err) ->
+                                (case is_decl fragment of
+                                   Left err_exc -> return $ Left err_exc
+                                   Right declp -> do
+                                     r_comp' <- (if declp then par_comp (([fragment], []), []) symtbl' ts'
+                                                 else par_comp (([], []), [fragment]) symtbl' ts'
+                                                )
+                                     case r_comp' of
+                                       Left err_exc -> return $ Left err_exc
+                                       Right ((body, symtbl'', ts''), err') -> cat_err err return $ (case ts'' of
+                                                                                                       Tk_R_bra:ts1 -> Right ((body, symtbl'', ts1), err')
+                                                                                                       _ -> Right ((body, symtbl'', ts''), err'')
+                                                                                                        where
+                                                                                                          errmsg = "Missing closing R brace of compound statement."
+                                                                                                          err'' = [Parse_error errmsg]
+                                                                                                    )
+                                )
+                                where
+                                  is_decl :: Syntree_node -> Either Error_Excep Bool
+                                  is_decl stmt =
+                                    case stmt of
+                                      Syn_tydef_decl _ _ -> Right True
+                                      Syn_fun_decl' _ _ _ _ -> Right True
+                                      Syn_rec_decl _ _ -> Right True
+                                      Syn_var_decl _ _ -> Right True
+                                      Syn_arg_decl _ _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                          in
+                                                            Left (Error_Excep Excep_assert_failed loc)
+                                      _ -> Right False  -- including the case of Syn_none
+                                  
+                                  par_comp :: (([Syntree_node], Redef_omits), [Syntree_node]) -> Symtbl -> [Tk_code] -> IO (Either Error_Excep ((Syntree_node, Symtbl, [Tk_code]), [Error_codes]))
+                                  par_comp ((decls, omits), stmts) symtbl tokens =
+                                    case tokens of
+                                      [] -> return $ Right (((decls, stmts), symtbl, []), [])
+                                      Tk_R_bra:ts -> return $ Right (((decls, stmts), symtbl, tokens), [])
+                                      Tk_smcl:ts -> do
+                                        r_stmt <- runExceptT $ cons_ptree2 symtbl ts (True, True, True)
+                                        case r_stmt of
+                                          Left err_exc -> return $ Left err_exc
+                                          Right ((Just Syn_none, symtbl', ts'), err) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                        in
+                                                                                          return $ Left (Error_Excep Excep_assert_failed loc)
+                                          Right ((Just stmt, symtbl', ts'), err) ->
+                                            case is_decl stmt of
+                                              Left err_exc -> return $ Left err_exc
+                                              Right declp | declp -> do
+                                                              let decls' = decls:stmt
+                                                              r_chk <- runExceptT $ exam_redef (decls', omits)
+                                                              case r_chk of
+                                                                Left err_exc -> return $ Left err_exc
+                                                                Right ((decls'', omits'), err_redef) -> cat_err (err ++ err_redef) $ par_comp ((decls'', omits'), stmts) symtbl' ts'
+                                              _ -> cat_err err $ par_comp ((decls, omits), stmts:stmt) symtbl' ts'
+                        )
+              case r of
+                Left err_exc -> throwE err_exc
+                Right (((decls, stmts), symtbl', tokens'), err) -> return ((Just Syn_scope (decls, body'), symtbl', tokens'), err)
+                  where
+                    body' = (case stmts of
+                               [] -> Syn_none
+                               _ -> Syn_expr_seq stmts (syn_node_typeof (head $ reverse stmts))
+                            )
+        
         Tk_L_par:ts -> do
           r <- lift $ runExceptT $ cons_ptree2 symtbl ts (False, False, True)
           case r of
@@ -1664,7 +1740,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                   Tk_R_par:ts'' -> cat_err err (runExceptT $ cont_par symtbl' fun_app' ts'')
                                   _ -> return $ Right ((Nothing, symtbl', tokens'), [err])
                                     where
-                                      errmsg = "Missing closing R paren in function calling."
+                                      errmsg = "Missing closing R paren in function calling."q
                                       err = Ill_formed_expression errmsg
                           _ -> runExceptT $ cont_par symtbl var ts
                     )
