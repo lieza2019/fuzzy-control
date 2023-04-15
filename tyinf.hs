@@ -1206,8 +1206,8 @@ parse_fun_body symtbl (decls, omits) tokens = do
                       
                       ((Just stmt, symtbl', tokens'), err) -> do
                         r_stmt <- return (case stmt of
-                                            Syn_cond_expr (_, (Syn_expr_seq _ _,  Nothing)) _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', err)
-                                            Syn_cond_expr (_, (_, Just (Syn_expr_seq _ _))) _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', err)
+                                            Syn_cond_expr (_, (Syn_scope _, Nothing)) _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', err)
+                                            Syn_cond_expr (_, (_, Just (Syn_scope _))) _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', err)
                                             _ -> (case tokens' of
                                                     [] -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', [], (err ++ [Parse_error errmsg]))
                                                     Tk_smcl:ts' -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', ts', err)
@@ -1494,8 +1494,9 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
         
         Tk_L_bra:ts ->
           case ts of
-            [] -> return ((Just (Syn_expr_seq [Syn_none] Ty_btm), symtbl, []), [Parse_error errmsg])
-            Tk_R_bra:ts' -> return ((Just (Syn_expr_seq [Syn_none] Ty_btm), symtbl, ts'), [])
+            --[] -> return ((Just (Syn_expr_seq [Syn_none] Ty_btm), symtbl, []), [Parse_error errmsg])
+            [] -> return ((Just (Syn_scope ([], Syn_none)), symtbl, []), [Parse_error errmsg])
+            Tk_R_bra:ts' -> return ((Just (Syn_scope ([], Syn_none)), symtbl, ts'), [])
             _ -> do
               r <- lift (do
                             r_comp <- runExceptT $ cons_ptree2 symtbl ts (True, True, True)
@@ -1562,7 +1563,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                 Right (((decls, stmts), symtbl', tokens'), err) -> return ((Just (Syn_scope (decls, body')), symtbl', tokens'), err)
                   where
                     body' = (case stmts of
-                               [] -> Syn_expr_seq [Syn_none] Ty_btm
+                               [] -> Syn_none
                                _ -> Syn_expr_seq stmts (syn_node_typeof (head $ reverse stmts))
                             )
           where
