@@ -1155,6 +1155,7 @@ exam_redef (args, omits) =
                                )
 
 parse_fun_body :: Symtbl -> ([Syntree_node], Redef_omits) -> [Tk_code] -> ExceptT Error_Excep IO (((Ty_env, ([Syntree_node], Redef_omits)), [Syntree_node]), Symtbl, [Tk_code], [Error_codes])
+parse_fun_body symtbl (decls, omits) tokens@(Tk_R_bra:_) = return (((Ty_env [], (decls, omits)), []), symtbl, tokens, [])
 parse_fun_body symtbl (decls, omits) tokens = do
   r <- lift (do
                 r_body <- runExceptT $ cons_ptree2 symtbl tokens (True, True, True)
@@ -1216,14 +1217,14 @@ parse_fun_body symtbl (decls, omits) tokens = do
                            
                            _ -> do
                              r_body' <- runExceptT $ parse_fun_body symtbl' (decls, omits) tokens'
-                             return (case r_body' of
-                                       Left err_exc -> Left err_exc
-                                       Right (((env1, (decls', omits')), exprs), symtbl'', tokens'', err_cont) ->
-                                         Right (((env1, (decls', omits')), stmt:exprs), symtbl'', tokens'', (err ++ ((Parse_error errmsg):err_cont)))
-                                    )
+                             case r_body' of
+                               Left err_exc -> return $ Left err_exc
+                               Right (((env1, (decls', omits')), exprs), symtbl'', tokens'', err_cont) -> do
+                                 putStrLn $ "%%%%%: " ++ (show tokens'')
+                                 return $ Right (((env1, (decls', omits')), stmt:exprs), symtbl'', tokens'', (err ++ ((Parse_error errmsg):err_cont)))
                         )
                         where
-                          errmsg = "missing semicolon at end of sentence."
+                          errmsg = "MISSING semicolon at end of sentence."
                       
                       ((_, symtbl', tokens'), err) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                       in
@@ -1605,7 +1606,19 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                           Right ((Just cond_expr, symtbl', tokens'), err_c) ->
                             case tokens' of
                               Tk_then:ts' -> do
-                                r_true <- cat_err err_c (runExceptT $ cons_ptree2 symtbl' ts' (False, False, True))
+                                --r_true <- cat_err err_c (runExceptT $ cons_ptree2 symtbl' ts' (False, False, True))
+                                r_true <- (case ts' of
+                                             Tk_L_bra:ts'' -> cat_err err_c (runExceptT $ cons_ptree2 symtbl' ts' (False, False, True))
+                                             _ -> do
+                                               r_true' <- cat_err err_c (runExceptT $ cons_ptree2 symtbl' ts' (False, False, True))
+                                               case r_true' of
+                                                 Left err_exc -> return $ Left err_exc
+                                                 Right ((t_expr, symtbl'', Tk_smcl:ts''), err_ct) -> return $ Right ((t_expr, symtbl'', ts''), err_ct)
+                                                 Right ((t_expr, symtbl'', ts''), err_ct)-> return $ Right ((t_expr, symtbl'', ts''), err_ct')
+                                                   where
+                                                     errmsg = "missing semicolon at end of sentence."
+                                                     err_ct' = err_ct ++ [Parse_error errmsg]
+                                          )
                                 case r_true of
                                   Left err_exc -> return $ Left err_exc
                                   Right ((Just true_expr, symtbl'', (Tk_else:ts'')), err_ct) -> par_else_clause (true_expr, err_ct) symtbl'' ts''
@@ -1618,7 +1631,19 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                   err' = err_c ++ [Parse_error errmsg]
                             where
                               par_else_clause (true_expr, err_ct) symtbl tokens = do
-                                r_false <- cat_err err_ct (runExceptT $ cons_ptree2 symtbl tokens (False, False, True))
+                                --r_false <- cat_err err_ct (runExceptT $ cons_ptree2 symtbl tokens (False, False, True))
+                                r_false <- (case tokens of
+                                              Tk_L_bra:ts' -> cat_err err_ct (runExceptT $ cons_ptree2 symtbl tokens (False, False, True))
+                                              _ -> do
+                                                f_false' <- cat_err err_ct (runExceptT $ cons_ptree2 symtbl tokens (False, False, True))
+                                                case f_false' of
+                                                  Left err_exc -> return $ Left err_exc
+                                                  Right ((f_exr, symtbl', Tk_smcl:tokens'), err_ctf) -> return $ Right ((f_exr, symtbl', tokens'), err_ctf)
+                                                  Right ((f_exr, symtbl', tokens'), err_ctf) -> return $ Right ((f_exr, symtbl', tokens'), err_ctf')
+                                                    where
+                                                      errmsg = "missing semicolo nat end of sentence."
+                                                      err_ctf' = err_ctf ++ [Parse_error errmsg]
+                                           )
                                 return (case r_false of
                                           Left err_exc -> Left err_exc
                                           Right ((Just false_expr, symtbl', tokens'), err) ->
