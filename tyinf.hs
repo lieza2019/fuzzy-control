@@ -1214,7 +1214,7 @@ parse_fun_body symtbl (decls, omits) tokens = do
                                                     _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', (err ++ [Parse_error errmsg]))
                                                  )
                                               where
-                                                errmsg = "missing semicolon at end of sentence."
+                                                errmsg = "missing semicolon at end of sentence."-
                                          )
                         case r_stmt of
                           Right (((env1, (decls', omits')), stmt1), symtbl1, tokens1, err1) -> do
@@ -1317,13 +1317,13 @@ cons_fun_tree'1 symtbl fun tokens =
                                                                                               Just e -> [e]
                                                                                               Nothing -> []
                                                                                            )
-                                                         return (case ts'' of
-                                                                   Tk_R_bra:tokens'' -> Right ((fun'', prev_scope', tokens''), errs1)
-                                                                   _ -> Right ((fun'', prev_scope', ts''), (errs1 ++ [Imcomplete_function_declaration errmsg]))
-                                                                     where
-                                                                       errmsg = "Missing R brace to end up declaration of function body."
-                                                                )
-                                           
+                                                         case ts'' of
+                                                           Tk_R_bra:tokens'' -> return $ Right ((fun'', prev_scope', tokens''), errs1)
+                                                           _ -> do
+                                                             return $ Right ((fun'', prev_scope', ts''), (errs1 ++ [Imcomplete_function_declaration errmsg]))
+                                                               where
+                                                                 errmsg = "Missing R brace to end up declaration of function body."
+                                                         
                                              _ -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                   in
                                                     return $ Left (Error_Excep Excep_assert_failed loc)
@@ -1470,6 +1470,26 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
         case r of
           Left err -> throwE err
           Right r' -> return r'
+      
+      insane symtbl tokens errs =
+        case tokens of
+          [] -> return ((Nothing, symtbl, tokens), errs)
+          t:ts -> do
+            r <- lift (do
+                          r' <- runExceptT $ cons_ptree2 symtbl ts (True, True, False)
+                          case r' of
+                            Left err_exc -> return $ Left err_exc
+                            Right ((Just _, symtbl', ts'), err) -> cat_err errs (return r')
+                            Right ((Nothing, symtbl', ts'), err) -> (do
+                                                                        r'' <- runExceptT $ insane symtbl' ts' (errs ++ err)
+                                                                        case r'' of
+                                                                          Left err_exc -> return $ Left err_exc
+                                                                          Right _ -> return r''
+                                                                    )
+                      )
+            case r of
+              Left err_exc -> throwE err_exc
+              Right r' -> return r'
   in
     let cont_par symtbl subexpr tokens = do
           if par_contp then (
@@ -1491,11 +1511,12 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
     in
       case tokens of
         [] -> return ((Nothing, symtbl, []), [])
+        Tk_smcl:ts -> return ((Just Syn_none, symtbl, tokens), [])
         
         Tk_L_bra:ts ->
           case ts of
             --[] -> return ((Just (Syn_expr_seq [Syn_none] Ty_btm), symtbl, []), [Parse_error errmsg])
-            [] -> return ((Just (Syn_scope ([], Syn_none)), symtbl, []), [Parse_error errmsg])
+            [] -> return ((Just (Syn_scope ([], Syn_none)), symtbl, []), [Parse_error errmsg_R_bra])
             Tk_R_bra:ts' -> return ((Just (Syn_scope ([], Syn_none)), symtbl, ts'), [])
             _ -> do
               r <- lift (do
@@ -1519,7 +1540,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                                                                                            Tk_R_bra:tokens' -> Right ((body, symtbl'', tokens'), err')
                                                                                                            _ -> Right ((body, symtbl'', ts''), err'')
                                                                                                              where
-                                                                                                               err'' = [Parse_error errmsg]
+                                                                                                               err'' = [Parse_error errmsg_R_bra]
                                                                                                         )
                                 )
                                 where
@@ -1535,8 +1556,6 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                                             Left (Error_Excep Excep_assert_failed loc)
                                       _ -> Right False  -- including the case of Syn_none
                                   
-                                  --tail_comp :: Syntree_node -> Bool
-                                  --tail_comp stmt = True
                                   tail_comp :: Syntree_node -> IO (Either Error_Excep Bool)
                                   tail_comp stmt =
                                     return (case stmt of
@@ -1583,7 +1602,8 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                   par_comp ((decls, (decl_omits, delim_omits)), stmts) symtbl tokens =
                                     case tokens of
                                       [] -> return $ Right (((decls, stmts), symtbl, []), (if delim_omits then [] else [Parse_error errmsg]))
-                                      Tk_R_bra:ts -> return $ Right (((decls, stmts), symtbl, tokens), (if delim_omits then [] else [Parse_error errmsg]))
+                                      Tk_R_bra:ts -> do
+                                        return $ Right (((decls, stmts), symtbl, tokens), (if delim_omits then [] else [Parse_error errmsg]))
                                       Tk_smcl:Tk_R_bra:ts -> return $ Right (((decls, stmts), symtbl, Tk_R_bra:ts), [])
                                       _ -> do
                                         (tokens', err_delim) <- return (case tokens of
@@ -1612,7 +1632,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                                                        cat_err (err_delim ++ err ++ err_redef) $ par_comp ((decls'', (decl_omits', smclp)), stmts) symtbl' ts'
                                                    _ -> cat_err (err_delim ++ err) $ par_comp ((decls, (decl_omits, smclp)), (stmts ++ [stmt])) symtbl' ts'
                                                 )
-                                  errmsg = "MISSING semicolon at the end of declaration."
+                                  errmsg = "Missing semicolon at the end of statement."
                         )
               case r of
                 Left err_exc -> throwE err_exc
@@ -1623,7 +1643,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                _ -> Syn_expr_seq stmts (syn_node_typeof (head $ reverse stmts))
                             )
           where
-            errmsg = "Missing closing R brace of compound statement."
+            errmsg_R_bra = "Missing closing R brace of compound statement."
         
         Tk_L_par:ts -> do
           r <- lift $ runExceptT $ cons_ptree2 symtbl ts (False, False, True)
@@ -1676,7 +1696,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                                  Left err_exc -> return $ Left err_exc
                                                  Right ((t_expr, symtbl'', Tk_smcl:Tk_else:ts''), err_ct) -> return $ Right ((t_expr, symtbl'', (Tk_else:ts'')), err_ct)
                                                  Right ((t_expr, symtbl'', Tk_smcl:ts''), err_ct) -> return $ Right ((t_expr, symtbl'', (Tk_smcl:ts'')), err_ct)
-                                                 Right ((t_expr, symtbl'', ts''), err_ct) -> return $ Right ((t_expr, symtbl'', ts''), err_ct')
+                                                 Right ((t_expr, symtbl'', ts''), err_ct) -> return $ Right ((t_expr, symtbl'', ts''), err_ct)
                                                    where
                                                      errmsg = "missing semicolon at end of sentence."
                                                      err_ct' = err_ct ++ [Parse_error errmsg]
@@ -1701,7 +1721,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                                 case f_false' of
                                                   Left err_exc -> return $ Left err_exc
                                                   Right ((f_exr, symtbl', Tk_smcl:tokens'), err_ctf) -> return $ Right ((f_exr, symtbl', Tk_smcl:tokens'), err_ctf)
-                                                  Right ((f_exr, symtbl', tokens'), err_ctf) -> return $ Right ((f_exr, symtbl', tokens'), err_ctf')
+                                                  Right ((f_exr, symtbl', tokens'), err_ctf) -> return $ Right ((f_exr, symtbl', tokens'), err_ctf)
                                                     where
                                                       errmsg = "missing semicolo nat end of sentence."
                                                       err_ctf' = err_ctf ++ [Parse_error errmsg]
@@ -1833,10 +1853,11 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
             Left err -> throwE err
             Right r' -> return r'
         
-        _ -> return ((Nothing, symtbl, tokens), [err])
+        {- _ -> return ((Nothing, symtbl, tokens), [err])
           where
             errmsg = "Encounted unknown token."
-            err = Parse_error errmsg
+            err = Parse_error errmsg -}
+        _ -> insane symtbl tokens []
 
 
 recons_src :: Syntree_node -> String
@@ -1915,7 +1936,7 @@ recons_src prg =
       --Syn_expr_seq [Syntree_node] Type
       Syn_expr_seq stmts ty -> Prelude.foldl (\str -> \s -> (str ++ (recons_src s) ++ "; ")) "" stmts
       --Syn_none
-      Syn_none -> "expr_NONE"
+      Syn_none -> ""
 
 
 type Fresh_tvar = (Type, Integer)
@@ -2990,7 +3011,7 @@ main = do
   -- src = "fun a (g as int) { c + (b + a) }"
   -- src = "fun a (g as int) { -c - ++d + (b - -a) }"
   -- src = "fun a (g as int) { h as int; i as int; x + w; }"
-  h <- openFile "src0.txt" ReadMode
+  h <- openFile "src1.txt" ReadMode
   src <- read_src h
   
 
