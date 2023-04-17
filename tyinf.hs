@@ -1206,6 +1206,7 @@ parse_fun_body symtbl (decls, omits) tokens = do
                       
                       ((Just stmt, symtbl', tokens'), err) -> do
                         r_stmt <- return (case stmt of
+                                            Syn_scope _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', err)
                                             Syn_cond_expr (_, (Syn_scope _, Nothing)) _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', err)
                                             Syn_cond_expr (_, (_, Just (Syn_scope _))) _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', err)
                                             _ -> (case tokens' of
@@ -1214,7 +1215,7 @@ parse_fun_body symtbl (decls, omits) tokens = do
                                                     _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', (err ++ [Parse_error errmsg]))
                                                  )
                                               where
-                                                errmsg = "missing semicolon at end of sentence."-
+                                                errmsg = "missing semicolon at end of sentence."
                                          )
                         case r_stmt of
                           Right (((env1, (decls', omits')), stmt1), symtbl1, tokens1, err1) -> do
@@ -1696,7 +1697,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                                                  Left err_exc -> return $ Left err_exc
                                                  Right ((t_expr, symtbl'', Tk_smcl:Tk_else:ts''), err_ct) -> return $ Right ((t_expr, symtbl'', (Tk_else:ts'')), err_ct)
                                                  Right ((t_expr, symtbl'', Tk_smcl:ts''), err_ct) -> return $ Right ((t_expr, symtbl'', (Tk_smcl:ts'')), err_ct)
-                                                 Right ((t_expr, symtbl'', ts''), err_ct) -> return $ Right ((t_expr, symtbl'', ts''), err_ct)
+                                                 Right ((t_expr, symtbl'', ts''), err_ct) -> return $ Right ((t_expr, symtbl'', ts''), err_ct')
                                                    where
                                                      errmsg = "missing semicolon at end of sentence."
                                                      err_ct' = err_ct ++ [Parse_error errmsg]
