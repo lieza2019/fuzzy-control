@@ -1524,6 +1524,7 @@ cons_ptree2 symtbl tokens (fun_declp, var_declp, par_contp) =
                             r_comp <- runExceptT $ cons_ptree2 symtbl ts (True, True, True)
                             case r_comp of
                               Left err_exc -> return $ Left err_exc
+                              Right ((Nothing, symtbl', ts'), err) -> return $ Right ((([], []), symtbl', ts'), err)
                               Right ((Just stmt, symtbl', ts'), err) ->
                                 (case is_decl stmt  of
                                    Left err_exc -> return $ Left err_exc
