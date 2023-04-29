@@ -43,11 +43,6 @@ ras_trace str expr =
   in
     if not suppress then (Dbg.trace str expr) else expr
 
-halt :: Error_codes -> IO ()
-halt err = do
-  putStrLn $ show err
-  return $ assert False ()
-
 
 data Sym_category =
   Sym_cat_typedef
@@ -85,7 +80,7 @@ sym_crnt_level Scope_empty = 0
 sym_crnt_level (Scope_add ( lv, _, _ ) _) = lv
 
 data Symtbl =
-  Symtbl {sym_typedef :: Sym_tbl, sym_record :: Sym_tbl, sym_func :: Sym_tbl, sym_decl :: Sym_tbl}
+  Symtbl {sym_typedef :: Sym_tbl, sym_record :: Sym_tbl, sym_func :: Sym_tbl, sym_decl :: Sym_tbl, fresh_tvar :: Fresh_tvar}
   deriving (Eq, Ord, Show)
 
 
@@ -119,7 +114,7 @@ sym_leave_scope symtbl cat =
   in
     let sym_tbl' = case sym_tbl of
                      Scope_empty -> Scope_empty
-                     Scope_add sco sym_tbl' -> sym_tbl'
+                     Scope_add crnt prev -> prev
     in
       sym_update symtbl cat sym_tbl'
   )
@@ -128,22 +123,22 @@ sym_enter_scope :: Maybe Symtbl -> Sym_category -> Symtbl
 sym_enter_scope symtbl cat =
   ras_trace "in sym_enter_scope" (
   case symtbl of
-    Just s_tbl -> let sym_tbl = sym_categorize s_tbl cat      
-                  in
-                    let sym_tbl' = case sym_tbl of
-                                     Scope_empty -> Scope_add (1, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, Sym_empty) Scope_empty
-                                     Scope_add (lv, sym_anon_ident, _) _ -> Scope_add (lv + 1, sym_anon_ident, Sym_empty) sym_tbl
-                    in
-                      sym_update s_tbl cat sym_tbl'
-    Nothing -> let symtbl0 = Symtbl {sym_typedef = Scope_empty, sym_record = Scope_empty, sym_func = Scope_empty, sym_decl = Scope_empty}
+    Just stbl -> let sym_tbl = sym_categorize stbl cat      
+                 in
+                   let sym_tbl' = case sym_tbl of
+                                    Scope_empty -> Scope_add (1, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, Sym_empty) Scope_empty
+                                    Scope_add (lv, sym_anon_ident, _) _ -> Scope_add (lv + 1, sym_anon_ident, Sym_empty) sym_tbl
+                   in
+                     sym_update stbl cat sym_tbl'
+    Nothing -> let symtbl0 = Symtbl {sym_typedef = Scope_empty, sym_record = Scope_empty, sym_func = Scope_empty, sym_decl = Scope_empty, fresh_tvar = fresh_tvar_initial}
                in
                  sym_enter_scope (Just symtbl0) cat
   )
 
 sym_new_anonid_var :: Symtbl -> Sym_category -> (String, String, String) -> (String, Symtbl)
-sym_new_anonid_var symtbl cat (prfx, sfix, sep) =
+sym_new_anonid_var symtbl cat (prefx, sufix, sep) =
   ras_trace "in sym_new_anonid_var" (
-  let d2s_var m = "var_" ++ ((prfx ++ sep) ++ (show m) ++ (sep ++ sfix))
+  let d2s_var m = "var_" ++ ((prefx ++ sep) ++ (show m) ++ (sep ++ sufix))
       sym_tbl = sym_categorize symtbl cat
   in
     let sym_tbl' = (case sym_tbl of
@@ -151,18 +146,17 @@ sym_new_anonid_var symtbl cat (prfx, sfix, sep) =
                       Scope_add _ _ -> sym_tbl
                    )
     in
-      let r = case sym_tbl' of
-                Scope_add (lv, anon_crnt@(Symtbl_anon_ident {sym_anon_var = crnt_top}), syms) sym_tbls' ->
-                  ((d2s_var crnt_top), Scope_add (lv, anon_crnt {sym_anon_var = crnt_top + 1}, syms) sym_tbls')
+      let (anonid, sym_tbl'') = case sym_tbl' of
+                                  Scope_add (lv, anon_crnt@(Symtbl_anon_ident {sym_anon_var = top}), syms) sym_tbls' ->
+                                    ((d2s_var top), Scope_add (lv, anon_crnt {sym_anon_var = top + 1}, syms) sym_tbls')
       in
-        case r of
-          (anonid, sym_tbl'') -> (anonid, sym_update symtbl cat sym_tbl'')
+        (anonid, sym_update symtbl cat sym_tbl'')
   )
 
 sym_new_anonid_rec :: Symtbl -> Sym_category -> (String, String, String) -> (String, Symtbl)
-sym_new_anonid_rec symtbl cat (prfx, sfix, sep) =
+sym_new_anonid_rec symtbl cat (prefx, sufix, sep) =
   ras_trace "in sym_new_anonid_rec" (
-  let d2s_rec m = "rec_" ++ ((prfx ++ sep) ++ (show m) ++ (sep ++ sfix))
+  let d2s_rec m = "rec_" ++ ((prefx ++ sep) ++ (show m) ++ (sep ++ sufix))
       sym_tbl = sym_categorize symtbl cat
   in
     let sym_tbl' = (case sym_tbl of
@@ -170,12 +164,11 @@ sym_new_anonid_rec symtbl cat (prfx, sfix, sep) =
                       Scope_add _ _ -> sym_tbl
                    )
     in
-      let r = case sym_tbl' of
-                Scope_add (lv, anon_crnt@(Symtbl_anon_ident {sym_anon_record = crnt_top}), syms) sym_tbls' ->
-                  ((d2s_rec crnt_top), Scope_add (lv, anon_crnt {sym_anon_record = crnt_top + 1}, syms) sym_tbls')
+      let (anonid, sym_tbl'') = case sym_tbl' of
+                                  Scope_add (lv, anon_crnt@(Symtbl_anon_ident {sym_anon_record = top}), syms) sym_tbls' ->
+                                    ((d2s_rec top), Scope_add (lv, anon_crnt {sym_anon_record = top + 1}, syms) sym_tbls')
       in
-        case r of
-          (anonid, sym_tbl'') -> (anonid, sym_update symtbl cat sym_tbl'')
+        (anonid, sym_update symtbl cat sym_tbl'')
   )
 
 
@@ -225,7 +218,7 @@ sym_lkup_fun_decl symtbl ident =
                   Just r'@(attr', symtbl'') -> (case sym_attr_entity attr' of
                                                  Syn_fun_decl _ _ _ _ -> Just r'
                                                  _ -> sym_lkup_fun_decl symtbl'' ident
-                                              )
+                                               )
                   Nothing -> Nothing
                )
   )
@@ -1943,8 +1936,8 @@ recons_src prg =
 
 type Fresh_tvar = (Type, Integer)
 
-initial_flesh_tvar :: Fresh_tvar
-initial_flesh_tvar = (Ty_var $ "t_" ++ (show 0), 0)
+fresh_tvar_initial :: Fresh_tvar
+fresh_tvar_initial = (Ty_var $ "t_" ++ (show 0), 0)
 
 succ_flesh_tvar :: Fresh_tvar -> Fresh_tvar
 succ_flesh_tvar prev =
@@ -3098,7 +3091,7 @@ main = do
                                                                       Nothing -> mzero
                                                                       Just (stmts', crnt_tv) -> return (stmts', crnt_tv)
                                                                 )
-                                                  ) (return ([], initial_flesh_tvar)) s_trees
+                                                  ) (return ([], fresh_tvar_initial)) s_trees
                    case r of
                      Nothing -> return []
                      Just (s_trees', _) -> return s_trees'
