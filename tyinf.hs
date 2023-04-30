@@ -206,45 +206,55 @@ sym_lkup_tydef_decl symtbl ident =
     Nothing -> Nothing
   )
 
-sym_lkup_fun_decl :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
-sym_lkup_fun_decl symtbl ident =
+sym_lkup_fun :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
+sym_lkup_fun symtbl ident =
   ras_trace "in sym_lkup_fun_decl" (
-  case sym_search symtbl Sym_cat_decl ident of
-    Just r@(attr, symtbl') -> (case sym_attr_entity attr of
-                                 Syn_fun_decl _ _ _ _ -> Just r
-                                 _ -> sym_lkup_fun_decl symtbl' ident
-                              )
-    Nothing -> (case sym_search symtbl Sym_cat_func ident of
-                  Just r'@(attr', symtbl'') -> (case sym_attr_entity attr' of
-                                                 Syn_fun_decl _ _ _ _ -> Just r'
-                                                 _ -> sym_lkup_fun_decl symtbl'' ident
-                                               )
-                  Nothing -> Nothing
-               )
+  let lkup_fun_decl cont = case sym_search cont Sym_cat_decl ident of
+                             Just (attr, resume) -> (case sym_attr_entity attr of
+                                                       Syn_fun_decl _ _ _ _ -> Just (attr, symtbl)
+                                                       _ -> lkup_fun_decl resume
+                                                    )
+                             Nothing -> Nothing
+      lkup_fun_grand cont = case sym_search cont Sym_cat_func ident of
+                              Just (attr, resume) -> (case sym_attr_entity attr of
+                                                        Syn_fun_decl _ _ _ _ -> Just (attr, symtbl)
+                                                        _ -> lkup_fun_grand resume
+                                                     )
+                              Nothing -> Nothing
+  in
+    case lkup_fun_decl symtbl of
+      Just r -> Just r
+      Nothing -> (case lkup_fun_grand symtbl of
+                    Just r' -> Just r'
+                    Nothing -> Nothing
+                 )
   )
 
-sym_lkup_rec_decl :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
-sym_lkup_rec_decl symtbl ident =
+sym_lkup_rec :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
+sym_lkup_rec symtbl ident =
   ras_trace "in sym_lkup_rec_decl" (
-  case sym_search symtbl Sym_cat_record ident of
-    Just r@(attr, symtbl') -> (case sym_attr_entity attr of
-                                 Syn_rec_decl _ _ -> Just r
-                                 _ -> sym_lkup_rec_decl symtbl' ident
-                              )
-    Nothing -> Nothing
+  let lkup_rec_decl cont = case sym_search cont Sym_cat_record ident of
+                               Just (attr, resume) -> (case sym_attr_entity attr of
+                                                       Syn_rec_decl _ _ -> Just (attr, symtbl)
+                                                       _ -> lkup_rec_decl resume
+                                                    )
+                               Nothing -> Nothing
+  in
+    lkup_rec_decl symtbl
   )
 
-sym_lkup_var_decl :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
-sym_lkup_var_decl symtbl ident =
+sym_lkup_var :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
+sym_lkup_var symtbl ident =
   ras_trace "in sym_lkup_var_decl" (
-  case sym_search symtbl Sym_cat_decl ident of
-    Just r@(attr, symtbl') -> (case sym_attr_entity attr of
-                                 Syn_var_decl _ _ -> Just r
-                                 _ -> sym_lkup_var_decl symtbl' ident
-                              )
-    Nothing -> Nothing
+  let lkup_var_decl cont = case sym_search cont Sym_cat_decl ident of
+                               Just (attr, resume) -> (case sym_attr_entity attr of
+                                                       Syn_var_decl _ _ -> Just (attr, symtbl)
+                                                       _ -> lkup_var_decl resume
+                                                    )
+                               Nothing -> Nothing
+  in
+    lkup_var_decl symtbl
   )
-
 
 walk_on_scope :: Symtbl_cluster -> (String, Syntree_node) -> Maybe Symtbl_node
 walk_on_scope sym_cluster (ident, entity) =
@@ -252,17 +262,21 @@ walk_on_scope sym_cluster (ident, entity) =
   let cmp_entity (Sym_entry {sym_attr = attr}) =
         case (sym_attr_entity attr) of
           Syn_tydef_decl _ _ -> (case entity of
-                               Syn_tydef_decl _ _ -> True
-                               _ -> False
-                            )
-          Syn_fun_decl _ _ _ _ -> (case entity of
-                                     Syn_fun_decl _ _ _ _ -> True
-                                     _ -> False
-                                  )
+                                   Syn_tydef_decl _ _ -> True
+                                   _ -> False
+                                )
+          Syn_fun_decl' _ _ _ _ -> (case entity of
+                                      Syn_fun_decl' _ _ _ _ -> True
+                                      _ -> False
+                                   )
+          Syn_arg_decl _ _ -> (case entity of
+                                 Syn_arg_decl _ _ -> True
+                                 _ -> False
+                              )
           Syn_rec_decl _ _ -> (case entity of
-                             Syn_rec_decl _ _ -> True
-                             _ -> False
-                          )
+                                 Syn_rec_decl _ _ -> True
+                                 _ -> False
+                              )
           Syn_var_decl _ _ -> (case entity of
                                  Syn_var_decl _ _ -> True
                                  _ -> False
@@ -270,7 +284,7 @@ walk_on_scope sym_cluster (ident, entity) =
           _ -> False
   in
     case sym_cluster of
-      Sym_add sym syms -> if ((cmp_entity sym) && ((sym_ident sym) == ident)) then Just sym
+      Sym_add sym syms -> if (((sym_ident sym) == ident) && (cmp_entity sym)) then Just sym
                           else walk_on_scope syms (ident, entity)
       Sym_empty -> Nothing
   )
@@ -282,17 +296,17 @@ sym_regist ovwt symtbl cat (ident, entity) =
   let reg_sym sym_tbl (ident, sym) =
         case sym_tbl of
           Scope_empty -> ((Scope_add (0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, (Sym_add sym Sym_empty)) Scope_empty), Nothing)            
-          Scope_add (lv, anon_idents, syms) sym_tbls -> (case syms of
-                                                           Sym_empty -> ((Scope_add (lv, anon_idents, (Sym_add sym Sym_empty)) sym_tbls), Nothing)
-                                                           Sym_add s_node _ -> (case walk_on_scope syms (ident, (sym_attr_entity . sym_attr) s_node) of
-                                                                                  Just e -> if (not ovwt) then (sym_tbl, Just (Symbol_redefinition errmsg))
-                                                                                            else ((Scope_add (lv, anon_idents, (Sym_add sym syms)) sym_tbls), Nothing)
-                                                                                    where
-                                                                                      errmsg = "symbol table error, failed to register, " ++
-                                                                                               "for detection of pre registered object with same identifier as " ++ ident
-                                                                                  Nothing -> ((Scope_add (lv, anon_idents, (Sym_add sym syms)) sym_tbls), Nothing)
-                                                                               )
-                                                        )
+          Scope_add (lv, anon_idents, syms) scps -> (case syms of
+                                                       Sym_empty -> ((Scope_add (lv, anon_idents, (Sym_add sym Sym_empty)) scps), Nothing)
+                                                       Sym_add _ _ -> (case walk_on_scope syms (ident, (sym_attr_entity . sym_attr) sym) of
+                                                                         Just e -> if (not ovwt) then (sym_tbl, Just (Symbol_redefinition errmsg))
+                                                                                   else ((Scope_add (lv, anon_idents, (Sym_add sym syms)) scps), Nothing)
+                                                                           where
+                                                                             errmsg = "symbol table error, failed to register, " ++
+                                                                                      "for detection of pre registered object with same identifier as " ++ ident
+                                                                         Nothing -> ((Scope_add (lv, anon_idents, (Sym_add sym syms)) scps), Nothing)
+                                                                      )
+                                                    )
       sym_tbl = sym_categorize symtbl cat
   in
     let (sym_tbl', err) = reg_sym sym_tbl (ident, Sym_entry {sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
@@ -2331,7 +2345,7 @@ ty_inf_expr symtbl expr =
                                 else throwE ((Ty_env [], expr), symtbl, [Illtyped_constant])
     Syn_val (Val_str s) ty_s -> if (ty_s == Ty_string) then return ((Ty_env [], expr), symtbl, [])
                                 else throwE ((Ty_env [], expr), symtbl, [Illtyped_constant])
-    Syn_var v_id v_ty -> case sym_lkup_var_decl symtbl v_id of
+    Syn_var v_id v_ty -> case sym_lkup_var symtbl v_id of
                            Just (Sym_attrib { sym_attr_entity = v_attr }, symtbl') ->
                              (case v_attr of
                                  Syn_var v_id' v_ty_decl | v_id == v_id' -> (case ty_lcs v_ty v_ty_decl of
@@ -2760,7 +2774,7 @@ ty_inf symtbl decl =
     
     --Syn_expr_call _ _ _ -> ty_inf_expr symtbl decl
     Syn_expr_call fun_id args ty -> do
-      case sym_lkup_fun_decl symtbl fun_id of
+      case sym_lkup_fun symtbl fun_id of
         Nothing -> throwE ((Ty_env [], decl), symtbl, [Undefined_symbol errmsg])
           where
             errmsg = "undefined function calling of : " ++ fun_id ++ "."
