@@ -1531,9 +1531,12 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                             r_comp <- runExceptT $ cons_ptree symtbl ts (True, True, True)
                             case r_comp of
                               Left err_exc -> return $ Left err_exc
-                              Right ((Nothing, symtbl', ts'), err) -> return $ Right ((([], []), symtbl', ts'), err)
+                              Right ((Nothing, symtbl', ts'), err) -> return (case ts of
+                                                                                Tk_R_bra:ts'' -> Right ((([], []), symtbl', ts'), err)
+                                                                                _ -> Right ((([], []), symtbl', ts'), (err ++ [Parse_error errmsg_R_bra]))
+                                                                             )    
                               Right ((Just stmt, symtbl', ts'), err) ->
-                                (case is_decl stmt  of
+                                (case is_decl stmt of
                                    Left err_exc -> return $ Left err_exc
                                    Right declp -> do
                                      needs_delim <- tail_comp stmt
@@ -1549,7 +1552,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                                                                            Tk_R_bra:tokens' -> Right ((body, symtbl'', tokens'), err')
                                                                                                            _ -> Right ((body, symtbl'', ts''), err'')
                                                                                                              where
-                                                                                                               err'' = [Parse_error errmsg_R_bra]
+                                                                                                               err'' = err' ++ [Parse_error errmsg_R_bra]
                                                                                                         )
                                 )
                                 where
@@ -1611,8 +1614,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                   par_comp ((decls, (decl_omits, delim_omits)), stmts) symtbl tokens =
                                     case tokens of
                                       [] -> return $ Right (((decls, stmts), symtbl, []), (if delim_omits then [] else [Parse_error errmsg]))
-                                      Tk_R_bra:ts -> do
-                                        return $ Right (((decls, stmts), symtbl, tokens), (if delim_omits then [] else [Parse_error errmsg]))
+                                      Tk_R_bra:ts -> return $ Right (((decls, stmts), symtbl, tokens), (if delim_omits then [] else [Parse_error errmsg]))
                                       Tk_smcl:Tk_R_bra:ts -> return $ Right (((decls, stmts), symtbl, Tk_R_bra:ts), [])
                                       _ -> do
                                         (tokens', err_delim) <- return (case tokens of
