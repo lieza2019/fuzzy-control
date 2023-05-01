@@ -95,6 +95,11 @@ sym_categorize symtbl cat =
     Sym_cat_decl -> sym_decl symtbl
   )
 
+sym_adjust_tvar :: Symtbl -> Fresh_tvar -> Symtbl
+sym_adjust_tvar symtbl next_fresh_tv =
+  ras_trace "in sym_adjust_tvar" (
+  symtbl{fresh_tvar = next_fresh_tv}
+  )
 
 sym_update :: Symtbl -> Sym_category ->Sym_tbl -> Symtbl
 sym_update symtbl cat tbl =
@@ -1226,11 +1231,16 @@ parse_fun_body symtbl (decls, omits) tokens = do
                                          )
                         case r_stmt of
                           Right (((env1, (decls', omits')), stmt1), symtbl1, tokens1, err1) -> do
-                            r_body' <- runExceptT $ parse_fun_body symtbl1 (decls', omits') tokens1
-                            case r_body' of
+                            stmt1' <- runExceptT $ ty_curve (stmt1, (fresh_tvar symtbl1))
+                            case stmt1' of
                               Left err_exc -> return $ Left err_exc
-                              Right (((env', (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) -> do
-                                return $ Right (((env', (decls'', omits'')), (stmt1 ++ stmts)), symtbl'', tokens'', (err1 ++ err_cont))
+                              Right (stmt1'', prev_tv') -> do
+                                symtbl1' <- sym_adjust_tvar symtbl1 prev_tv'
+                                r_body' <- runExceptT $ parse_fun_body symtbl1' (decls', omits') tokens1
+                                case r_body' of
+                                  Left err_exc -> return $ Left err_exc
+                                  Right (((env', (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) -> do
+                                    return $ Right (((env', (decls'', omits'')), (stmt1'' ++ stmts)), symtbl'', tokens'', (err1 ++ err_cont))
                           _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                in
                                  return $ Left (Error_Excep Excep_assert_failed loc)
