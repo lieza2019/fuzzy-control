@@ -1218,13 +1218,13 @@ parse_fun_body symtbl (decls, omits) tokens = do
                       
                       ((Just stmt, symtbl', tokens'), err) -> do
                         r_stmt <- return (case stmt of
-                                            Syn_scope _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', err)
-                                            Syn_cond_expr (_, (Syn_scope _, Nothing)) _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', err)
-                                            Syn_cond_expr (_, (_, Just (Syn_scope _))) _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', err)
+                                            Syn_scope _ -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', err)
+                                            Syn_cond_expr (_, (Syn_scope _, Nothing)) _ -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', err)
+                                            Syn_cond_expr (_, (_, Just (Syn_scope _))) _ -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', err)
                                             _ -> (case tokens' of
-                                                    [] -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', [], (err ++ [Parse_error errmsg]))
-                                                    Tk_smcl:ts' -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', ts', err)
-                                                    _ -> Right (((Ty_env [], (decls, omits)), [stmt]), symtbl', tokens', (err ++ [Parse_error errmsg]))
+                                                    [] -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', [], (err ++ [Parse_error errmsg]))
+                                                    Tk_smcl:ts' -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', ts', err)
+                                                    _ -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', (err ++ [Parse_error errmsg]))
                                                  )
                                               where
                                                 errmsg = "missing semicolon at end of sentence."
@@ -1235,12 +1235,13 @@ parse_fun_body symtbl (decls, omits) tokens = do
                             case stmt1' of
                               Left err_exc -> return $ Left err_exc
                               Right (stmt1'', prev_tv') -> do
-                                symtbl1' <- sym_adjust_tvar symtbl1 prev_tv'
+                                symtbl1' <- return $ sym_adjust_tvar symtbl1 prev_tv'
+                                
                                 r_body' <- runExceptT $ parse_fun_body symtbl1' (decls', omits') tokens1
                                 case r_body' of
                                   Left err_exc -> return $ Left err_exc
                                   Right (((env', (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) -> do
-                                    return $ Right (((env', (decls'', omits'')), (stmt1'' ++ stmts)), symtbl'', tokens'', (err1 ++ err_cont))
+                                    return $ Right (((env', (decls'', omits'')), (stmt1'':stmts)), symtbl'', tokens'', (err1 ++ err_cont))
                           _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                in
                                  return $ Left (Error_Excep Excep_assert_failed loc)
@@ -3035,7 +3036,6 @@ main = do
   h <- openFile "src1.txt" ReadMode
   src <- read_src h
   
-
   let (tokens, src_remains) = conv2_tokens src
   --assert False $ putStrLn $ "source:  " ++ (show src)
   putStrLn $ "source:  " ++ (show src)
@@ -3123,7 +3123,7 @@ main = do
                      Just (s_trees', _) -> return s_trees'
   mapM_ putStrLn $ Prelude.map show ty_curved
   
-  putStr "ty-inf:  "
+  {- putStr "ty-inf:  "
   (judges_inf, symtbl'', errs) <- do
     r <- runExceptT $ Prelude.foldl (\js -> \t_raw -> do
                                         (judges, symtbl, errs) <- js
@@ -3137,10 +3137,10 @@ main = do
               Right r -> r
               Left ((env, t_inf), symtbl', errs) -> ([(env, t_inf)], symtbl', errs)
            )
-  mapM_ putStrLn $ Prelude.map show judges_inf
+  mapM_ putStrLn $ Prelude.map show judges_inf -}
   
-  putStr "simtbl:  "
-  putStrLn $ show (sym_func symtbl'')
+  {- putStr "simtbl:  "
+  putStrLn $ show (sym_func symtbl'') -}
   
     where
       read_src :: Handle -> IO String
