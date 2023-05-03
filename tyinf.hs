@@ -717,13 +717,16 @@ data Type =
   | Ty_unknown
   deriving (Eq, Ord, Show)
 
+type Subst = (String, Type)
+
 type Ty_env_bind = [(String, Type)]
 data Ty_env =
   --Ty_env [(String, Type)]
-  Ty_env Ty_env_bind
+  --Ty_env Ty_env_bind
+  Ty_env (Ty_env_bind, [Subst])
   deriving (Eq, Ord, Show)
 
-type Subst = (String, Type)
+
 
 ty_subst :: [Subst] -> Type -> Type
 ty_subst subst ty_expr =
