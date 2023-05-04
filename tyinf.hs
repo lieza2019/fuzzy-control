@@ -723,7 +723,8 @@ type Ty_env_bind = [(String, Type)]
 data Ty_env =
   --Ty_env [(String, Type)]
   --Ty_env Ty_env_bind
-  Ty_env (Ty_env_bind, [Subst])
+  --Ty_env (Ty_env_bind, [Subst])
+  Ty_env [(Ty_env_bind, [Subst])]
   deriving (Eq, Ord, Show)
 
 
@@ -754,11 +755,11 @@ ty_subst_env :: [Subst] -> Ty_env -> Ty_env
 ty_subst_env subst env =
   case env of
     Ty_env [] -> env
-    Ty_env ((v_id, v_ty):es) -> let v_ty' = ty_subst subst v_ty
-                                in
-                                  Ty_env $ (v_id, v_ty'):(case ty_subst_env subst (Ty_env es) of
-                                                            Ty_env es' -> es'
-                                                         )
+    Ty_env (((v_id, v_ty):bs, _):es)  -> let v_ty' = ty_subst subst v_ty
+                                         in
+                                           case ty_subst_env subst (Ty_env ((bs, []):es)) of
+                                             Ty_env ((bs', _):es') -> Ty_env (((v_id, v_ty'):bs, subst):es')
+                                             Ty_env [] -> Ty_env [([(v_id, v_ty')], subst)]
 
 ty_ftv :: Type -> [String]
 ty_ftv ty_expr =
@@ -2253,20 +2254,18 @@ ty_overlap_env :: Ty_env -> Ty_env -> [Equation]
 ty_overlap_env env1 env2 =
   case env1 of
     Ty_env [] -> []
-    Ty_env es1 -> case env2 of
-                    Ty_env [] -> []
-                    Ty_env es2 -> let overlaps = Set.intersection (Set.fromList $ Prelude.map fst es1) (Set.fromList $ Prelude.map fst es2)
-                                  in
-                                    if Set.null overlaps then [] else case Set.toList overlaps of                                      
-                                                                        [] -> []
-                                                                        vs -> pairing vs
-                                                                          where
-                                                                            pairing [] = []
-                                                                            pairing (v:vs) =
-                                                                              case (Prelude.lookup v es1, Prelude.lookup v es2) of
-                                                                                (Just ty1_mapsto, Just ty2_mapsto) -> (ty1_mapsto, ty2_mapsto):(pairing vs)
-                                                                                _ -> pairing vs
-ty_overlap_env1 :: Ty_env -> Ty_env -> ((Ty_env, Ty_env), [Equation])
+    Ty_env ((b1, s1):_) -> case env2 of
+                             Ty_env [] -> []
+                             Ty_env ((b2, s2):_) -> let overlaps = Set.intersection (Set.fromList $ Prelude.map fst b1) (Set.fromList $ Prelude.map fst b2)
+                                                    in
+                                                      pairing (Set.toList overlaps)
+                               where
+                                 pairing [] = []
+                                 pairing (v:vs) = case (Prelude.lookup v b1, Prelude.lookup v b2) of
+                                                    (Just ty1, Just ty2) -> (ty1, ty2):(pairing vs)
+                                                    _ -> pairing vs
+
+{- ty_overlap_env1 :: Ty_env -> Ty_env -> ((Ty_env, Ty_env), [Equation])
 ty_overlap_env1 env1 env2 =
   case env1 of
     Ty_env [] -> ((env1, env2), [])
@@ -2302,7 +2301,48 @@ ty_overlap_env1 env1 env2 =
                                                                  in
                                                                    enum_equs vs ((s_es1' ++ [(var_id, ty_lcs)]), (s_es2' ++ [(var_id, ty_lcs)]))
                                                            _ -> enum_equs vs (es1, es2)
-                                                        )
+                                                        ) -}
+ty_overlap_env1 :: Ty_env -> Ty_env -> ((Ty_env, Ty_env), [Equation])
+ty_overlap_env1 env1 env2 =
+  case env1 of
+    Ty_env [] -> ((env1, env2), [])
+    Ty_env ((b1, s1):bs1) -> case env2 of
+                               Ty_env [] -> ((env1, env2), [])
+                               Ty_env ((b2, s2):bs2) -> let overlaps = Set.intersection (Set.fromList $ Prelude.map fst b1) (Set.fromList $ Prelude.map fst b2)
+                                                        in
+                                                          case Set.toList overlaps of
+                                                            [] -> ((env1, env2), [])
+                                                            vs -> (case enum_equs vs (b1, b2) of
+                                                                     --((b1', b2'), equs) -> ((Ty_env es1', Ty_env es2'), equs)
+                                                                     ((b1', b2'), equs) -> ((Ty_env ((b1', s1):bs1), Ty_env ((b2', s2):bs2)), equs)
+                                                                  )
+                                 where
+                                   enum_equs :: [String] -> ([(String, Type)], [(String, Type)]) -> (([(String, Type)], [(String, Type)]), [Equation])
+                                   enum_equs overlaps (b1, b2) =
+                                     case overlaps of
+                                       [] -> ((b1, b2), [])
+                                       (v:vs) -> (case (Prelude.lookup v b1, Prelude.lookup v b2) of
+                                                    (Just ty1, Just ty2) -> (case ty_lcs ty1 ty2 of
+                                                                               Just lcs -> go_on v (ty1, ty2, lcs)
+                                                                               Nothing -> (case ty_lcs ty2 ty1 of
+                                                                                             Just lcs' -> go_on v (ty1, ty2, lcs')
+                                                                                             Nothing -> (case enum_equs vs (b1, b2) of
+                                                                                                           ((b1', b2'), equs) -> ((b1', b2'), (ty1, ty2):equs)
+                                                                                                        )
+                                                                                          )
+                                                                            )
+                                                      where
+                                                        promote :: Type -> Type -> Type
+                                                        promote ty_orig ty_prom = if ty_orig == ty_prom then ty_orig else (Ty_prom ty_orig ty_prom)
+                                                        
+                                                        go_on :: String -> (Type, Type, Type) -> (([(String, Type)], [(String, Type)]), [Equation])
+                                                        go_on var_id (ty1, ty2, ty_lcs) =
+                                                          let s_b1' = Set.toList $ Set.difference (Set.fromList b1) (Set.fromList [(var_id, ty1)])
+                                                              s_b2' = Set.toList $ Set.difference (Set.fromList b2) (Set.fromList [(var_id, ty2)])
+                                                          in
+                                                            enum_equs vs (((var_id, promote ty1 ty_lcs):s_b1'), ((var_id, promote ty2 ty_lcs):s_b2'))
+                                                    _ -> enum_equs vs (b1, b2)
+                                                 )
 
 
 ty_cat_env :: Ty_env -> Ty_env -> Ty_env
