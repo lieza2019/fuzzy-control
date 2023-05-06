@@ -718,16 +718,22 @@ data Type =
   deriving (Eq, Ord, Show)
 
 type Ty_env_bind = [(String, Type)]
-type Subst = (String, Type)
 type Ty_promote = (String, Type)
-
+type Subst = (String, Type)
 data Ty_env =
   --Ty_env [(String, Type)]
   --Ty_env Ty_env_bind
   --Ty_env (Ty_env_bind, [Subst])
+  --Ty_env [(Ty_env_bind, [Subst])]
+  --Ty_env [(Ty_env_bind, ([Ty_promote], [Subst]))]
   Ty_env [(Ty_env_bind, [Subst])]
-  --Ty_env [(Ty_env_bind, ([Subst], [Ty_promote]))]
   deriving (Eq, Ord, Show)
+
+{- ty_prom :: [Ty_promote] -> (String, Type) -> (String, Type)
+ty_prom proms (var_id, ty) =
+  case Prelude.lookup var_id proms of
+    Just ty_p -> (var_id, Ty_prom ty ty_p)
+    Nothing -> (var_id, ty) -}
 
 ty_subst :: [Subst] -> Type -> Type
 ty_subst subst ty_expr =
@@ -755,11 +761,13 @@ ty_subst_env :: [Subst] -> Ty_env -> Ty_env
 ty_subst_env subst env =
   case env of
     Ty_env [] -> env
-    Ty_env (((v_id, v_ty):bs, _):es)  -> let v_ty' = ty_subst subst v_ty
-                                         in
-                                           case ty_subst_env subst (Ty_env ((bs, []):es)) of
-                                             Ty_env ((bs', _):es') -> Ty_env (((v_id, v_ty'):bs, subst):es')
-                                             Ty_env [] -> Ty_env [([(v_id, v_ty')], subst)]
+    Ty_env (([], _):es) -> env
+    Ty_env (((v_id, v_ty):bs, _):es) -> let v_ty' = ty_subst subst v_ty
+                                        in
+                                          case ty_subst_env subst (Ty_env ((bs, []):es)) of
+                                            Ty_env ((bs', _):es') -> Ty_env (((v_id, v_ty'):bs', subst):es')
+                                            Ty_env (([], _):es') -> Ty_env (([(v_id, v_ty')], subst):es')
+                                            Ty_env [] -> Ty_env [([(v_id, v_ty')], subst)]
 
 ty_ftv :: Type -> [String]
 ty_ftv ty_expr =
@@ -872,7 +880,7 @@ syn_node_typeof expr =
     Syn_expr_bin _ _ ty -> ty
     Syn_scope (_, scp_body) -> syn_node_typeof scp_body
     Syn_expr_seq _ ty -> ty
-    _ -> Ty_unknown -- Syn_none
+    _ -> Ty_unknown -- for Syn_scope, and Syn_node.
 
 syn_retrieve_typeof :: Syntree_node -> Type
 syn_retrieve_typeof expr =
@@ -883,9 +891,11 @@ syn_retrieve_typeof expr =
                                    e:es -> syn_retrieve_typeof (Syn_expr_seq es ty_seq)
     _ -> syn_node_typeof expr
 
-syn_node_promote :: Syntree_node -> Type -> Syntree_node
+
+{- syn_node_promote :: Syntree_node -> Type -> Syntree_node
 syn_node_promote expr ty_prom =
-  if (syn_node_typeof expr) /= ty_prom then
+  if (syn_node_typeof expr) == ty_prom then expr
+  else
     case expr of
       Syn_scope _ -> expr
       Syn_tydef_decl id ty -> Syn_tydef_decl id (Ty_prom ty ty_prom)
@@ -903,8 +913,7 @@ syn_node_promote expr ty_prom =
       Syn_expr_una ope body ty -> Syn_expr_una ope body (Ty_prom ty ty_prom)
       Syn_expr_bin ope body ty -> Syn_expr_bin ope body (Ty_prom ty ty_prom)
       Syn_expr_seq body ty -> Syn_expr_seq body (Ty_prom ty ty_prom)
-      _ -> expr -- Syn_none
-  else expr
+      _ -> expr -- Syn_none -}
 
 syn_node_subst :: [Subst] -> Syntree_node -> Syntree_node
 syn_node_subst subst expr =
@@ -916,21 +925,21 @@ syn_node_subst subst expr =
     Syn_arg_decl arg_id ty -> Syn_arg_decl arg_id (ty_subst subst ty)
     Syn_rec_decl rec_id ty -> Syn_rec_decl rec_id (ty_subst subst ty)
     Syn_var_decl var_id ty -> Syn_var_decl var_id (ty_subst subst ty)
-    Syn_cond_expr (expr_cond, (expr_true, expr_false)) ty -> let expr_cond' = syn_node_subst subst expr_cond
-                                                                 expr_true' = syn_node_subst subst expr_true
-                                                                 expr_false' = case expr_false of
-                                                                                 Nothing -> Nothing
-                                                                                 Just f_expr -> Just (syn_node_subst subst f_expr)
-                                                             in
-                                                               Syn_cond_expr (expr_cond', (expr_true', expr_false')) (ty_subst subst ty)
+    Syn_cond_expr (expr_cond, (expr_true, expr_false)) ty -> Syn_cond_expr (expr_cond', (expr_true', expr_false')) (ty_subst subst ty)
+      where
+        expr_cond' = syn_node_subst subst expr_cond
+        expr_true' = syn_node_subst subst expr_true
+        expr_false' = case expr_false of
+                        Nothing -> Nothing
+                        Just f_expr -> Just $ syn_node_subst subst f_expr
     Syn_val val ty -> Syn_val val (ty_subst subst ty)
     Syn_var var_id ty -> Syn_var var_id (ty_subst subst ty)
-    Syn_expr_asgn expr_l expr_r ty -> Syn_expr_asgn expr_l expr_r (ty_subst subst ty)
+    Syn_expr_asgn expr_l expr_r ty -> Syn_expr_asgn (syn_node_subst subst expr_l) (syn_node_subst subst expr_r) (ty_subst subst ty)
     Syn_expr_par expr_par ty -> Syn_expr_par (syn_node_subst subst expr_par) (ty_subst subst ty)   
     Syn_expr_call fun_id args ty -> Syn_expr_call fun_id (Prelude.map (syn_node_subst subst) args) (ty_subst subst ty)
     Syn_expr_una ope expr0 ty -> Syn_expr_una ope (syn_node_subst subst expr0) (ty_subst subst ty)
     Syn_expr_bin ope (expr1, expr2) ty -> Syn_expr_bin ope (syn_node_subst subst expr1, syn_node_subst subst expr2) (ty_subst subst ty)
-    Syn_expr_seq equs ty -> Syn_expr_seq (Prelude.map (syn_node_subst subst) equs) (ty_subst subst ty)
+    Syn_expr_seq exprs ty -> Syn_expr_seq (Prelude.map (syn_node_subst subst) exprs) (ty_subst subst ty)
     _ -> expr -- Syn_none
 
 
@@ -2699,7 +2708,6 @@ ty_inf_expr symtbl expr =
       return ((env'', expr_bin_inf), symtbl', err')
     
     _ -> return ((Ty_env [], expr), symtbl, [])
-
 
 {- ty_inf :: Symtbl -> Syntree_node -> ExceptT ((Ty_env, Syntree_node), Symtbl, [Error_codes]) IO ((Ty_env, Syntree_node), Symtbl, [Error_codes])
 ty_inf symtbl decl =
