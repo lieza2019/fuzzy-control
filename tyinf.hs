@@ -211,8 +211,8 @@ sym_lkup_tydef_decl symtbl ident =
     Nothing -> Nothing
   )
 
-sym_lkup_fun :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
-sym_lkup_fun symtbl ident =
+sym_lkup_fun_decl :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
+sym_lkup_fun_decl symtbl ident =
   ras_trace "in sym_lkup_fun_decl" (
   let lkup_fun_decl cont = case sym_search cont Sym_cat_decl ident of
                              Just (attr, resume) -> (case sym_attr_entity attr of
@@ -235,8 +235,8 @@ sym_lkup_fun symtbl ident =
                  )
   )
 
-sym_lkup_rec :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
-sym_lkup_rec symtbl ident =
+sym_lkup_rec_decl :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
+sym_lkup_rec_decl symtbl ident =
   ras_trace "in sym_lkup_rec_decl" (
   let lkup_rec_decl cont = case sym_search cont Sym_cat_record ident of
                                Just (attr, resume) -> (case sym_attr_entity attr of
@@ -248,8 +248,8 @@ sym_lkup_rec symtbl ident =
     lkup_rec_decl symtbl
   )
 
-sym_lkup_var :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
-sym_lkup_var symtbl ident =
+sym_lkup_var_decl :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
+sym_lkup_var_decl symtbl ident =
   ras_trace "in sym_lkup_var_decl" (
   let lkup_var_decl cont = case sym_search cont Sym_cat_decl ident of
                                Just (attr, resume) -> (case sym_attr_entity attr of
@@ -2410,7 +2410,7 @@ ty_inf_expr symtbl expr =
                                 else throwE ((Ty_env [], expr), symtbl, [Illtyped_constant])
     Syn_val (Val_str s) ty_s -> if (ty_s == Ty_string) then return ((Ty_env [], expr), symtbl, [])
                                 else throwE ((Ty_env [], expr), symtbl, [Illtyped_constant])
-    Syn_var v_id v_ty -> case sym_lkup_var symtbl v_id of
+    Syn_var v_id v_ty -> case sym_lkup_var_decl symtbl v_id of
                            Just (Sym_attrib { sym_attr_entity = v_attr }, symtbl') ->
                              (case v_attr of
                                 Syn_var_decl v_id' v_ty_decl | v_id == v_id' ->
@@ -2856,7 +2856,7 @@ ty_inf symtbl decl =
     
     --Syn_expr_call _ _ _ -> ty_inf_expr symtbl decl
     Syn_expr_call fun_id args ty -> do
-      case sym_lkup_fun symtbl fun_id of
+      case sym_lkup_fun_decl symtbl fun_id of
         Nothing -> throwE ((Ty_env [], decl), symtbl, [Undefined_symbol errmsg])
           where
             errmsg = "undefined function calling of : " ++ fun_id ++ "."
@@ -3219,7 +3219,7 @@ ty_inf symtbl expr =
     
     --Syn_expr_call _ _ _ -> ty_inf_expr symtbl expr
     Syn_expr_call fun_id args ty -> do
-      case sym_lkup_fun symtbl fun_id of
+      case sym_lkup_fun_decl symtbl fun_id of
         Nothing -> throwE ((Ty_env [], expr), symtbl, [Undefined_symbol errmsg])
           where
             errmsg = "undefined function calling of : " ++ fun_id ++ "."
