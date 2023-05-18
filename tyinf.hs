@@ -2413,28 +2413,46 @@ ty_inf_expr symtbl expr =
     Syn_var v_id v_ty -> case sym_lkup_var symtbl v_id of
                            Just (Sym_attrib { sym_attr_entity = v_attr }, symtbl') ->
                              (case v_attr of
-                                 Syn_var v_id' v_ty_decl | v_id == v_id' -> (case ty_lcs v_ty v_ty_decl of
-                                                                               Just lcs -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
-                                                                               Nothing -> let equ = (v_ty, v_ty_decl)
-                                                                                          in
-                                                                                            case ty_unif [equ] of
-                                                                                              Just u_var -> let env' = Ty_env [(v_id, (ty_subst u_var v_ty))]
-                                                                                                                expr' = Syn_var v_id (ty_subst u_var v_ty)
-                                                                                                            in
-                                                                                                              return ((env', expr'), symtbl', [])
-                                                                                              Nothing -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Type_constraint_mismatched errmsg])
-                                                                                                where
-                                                                                                  errmsg = "type of " ++ v_id ++ " does'nt meet with its declaration."
-                                                                            )
-                                 _ -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
-                                   where
-                                     errmsg = "ill-registration detected in symbol table, for " ++ v_id
+                                Syn_var_decl v_id' v_ty_decl | v_id == v_id' ->
+                                                               {- (case ty_lcs v_ty v_ty_decl of
+                                                                  Just lcs -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
+                                                                  Nothing -> let equ = (v_ty, v_ty_decl)
+                                                                             in
+                                                                               case ty_unif [equ] of
+                                                                                 Just u_var -> let env' = Ty_env [(v_id, (ty_subst u_var v_ty))]
+                                                                                                   expr' = Syn_var v_id (ty_subst u_var v_ty)
+                                                                                               in
+                                                                                                 return ((env', expr'), symtbl', [])
+                                                                                 Nothing -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Type_constraint_mismatched errmsg])
+                                                                                   where
+                                                                                     errmsg = "type of " ++ v_id ++ " does'nt meet with its declaration."
+                                                               ) -}
+                                                               if v_ty_decl == v_ty then return ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [])
+                                                               else
+                                                                 let equ = (v_ty, v_ty_decl)
+                                                                 in
+                                                                   case ty_unif [equ] of
+                                                                     Just u_var -> do
+                                                                       let env' = Ty_env [([(v_id, (ty_subst u_var v_ty))], u_var)]
+                                                                       let expr' = Syn_var v_id (ty_subst u_var v_t)
+                                                                       -- re-registration of v_id with the type of (ty_subst u_var v_ty), here.
+                                                                       let (symtbl'', err_symreg) = sym_regist True symtbl' Sym_cat_decl (v_id, Syn_var_decl v_id (ty_subst u_var v_ty))
+                                                                       case err_symreg of
+                                                                         Just e_reg -> throwE ((env', expr'), symtbl', [e_reg])
+                                                                         Nothing -> return ((env', expr'), symtbl', [])
+                                                                     
+                                                                     Nothing -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [Type_constraint_mismatched errmsg])
+                                                                       where
+                                                                         errmsg = v_id ++ " should have the type of " ++ (show v_ty) ++ "."
+                                _ -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [Internal_error errmsg])
+                                  where
+                                    errmsg = "ill-registration detected in symbol table, for " ++ v_id
                              )
-                           Nothing -> let (symtbl', reg_err) = sym_regist False symtbl Sym_cat_decl (v_id, expr)
+                           Nothing -> let (symtbl', err_symreg) = sym_regist False symtbl Sym_cat_decl (v_id, Syn_var_decl v_id v_ty)
                                       in
-                                        case reg_err of
-                                          Nothing -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
-                                          Just err -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
+                                        case err_symreg of
+                                          Nothing -> ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [])
+                                          Just e_reg -> ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [Internal_error errmsg])
                                             where
                                               errmsg = "failed to regist on symbol table, for " ++ v_id
     
