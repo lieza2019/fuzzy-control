@@ -240,9 +240,9 @@ sym_lkup_rec_decl symtbl ident =
   ras_trace "in sym_lkup_rec_decl" (
   let lkup_rec_decl cont = case sym_search cont Sym_cat_record ident of
                                Just (attr, resume) -> (case sym_attr_entity attr of
-                                                       Syn_rec_decl _ _ -> Just (attr, symtbl)
-                                                       _ -> lkup_rec_decl resume
-                                                    )
+                                                         Syn_rec_decl _ _ -> Just (attr, symtbl)
+                                                         _ -> lkup_rec_decl resume
+                                                      )
                                Nothing -> Nothing
   in
     lkup_rec_decl symtbl
@@ -253,9 +253,9 @@ sym_lkup_var_decl symtbl ident =
   ras_trace "in sym_lkup_var_decl" (
   let lkup_var_decl cont = case sym_search cont Sym_cat_decl ident of
                                Just (attr, resume) -> (case sym_attr_entity attr of
-                                                       Syn_var_decl _ _ -> Just (attr, symtbl)
-                                                       _ -> lkup_var_decl resume
-                                                    )
+                                                         Syn_var_decl _ _ -> Just (attr, symtbl)
+                                                         _ -> lkup_var_decl resume
+                                                      )
                                Nothing -> Nothing
   in
     lkup_var_decl symtbl
@@ -2436,11 +2436,12 @@ ty_inf_expr symtbl expr =
                                                                        let env' = Ty_env [([(v_id, (ty_subst u_var v_ty))], u_var)]
                                                                        let expr' = Syn_var v_id (ty_subst u_var v_t)
                                                                        -- re-registration of v_id with the type of (ty_subst u_var v_ty), here.
-                                                                       let (symtbl'', err_symreg) = sym_regist True symtbl' Sym_cat_decl (v_id, Syn_var_decl v_id (ty_subst u_var v_ty))
+                                                                       {- let (symtbl'', err_symreg) = sym_regist True symtbl' Sym_cat_decl (v_id, Syn_var_decl v_id (ty_subst u_var v_ty))
                                                                        case err_symreg of
                                                                          Just e_reg -> throwE ((env', expr'), symtbl', [e_reg])
-                                                                         Nothing -> return ((env', expr'), symtbl', [])
-                                                                     
+                                                                         Nothing -> return ((env', expr'), symtbl', []) -}
+                                                                       return ((env', expr'), symtbl', [])
+                                                                       
                                                                      Nothing -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [Type_constraint_mismatched errmsg])
                                                                        where
                                                                          errmsg = v_id ++ " should have the type of " ++ (show v_ty) ++ "."
