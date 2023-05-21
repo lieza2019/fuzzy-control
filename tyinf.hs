@@ -83,8 +83,6 @@ data Symtbl =
   Symtbl {sym_typedef :: Sym_tbl, sym_record :: Sym_tbl, sym_func :: Sym_tbl, sym_decl :: Sym_tbl, fresh_tvar :: Fresh_tvar}
   deriving (Eq, Ord, Show)
 
-
-
 sym_categorize :: Symtbl -> Sym_category -> Sym_tbl
 sym_categorize symtbl cat =
   ras_trace "in sym_categorize" (
@@ -409,8 +407,8 @@ sym_regist ovwt symtbl cat (ident, entity) =
       ((sym_update symtbl cat sym_tbl'), err)
   )
 
-sym_diag :: Symtbl -> Sym_category -> [(String, [String])]
-sym_diag symtbl cat =
+sym_dump :: Symtbl -> Sym_category -> [(String, [String])]
+sym_dump symtbl cat =
   let traverse sym_tbl =
         case sym_tbl of
           Scope_empty -> []
@@ -423,6 +421,12 @@ sym_diag symtbl cat =
   in
     traverse (sym_categorize symtbl cat)
 
+print_symtbl :: Symtbl -> Sym_category -> IO ()
+print_symtbl symtbl cat =
+  Prelude.foldl (\r -> \s -> do
+                    r' <- r
+                    putStrLn (show s)
+                ) (return ()) (sym_dump symtbl cat)
 
 data Expr =
   Var String
@@ -3489,7 +3493,7 @@ ty_inf symtbl expr =
     _ -> return ((Ty_env [], expr), symtbl, []) -- Syn_none
 
 
-main :: IO ()
+{- main :: IO ()
 main = do
   -- src = "bool fun x => (2)"
   -- src = "int boola fun x => (2)"
@@ -3609,7 +3613,7 @@ main = do
   putStrLn ""
   putStr "simtbl:  "
   --putStrLn $ show (sym_func symtbl')
-  putStrLn (show $ sym_diag symtbl' Sym_cat_decl)
+  putStrLn (show $ sym_dump symtbl' Sym_cat_decl)
   
     where
       read_src :: Handle -> IO String
@@ -3627,4 +3631,33 @@ main = do
                        Error_Excep Excep_assert_failed assert_msg -> assert_msg
                        Error_Excep _ errmsg -> errmsg
         putStrLn errmsg
-        return ()
+        return () -}
+main :: IO ()
+main = do
+  let symtbl = sym_enter_scope Nothing Sym_cat_decl
+  let (symtbl11, err11) = sym_regist False symtbl Sym_cat_decl ("alpha", Syn_val (Val_int 1) Ty_int)
+  
+  let symtbl2 = sym_enter_scope (Just symtbl11) Sym_cat_decl
+  --putStrLn (show $ sym_categorize symtbl2 Sym_cat_decl)
+  --putStrLn (show $ sym_dump symtbl2 Sym_cat_decl)
+  
+  let (symtbl21, err21) = sym_regist False symtbl2 Sym_cat_decl ("beta", Syn_var_decl "beta" Ty_bool)
+  let (symtbl22, err22) = sym_regist False symtbl21 Sym_cat_decl ("gamma", Syn_fun_decl "gamma" [] (Syn_scope ([], Syn_none)) Ty_btm)
+  
+  let symtbl3 = sym_enter_scope (Just symtbl22) Sym_cat_decl
+  let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_val (Val_bool False) Ty_bool)
+  print_symtbl symtbl31 Sym_cat_decl
+  
+    where
+      sym_dump' :: Symtbl -> Sym_category -> [(String, [String])]
+      sym_dump' symtbl cat =
+        let rev_syms ss =
+              case ss of
+                [] -> []
+                s:ss' -> (rev_syms ss') ++ [s]
+            rev_scps ss =
+              case ss of
+                [] -> []
+                (lv, syms):ss' -> (rev_scps ss') ++ [(lv, rev_syms syms)]
+        in
+          rev_scps $ sym_dump symtbl cat
