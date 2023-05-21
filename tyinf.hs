@@ -253,25 +253,19 @@ sym_lkup_tydef_decl symtbl ident =
                               )
     Nothing -> Nothing
   )
-sym_lkup_decl :: Symtbl -> (Syntree_node -> Bool) -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
-sym_lkup_decl symtbl declp ident =
+sym_lkup_decl :: Symtbl -> (Sym_category, Syntree_node -> Bool) -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
+sym_lkup_decl symtbl (cat, declp) ident =
   ras_trace "in sym_lkup_tydef_decl" (
-  case sym_search' (sym_categorize symtbl Sym_cat_typedef) ident of
+  case sym_search' (sym_categorize symtbl cat) ident of
     Nothing -> Nothing
     Just (attr, h@(past, remains)) -> if declp (sym_attr_entity attr) then Just ((attr, h), symtbl)
                                       else
-                                        case sym_lkup_decl (sym_update symtbl Sym_cat_typedef remains) declp ident of
+                                        case sym_lkup_decl (sym_update symtbl cat remains) (cat, declp) ident of
                                           Just ((attr, (past', remains')), _) -> Just ((attr, (past'', remains')), symtbl')
                                             where
                                               past'' = sym_combine past past'
-                                              symtbl' = sym_update symtbl Sym_cat_typedef $ sym_combine past'' remains'
+                                              symtbl' = sym_update symtbl cat  $ sym_combine past'' remains'
                                           Nothing -> Nothing
-      {- where
-        declp :: Syntree_node -> Bool
-        declp a =
-          case a of
-            Syn_tydef_decl _ _ -> True
-            _ -> False -}
   )
 sym_lkup_tydef_decl' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
 sym_lkup_tydef_decl' symtbl ident =
@@ -279,45 +273,7 @@ sym_lkup_tydef_decl' symtbl ident =
                   Syn_tydef_decl _ _ -> True
                   _ -> False
   in
-    sym_lkup_decl symtbl declp ident
-
-{- sym_lkup_tydef_decl' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
-sym_lkup_tydef_decl' symtbl ident =
-  ras_trace "in sym_lkup_tydef_decl" (
-  case sym_search' (sym_categorize symtbl Sym_cat_typedef) ident of
-    Nothing -> Nothing
-    Just (attr, h@(past, remains)) -> (case sym_attr_entity attr of
-                                         Syn_tydef_decl _ _ -> Just ((attr, h), symtbl)
-                                         _ -> (case sym_lkup_tydef_decl' (sym_update symtbl Sym_cat_typedef remains) ident of
-                                                 Just ((attr, (past', remains')), _) -> Just ((attr, (past'', remains')), symtbl')
-                                                   where
-                                                     past'' = sym_combine past past'
-                                                     symtbl' = sym_update symtbl Sym_cat_typedef $ sym_combine past'' remains'
-                                                 Nothing -> Nothing
-                                              )
-                                      )
-      {- where
-        join :: Sym_tbl -> Sym_tbl -> Sym_tbl
-        join tbl1@(Scope_add (lv_1, anon_idents_1, syms_1) tbl1') tbl2@(Scope_add (lv_2, anon_idents_2, syms_2) tbl2') =
-          case tbl1' of
-            Scope_empty ->
-              -- assert ((lv_1 == lv_2) && (anon_idents_1 == anon_idents_2))
-              (case syms_2 of
-                 Sym_empty -> Scope_add (lv_1, anon_idents_1, syms_1) tbl2'
-                 _ -> (case syms_1 of
-                         Sym_empty -> tbl2
-                         _ -> Scope_add (lv_1, anon_idents_1, (cat syms_1 syms_2)) tbl2'
-                      )
-              )
-              where
-                cat :: Symtbl_cluster -> Symtbl_cluster -> Symtbl_cluster
-                cat (Sym_add sym syms1') syms2 =
-                  case syms1' of
-                    Sym_empty -> Sym_add sym syms2
-                    _ -> Sym_add sym (cat syms1' syms2)
-            
-            _ -> Scope_add (lv_1, anon_idents_1, syms_1) (join tbl1' tbl2) -}
-  ) -}
+    sym_lkup_decl symtbl (Sym_cat_typedef, declp) ident
 
 sym_lkup_fun :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
 sym_lkup_fun symtbl ident =
@@ -342,32 +298,58 @@ sym_lkup_fun symtbl ident =
                     Nothing -> Nothing
                  )
   )
+sym_lkup_fun' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
+sym_lkup_fun' symtbl ident =
+  let declp a = case a of
+                  Syn_fun_decl _ _ _ _ -> True
+                  _ -> False
+  in
+    case sym_lkup_decl symtbl (Sym_cat_decl, declp) ident of
+      Just r -> Just r
+      Nothing -> (case sym_lkup_decl symtbl (Sym_cat_func, declp) ident of
+                    Just r' -> Just r'
+                    Nothing -> Nothing
+                 )
 
 sym_lkup_rec :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
 sym_lkup_rec symtbl ident =
   ras_trace "in sym_lkup_rec_decl" (
   let lkup_rec_decl cont = case sym_search cont Sym_cat_record ident of
                                Just (attr, resume) -> (case sym_attr_entity attr of
-                                                       Syn_rec_decl _ _ -> Just (attr, symtbl)
-                                                       _ -> lkup_rec_decl resume
-                                                    )
+                                                         Syn_rec_decl _ _ -> Just (attr, symtbl)
+                                                         _ -> lkup_rec_decl resume
+                                                      )
                                Nothing -> Nothing
   in
     lkup_rec_decl symtbl
   )
+sym_lkup_rec' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
+sym_lkup_rec' symtbl ident =
+  let declp a = case a of
+                  Syn_rec_decl _ _ -> True
+                  _ -> False
+  in
+    sym_lkup_decl symtbl (Sym_cat_record, declp) ident
 
 sym_lkup_var :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
 sym_lkup_var symtbl ident =
   ras_trace "in sym_lkup_var_decl" (
   let lkup_var_decl cont = case sym_search cont Sym_cat_decl ident of
                                Just (attr, resume) -> (case sym_attr_entity attr of
-                                                       Syn_var_decl _ _ -> Just (attr, symtbl)
-                                                       _ -> lkup_var_decl resume
-                                                    )
+                                                         Syn_var_decl _ _ -> Just (attr, symtbl)
+                                                         _ -> lkup_var_decl resume
+                                                      )
                                Nothing -> Nothing
   in
     lkup_var_decl symtbl
   )
+sym_lkup_var' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
+sym_lkup_var' symtbl ident =
+  let declp a = case a of
+                  Syn_var_decl _ _ -> True
+                  _ -> False
+  in
+    sym_lkup_decl symtbl (Sym_cat_decl, declp) ident
 
 walk_on_scope :: Symtbl_cluster -> (String, Syntree_node) -> Maybe Symtbl_node
 walk_on_scope sym_cluster (ident, entity) =
@@ -426,6 +408,20 @@ sym_regist ovwt symtbl cat (ident, entity) =
     in
       ((sym_update symtbl cat sym_tbl'), err)
   )
+
+sym_diag :: Symtbl -> Sym_category -> [(String, [String])]
+sym_diag symtbl cat =
+  let traverse sym_tbl =
+        case sym_tbl of
+          Scope_empty -> []
+          Scope_add (lv, anon_ident, syms) sym_tbl' -> (("lv " ++ (show lv) ++ ": ") ,(walk syms)) : (traverse sym_tbl')
+      walk syms =
+        case syms of
+          Sym_empty -> []
+          Sym_add (Sym_entry {sym_ident = id, sym_attr = a}) syms' -> ("<" ++ id ++ ", " ++ (show_attr a) ++ ">") : (walk syms')
+      show_attr (Sym_attrib {sym_attr_geometry = (row, col), sym_attr_entity = entity}) = show entity
+  in
+    traverse (sym_categorize symtbl cat)
 
 
 data Expr =
@@ -3609,9 +3605,11 @@ main = do
               Left ((env, t_inf), symtbl', errs) -> ([(env, t_inf)], symtbl', errs)
            )
   mapM_ putStrLn $ Prelude.map show judges_inf -}
-  
-  {- putStr "simtbl:  "
-  putStrLn $ show (sym_func symtbl'') -}
+
+  putStrLn ""
+  putStr "simtbl:  "
+  --putStrLn $ show (sym_func symtbl')
+  putStrLn (show $ sym_diag symtbl' Sym_cat_decl)
   
     where
       read_src :: Handle -> IO String
