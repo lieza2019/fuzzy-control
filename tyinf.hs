@@ -54,7 +54,7 @@ data Sym_category =
 type Row = Integer
 type Col = Integer
 data Sym_attrib =
-  Sym_attrib {sym_attr_geometry :: (Row, Col), sym_attr_entity ::  Syntree_node}
+  Sym_attrib {sym_attr_geometry :: (Row, Col), sym_attr_entity :: Syntree_node}
   deriving (Eq, Ord, Show)
 
 data Symtbl_node =
@@ -367,6 +367,31 @@ sym_lkup_var' symtbl ident =
           verify :: Symtbl -> Symtbl -> Bool
           verify symtbl symtbl' = (sym_categorize symtbl Sym_cat_decl) == (sym_categorize symtbl' Sym_cat_decl)
       _ -> Nothing
+  )
+
+sym_change_var_decl :: (Symtbl, (Sym_tbl, Sym_tbl)) -> String -> Sym_attrib -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
+sym_change_var_decl (symtbl, (top, btm)) ident attr_new =
+  ras_trace "in sym_change_var_decl" (
+  do
+    if (sym_combine top btm) == (sym_categorize symtbl Sym_cat_decl) then Just () else Nothing
+    case btm of
+      Scope_empty -> Nothing
+      Scope_add (_, _, Sym_empty) ps -> Nothing
+      Scope_add (lv, anon_idents, Sym_add s ss) ps -> let s' = modify s attr_new
+                                                          btm' = Scope_add (lv, anon_idents, Sym_add s' ss) ps
+                                                          symtbl' = sym_update symtbl Sym_cat_decl (sym_combine top btm')
+                                                      in
+                                                        Just ((sym_attr s', (top, btm')), symtbl')
+        where
+          modify :: Symtbl_node -> Sym_attrib -> Symtbl_node
+          modify sym attr_new =
+            case attr_new of
+              Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = new_entity} -> (case sym of
+                                                                                            Sym_entry{sym_attr = attr} -> let attr' = attr{sym_attr_entity = new_entity}
+                                                                                                                          in
+                                                                                                                            sym{sym_attr = attr'}
+                                                                                         )
+              _ -> sym{sym_attr = attr_new}
   )
 
 walk_on_scope :: Symtbl_cluster -> (String, Syntree_node) -> Maybe Symtbl_node
@@ -3667,19 +3692,29 @@ main = do
   let (symtbl24, err24) = sym_regist False symtbl23 Sym_cat_decl ("kappa", Syn_var_decl "kappa" Ty_int)
   
   let symtbl3 = sym_enter_scope (Just symtbl24) Sym_cat_decl
-  --let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_var_decl "delta" Ty_bool)
-  let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_val (Val_bool False) Ty_bool)
+  let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_var_decl "delta" Ty_bool)
+  --let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_val (Val_bool False) Ty_bool)
   
-  let r31' = sym_lkup_var' symtbl31 "kappa"
+  let r31' = sym_lkup_var' symtbl31 "epsilon"
   case r31' of
-     Just ((found, h), symtbl31') -> do
-       putStrLn ("found: " ++ (show found))
-       putStrLn ""
-       print_symtbl symtbl31' Sym_cat_decl
-     Nothing -> do
-       putStrLn "no registration."
-       putStrLn ""
-       print_symtbl symtbl31 Sym_cat_decl
+    Just ((found, h), symtbl31') -> do
+      putStrLn ("found: " ++ (show found))
+      let attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl "epsilon" Ty_bool}
+      let r = sym_change_var_decl (symtbl31', h) "epsilon" attr_new
+      case r of
+        Just ((attr', h'), symtbl31'') -> do
+          putStrLn ("and changed: " ++ (show attr'))
+          putStrLn ""
+          print_symtbl symtbl31'' Sym_cat_decl 
+        Nothing -> do
+          putStrLn "Failed to modify!"
+          putStrLn ""
+          print_symtbl symtbl31' Sym_cat_decl
+    
+    Nothing -> do
+      putStrLn "no registration."
+      putStrLn ""
+      print_symtbl symtbl31 Sym_cat_decl
   
   --return ()  
     where
