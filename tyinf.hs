@@ -260,12 +260,17 @@ sym_lkup_decl symtbl (cat, declp) ident =
     Nothing -> Nothing
     Just (attr, h@(past, remains)) -> if declp (sym_attr_entity attr) then Just ((attr, h), symtbl)
                                       else
-                                        case sym_lkup_decl (sym_update symtbl cat remains) (cat, declp) ident of
-                                          Just ((attr, (past', remains')), _) -> Just ((attr, (past'', remains')), symtbl')
-                                            where
-                                              past'' = sym_combine past past'
-                                              symtbl' = sym_update symtbl cat $ sym_combine past'' remains'
-                                          Nothing -> Nothing
+                                        let remains' = case remains of
+                                                         Scope_add (_, _, Sym_empty) ps -> ps
+                                                         Scope_add (_, _, Sym_add s Sym_empty) ps -> ps
+                                                         Scope_add (lv, anon_idents, Sym_add s ss) ps -> Scope_add (lv, anon_idents, ss) ps
+                                        in
+                                          case sym_lkup_decl (sym_update symtbl cat remains') (cat, declp) ident of
+                                            Just ((attr, (past', remains'')), _) -> Just ((attr, (past'', remains'')), symtbl')
+                                              where
+                                                past'' = sym_combine past past'
+                                                symtbl' = sym_update symtbl cat $ sym_combine past'' remains''
+                                            Nothing -> Nothing
   )
 sym_lkup_tydef_decl' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
 sym_lkup_tydef_decl' symtbl ident =
@@ -3662,18 +3667,19 @@ main = do
   let (symtbl24, err24) = sym_regist False symtbl23 Sym_cat_decl ("kappa", Syn_var_decl "kappa" Ty_int)
   
   let symtbl3 = sym_enter_scope (Just symtbl24) Sym_cat_decl
+  --let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_var_decl "delta" Ty_bool)
   let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_val (Val_bool False) Ty_bool)
-  --let (symtbl32, err32) = sym_regist False symtbl31 Sym_cat_decl ("epsilon", Syn_var_decl "epsilon" Ty_string)
   
-  let r31' = sym_lkup_var' symtbl31 "delta"
-  --putStrLn (show r31')
-  (case r31' of
+  let r31' = sym_lkup_var' symtbl31 "kappa"
+  case r31' of
      Just ((found, h), symtbl31') -> do
        putStrLn ("found: " ++ (show found))
        putStrLn ""
        print_symtbl symtbl31' Sym_cat_decl
-     Nothing -> putStrLn "HALTED!"
-    )
+     Nothing -> do
+       putStrLn "no registration."
+       putStrLn ""
+       print_symtbl symtbl31 Sym_cat_decl
   
   --return ()  
     where
