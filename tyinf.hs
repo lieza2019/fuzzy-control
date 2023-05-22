@@ -243,6 +243,25 @@ sym_combine tbl1@(Scope_add (lv_1, anon_idents_1, syms_1) tbl1') tbl2@(Scope_add
     _ -> Scope_add (lv_1, anon_idents_1, syms_1) (sym_combine tbl1' tbl2)
   )
 
+sym_lookup :: Symtbl -> (Sym_category, Syntree_node -> Bool) -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
+sym_lookup symtbl (cat, declp) ident =
+  ras_trace "in sym_lookup" (
+  case sym_search' (sym_categorize symtbl cat) ident of
+    Nothing -> Nothing
+    Just (attr, h@(past, remains)) -> if declp (sym_attr_entity attr) then Just ((attr, (cat, h)), symtbl)
+                                      else
+                                        let remains' = case remains of
+                                                         Scope_add (_, _, Sym_empty) ps -> ps
+                                                         Scope_add (_, _, Sym_add s Sym_empty) ps -> ps
+                                                         Scope_add (lv, anon_idents, Sym_add s ss) ps -> Scope_add (lv, anon_idents, ss) ps
+                                        in
+                                          case sym_lookup (sym_update symtbl cat remains') (cat, declp) ident of
+                                            Just ((attr, (cat', (past', remains''))), _) | cat' == cat -> Just ((attr, (cat', (past'', remains''))), symtbl')
+                                              where
+                                                past'' = sym_combine past past'
+                                                symtbl' = sym_update symtbl cat $ sym_combine past'' remains''
+                                            _ -> Nothing
+  )
 sym_lkup_tydef_decl :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
 sym_lkup_tydef_decl symtbl ident =
   ras_trace "in sym_lkup_tydef_decl" (
@@ -253,33 +272,14 @@ sym_lkup_tydef_decl symtbl ident =
                               )
     Nothing -> Nothing
   )
-sym_lkup_decl :: Symtbl -> (Sym_category, Syntree_node -> Bool) -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
-sym_lkup_decl symtbl (cat, declp) ident =
-  ras_trace "in sym_lkup_decl" (
-  case sym_search' (sym_categorize symtbl cat) ident of
-    Nothing -> Nothing
-    Just (attr, h@(past, remains)) -> if declp (sym_attr_entity attr) then Just ((attr, h), symtbl)
-                                      else
-                                        let remains' = case remains of
-                                                         Scope_add (_, _, Sym_empty) ps -> ps
-                                                         Scope_add (_, _, Sym_add s Sym_empty) ps -> ps
-                                                         Scope_add (lv, anon_idents, Sym_add s ss) ps -> Scope_add (lv, anon_idents, ss) ps
-                                        in
-                                          case sym_lkup_decl (sym_update symtbl cat remains') (cat, declp) ident of
-                                            Just ((attr, (past', remains'')), _) -> Just ((attr, (past'', remains'')), symtbl')
-                                              where
-                                                past'' = sym_combine past past'
-                                                symtbl' = sym_update symtbl cat $ sym_combine past'' remains''
-                                            Nothing -> Nothing
-  )
-sym_lkup_tydef_decl' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
+sym_lkup_tydef_decl' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
 sym_lkup_tydef_decl' symtbl ident =
   ras_trace "in sym_lkup_tydef_decl" (
   let declp a = case a of
                   Syn_tydef_decl _ _ -> True
                   _ -> False
   in
-    sym_lkup_decl symtbl (Sym_cat_typedef, declp) ident
+    sym_lookup symtbl (Sym_cat_typedef, declp) ident
   )
 
 sym_lkup_fun :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
@@ -305,16 +305,16 @@ sym_lkup_fun symtbl ident =
                     Nothing -> Nothing
                  )
   )
-sym_lkup_fun' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
+sym_lkup_fun' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
 sym_lkup_fun' symtbl ident =
   ras_trace "in sym_lkup_fun_decl" (
   let declp a = case a of
                   Syn_fun_decl _ _ _ _ -> True
                   _ -> False
   in
-    case sym_lkup_decl symtbl (Sym_cat_decl, declp) ident of
+    case sym_lookup symtbl (Sym_cat_decl, declp) ident of
       Just r -> Just r
-      Nothing -> (case sym_lkup_decl symtbl (Sym_cat_func, declp) ident of
+      Nothing -> (case sym_lookup symtbl (Sym_cat_func, declp) ident of
                     Just r' -> Just r'
                     Nothing -> Nothing
                  )
@@ -332,14 +332,14 @@ sym_lkup_rec symtbl ident =
   in
     lkup_rec_decl symtbl
   )
-sym_lkup_rec' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
+sym_lkup_rec' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
 sym_lkup_rec' symtbl ident =
   ras_trace "in sym_lkup_rec_decl" (
   let declp a = case a of
                   Syn_rec_decl _ _ -> True
                   _ -> False
   in
-    sym_lkup_decl symtbl (Sym_cat_record, declp) ident
+    sym_lookup symtbl (Sym_cat_record, declp) ident
   )
 
 sym_lkup_var :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
@@ -354,14 +354,14 @@ sym_lkup_var symtbl ident =
   in
     lkup_var_decl symtbl
   )
-sym_lkup_var' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
+sym_lkup_var' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
 sym_lkup_var' symtbl ident =
   ras_trace "in sym_lkup_var_decl" (
   let declp a = case a of
                   Syn_var_decl _ _ -> True
                   _ -> False
   in
-    case sym_lkup_decl symtbl (Sym_cat_decl, declp) ident of
+    case sym_lookup symtbl (Sym_cat_decl, declp) ident of
       Just r@((attr, (_, _)), symtbl') | verify symtbl' symtbl' -> Just r
         where
           verify :: Symtbl -> Symtbl -> Bool
@@ -369,29 +369,33 @@ sym_lkup_var' symtbl ident =
       _ -> Nothing
   )
 
-sym_change_var_decl :: (Symtbl, (Sym_tbl, Sym_tbl)) -> String -> Sym_attrib -> Maybe ((Sym_attrib, (Sym_tbl, Sym_tbl)), Symtbl)
-sym_change_var_decl (symtbl, (top, btm)) ident attr_new =
-  ras_trace "in sym_change_var_decl" (
+sym_modify :: (Symtbl, (Sym_category, (Sym_tbl, Sym_tbl))) -> String -> Sym_attrib -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
+sym_modify (symtbl, (cat, (top, btm))) ident attr_new =
+  ras_trace "in sym_modify" (
   do
-    if (sym_combine top btm) == (sym_categorize symtbl Sym_cat_decl) then Just () else Nothing
+    if (sym_combine top btm) == (sym_categorize symtbl cat) then Just () else Nothing
     case btm of
       Scope_empty -> Nothing
       Scope_add (_, _, Sym_empty) ps -> Nothing
-      Scope_add (lv, anon_idents, Sym_add s ss) ps -> let s' = modify s attr_new
-                                                          btm' = Scope_add (lv, anon_idents, Sym_add s' ss) ps
-                                                          symtbl' = sym_update symtbl Sym_cat_decl (sym_combine top btm')
-                                                      in
-                                                        Just ((sym_attr s', (top, btm')), symtbl')
+      Scope_add (lv, anon_idents, Sym_add s ss) ps -> (case modify s attr_new of
+                                                         Just s' -> Just ((sym_attr s', (cat, (top, btm'))), symtbl')
+                                                           where
+                                                             btm' = Scope_add (lv, anon_idents, Sym_add s' ss) ps
+                                                             symtbl' = sym_update symtbl cat (sym_combine top btm')
+                                                         Nothing -> Nothing
+                                                      ) 
         where
-          modify :: Symtbl_node -> Sym_attrib -> Symtbl_node
+          modify :: Symtbl_node -> Sym_attrib -> Maybe Symtbl_node
           modify sym attr_new =
-            case attr_new of
-              Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = new_entity} -> (case sym of
-                                                                                            Sym_entry{sym_attr = attr} -> let attr' = attr{sym_attr_entity = new_entity}
-                                                                                                                          in
-                                                                                                                            sym{sym_attr = attr'}
-                                                                                         )
-              _ -> sym{sym_attr = attr_new}
+            case sym of
+              Sym_entry{sym_ident = id, sym_attr = attr} | id == ident ->
+                                                           (case attr_new of
+                                                              Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = new_entity} -> let attr' = attr{sym_attr_entity = new_entity}
+                                                                                                                                         in
+                                                                                                                                           Just sym{sym_attr = attr'}
+                                                              _ -> Just sym{sym_attr = attr_new}
+                                                           )
+              _ -> Nothing
   )
 
 walk_on_scope :: Symtbl_cluster -> (String, Syntree_node) -> Maybe Symtbl_node
@@ -3700,10 +3704,10 @@ main = do
     Just ((found, h), symtbl31') -> do
       putStrLn ("found: " ++ (show found))
       let attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl "epsilon" Ty_bool}
-      let r = sym_change_var_decl (symtbl31', h) "epsilon" attr_new
+      let r = sym_modify (symtbl31', h) "epsilon" attr_new
       case r of
         Just ((attr', h'), symtbl31'') -> do
-          putStrLn ("and changed: " ++ (show attr'))
+          putStrLn ("and changed to: " ++ (show attr'))
           putStrLn ""
           print_symtbl symtbl31'' Sym_cat_decl 
         Nothing -> do
