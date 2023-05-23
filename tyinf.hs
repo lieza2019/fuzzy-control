@@ -279,7 +279,12 @@ sym_lkup_tydef_decl' symtbl ident =
                   Syn_tydef_decl _ _ -> True
                   _ -> False
   in
-    sym_lookup symtbl (Sym_cat_typedef, declp) ident
+    case sym_lookup symtbl (Sym_cat_typedef, declp) ident of
+      Just r@((_, (_, _)), symtbl') | verify symtbl symtbl' -> Just r
+        where
+          verify :: Symtbl -> Symtbl -> Bool
+          verify symtbl symtbl' = (sym_categorize symtbl Sym_cat_typedef) == (sym_categorize symtbl' Sym_cat_typedef)
+      _ -> Nothing
   )
 
 sym_lkup_fun :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
@@ -305,17 +310,24 @@ sym_lkup_fun symtbl ident =
                     Nothing -> Nothing
                  )
   )
-sym_lkup_fun' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
-sym_lkup_fun' symtbl ident =
+sym_lkup_fun_decl' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
+sym_lkup_fun_decl' symtbl ident =
   ras_trace "in sym_lkup_fun_decl" (
   let declp a = case a of
                   Syn_fun_decl _ _ _ _ -> True
                   _ -> False
+      
   in
     case sym_lookup symtbl (Sym_cat_decl, declp) ident of
-      Just r -> Just r
+      Just r@((_, (_, _)), symtbl') | verify symtbl symtbl' -> Just r
+        where
+          verify :: Symtbl -> Symtbl -> Bool
+          verify symtbl symtbl' = (sym_categorize symtbl Sym_cat_decl) == (sym_categorize symtbl' Sym_cat_decl)
       Nothing -> (case sym_lookup symtbl (Sym_cat_func, declp) ident of
-                    Just r' -> Just r'
+                    Just r'@((_, (_, _)), symtbl'') | verify' symtbl symtbl'' -> Just r'
+                      where
+                        verify' :: Symtbl -> Symtbl -> Bool
+                        verify' symtbl symtbl' = (sym_categorize symtbl Sym_cat_func) == (sym_categorize symtbl' Sym_cat_func)
                     Nothing -> Nothing
                  )
   )
@@ -332,14 +344,19 @@ sym_lkup_rec symtbl ident =
   in
     lkup_rec_decl symtbl
   )
-sym_lkup_rec' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
-sym_lkup_rec' symtbl ident =
+sym_lkup_rec_decl' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
+sym_lkup_rec_decl' symtbl ident =
   ras_trace "in sym_lkup_rec_decl" (
   let declp a = case a of
                   Syn_rec_decl _ _ -> True
                   _ -> False
   in
-    sym_lookup symtbl (Sym_cat_record, declp) ident
+    case sym_lookup symtbl (Sym_cat_record, declp) ident of
+      Just r@((_, (_, _)), symtbl') | verify symtbl symtbl' -> Just r
+        where
+          verify :: Symtbl -> Symtbl -> Bool
+          verify symtbl symtbl' = (sym_categorize symtbl Sym_cat_record) == (sym_categorize symtbl' Sym_cat_record)
+      _ -> Nothing
   )
 
 sym_lkup_var :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
@@ -354,15 +371,15 @@ sym_lkup_var symtbl ident =
   in
     lkup_var_decl symtbl
   )
-sym_lkup_var' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
-sym_lkup_var' symtbl ident =
+sym_lkup_var_decl' :: Symtbl -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
+sym_lkup_var_decl' symtbl ident =
   ras_trace "in sym_lkup_var_decl" (
   let declp a = case a of
                   Syn_var_decl _ _ -> True
                   _ -> False
   in
     case sym_lookup symtbl (Sym_cat_decl, declp) ident of
-      Just r@((attr, (_, _)), symtbl') | verify symtbl' symtbl' -> Just r
+      Just r@((_, (_, _)), symtbl') | verify symtbl symtbl' -> Just r
         where
           verify :: Symtbl -> Symtbl -> Bool
           verify symtbl symtbl' = (sym_categorize symtbl Sym_cat_decl) == (sym_categorize symtbl' Sym_cat_decl)
@@ -3683,28 +3700,32 @@ main = do
 main :: IO ()
 main = do
   let symtbl = sym_enter_scope Nothing Sym_cat_decl
-  let (symtbl11, err11) = sym_regist False symtbl Sym_cat_decl ("alpha", Syn_val (Val_int 1) Ty_int)
-  let (symtbl12, err12) = sym_regist False symtbl11 Sym_cat_decl ("epsilon", Syn_var_decl "epsilon" Ty_string)
+
+  -- Lv.1
+  let (symtbl11, err11) = sym_regist False symtbl Sym_cat_decl ("eta", Syn_fun_decl "eta" [] (Syn_scope ([], Syn_none)) Ty_btm)
+  let (symtbl12, err12) = sym_regist False symtbl11 Sym_cat_decl ("alpha", Syn_val (Val_int 1) Ty_int)
+  let (symtbl13, err13) = sym_regist False symtbl12 Sym_cat_decl ("epsilon", Syn_var_decl "epsilon" Ty_string)
   
-  let symtbl2 = sym_enter_scope (Just symtbl12) Sym_cat_decl
+  -- Lv.2
+  let symtbl2 = sym_enter_scope (Just symtbl13) Sym_cat_decl
   --putStrLn (show $ sym_categorize symtbl2 Sym_cat_decl)
   --putStrLn (show $ sym_dump symtbl2 Sym_cat_decl)
-  
   let (symtbl21, err21) = sym_regist False symtbl2 Sym_cat_decl ("beta", Syn_var_decl "beta" Ty_bool)
   let (symtbl22, err22) = sym_regist False symtbl21 Sym_cat_decl ("gamma", Syn_fun_decl "gamma" [] (Syn_scope ([], Syn_none)) Ty_btm)
   let (symtbl23, err23) = sym_regist False symtbl22 Sym_cat_decl ("zeta", Syn_fun_decl "zeta" [] (Syn_scope ([], Syn_none)) Ty_btm)
   let (symtbl24, err24) = sym_regist False symtbl23 Sym_cat_decl ("kappa", Syn_var_decl "kappa" Ty_int)
   
+  -- Lv.3
   let symtbl3 = sym_enter_scope (Just symtbl24) Sym_cat_decl
   let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_var_decl "delta" Ty_bool)
   --let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_val (Val_bool False) Ty_bool)
   
-  let r31' = sym_lkup_var' symtbl31 "epsilon"
+  let r31' = sym_lkup_fun_decl' symtbl31 "eta"
   case r31' of
     Just ((found, h), symtbl31') -> do
       putStrLn ("found: " ++ (show found))
-      let attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl "epsilon" Ty_bool}
-      let r = sym_modify (symtbl31', h) "epsilon" attr_new
+      let attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_fun_decl "eta" [] (Syn_scope ([], Syn_none)) Ty_top}
+      let r = sym_modify (symtbl31', h) "eta" attr_new
       case r of
         Just ((attr', h'), symtbl31'') -> do
           putStrLn ("and changed to: " ++ (show attr'))
