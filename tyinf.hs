@@ -196,7 +196,7 @@ sym_search symtbl cat ident =
                                                        Nothing -> sym_search (sym_update symtbl cat sym_tbl') cat ident
                                                     )
   )
-sym_search' :: Sym_tbl -> String -> Maybe (Sym_attrib, (Sym_tbl, Sym_tbl))
+sym_search' :: Sym_tbl -> String -> (Maybe (Sym_attrib, (Sym_tbl, Sym_tbl)), [Error_codes])
 sym_search' sym_tbl ident =
   ras_trace "in sym_search" (
   let walk syms ident =
@@ -208,15 +208,15 @@ sym_search' sym_tbl ident =
                                       Just (cand, (pasts, remains)) -> Just (cand, (Sym_add sym pasts, remains))
   in
     case sym_tbl of
-      Scope_empty -> Nothing
+      Scope_empty -> (Nothing, [])
       Scope_add (lv, anon_idents, syms) sym_tbl' -> (case (walk syms ident) of
-                                                       Just (cand, (pasts, remains)) -> Just ((sym_attr cand), (pasts', remains'))
+                                                       Just (cand, (pasts, remains)) -> (Just ((sym_attr cand), (pasts', remains')), [])
                                                          where
                                                            pasts' = Scope_add (lv, anon_idents, pasts) Scope_empty
                                                            remains' = Scope_add (lv, anon_idents, remains) sym_tbl'
                                                        Nothing -> (case sym_search' sym_tbl' ident of
-                                                                     Nothing -> Nothing
-                                                                     Just (cand, (pasts, remains)) -> Just (cand, (Scope_add (lv, anon_idents, syms) pasts, remains))
+                                                                     (Just (cand, (pasts, remains)), err) -> (Just (cand, (Scope_add (lv, anon_idents, syms) pasts, remains)), err)
+                                                                     (Nothing, err) -> (Nothing, err)
                                                                   )
                                                     )
   )
@@ -275,24 +275,30 @@ sym_combine tbl1@(Scope_add (lv_1, anon_idents_1, syms_1) tbl1') tbl2@(Scope_add
     _ -> Scope_add (lv_1, anon_idents_1, syms_1) (sym_combine tbl1' tbl2)
   )
   
-sym_lookup :: Symtbl -> (Sym_category, Syntree_node -> Bool) -> String -> Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl)
+sym_lookup :: Symtbl -> (Sym_category, Syntree_node -> Bool) -> String -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
 sym_lookup symtbl (cat, declp) ident =
   ras_trace "in sym_lookup" (
   case sym_search' (sym_categorize symtbl cat) ident of
-    Nothing -> Nothing
-    Just (attr, h@(past, remains)) -> if declp (sym_attr_entity attr) then Just ((attr, (cat, h)), symtbl)
-                                      else
-                                        let remains' = case remains of
-                                                         Scope_add (_, _, Sym_empty) ps -> ps
-                                                         Scope_add (_, _, Sym_add s Sym_empty) ps -> ps
-                                                         Scope_add (lv, anon_idents, Sym_add s ss) ps -> Scope_add (lv, anon_idents, ss) ps
-                                        in
-                                          case sym_lookup (sym_update symtbl cat remains') (cat, declp) ident of
-                                            Just ((attr, (cat', (past', remains''))), _) | cat' == cat -> Just ((attr, (cat', (past'', remains''))), symtbl')
-                                              where
-                                                past'' = sym_combine past past'
-                                                symtbl' = sym_update symtbl cat $ sym_combine past'' remains''
-                                            _ -> Nothing
+    (Nothing, err) -> (Nothing, err)
+    (Just (attr, h@(past, remains)), err) -> if declp (sym_attr_entity attr) then (Just ((attr, (cat, h)), symtbl), err)
+                                             else
+                                               let remains' = case remains of
+                                                                Scope_add (_, _, Sym_empty) ps -> ps
+                                                                Scope_add (_, _, Sym_add s Sym_empty) ps -> ps
+                                                                Scope_add (lv, anon_idents, Sym_add s ss) ps -> Scope_add (lv, anon_idents, ss) ps
+                                               in
+                                                 case sym_lookup (sym_update symtbl cat remains') (cat, declp) ident of
+                                                   (Just ((attr, (cat', (past', remains''))), _), err) | cat' == cat -> (Just ((attr, (cat', (past'', remains''))), symtbl'), err)
+                                                     where
+                                                       past'' = sym_combine past past'
+                                                       symtbl' = sym_update symtbl cat $ sym_combine past'' remains''
+                                                   (Just ((attr, (cat', (past', remains''))), _), err) -> (Just ((attr, (cat', (past'', remains''))), symtbl'), err')
+                                                     where
+                                                       past'' = sym_combine past past'
+                                                       symtbl' = sym_update symtbl cat $ sym_combine past'' remains''
+                                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                       err' = err ++ [Internal_error errmsg]
+                                                   (Nothing, err) -> (Nothing, err)
   )
 sym_lkup_tydef_decl :: Symtbl -> String -> Maybe (Sym_attrib, Symtbl)
 sym_lkup_tydef_decl symtbl ident =
