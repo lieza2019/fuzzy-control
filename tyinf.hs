@@ -220,28 +220,7 @@ sym_search' sym_tbl ident =
                                                                   )
                                                     )
   )
-{- sym_combine :: Sym_tbl -> Sym_tbl -> Sym_tbl
-sym_combine tbl1@(Scope_add (lv_1, anon_idents_1, syms_1) tbl1') tbl2@(Scope_add (lv_2, anon_idents_2, syms_2) tbl2') =
-  ras_trace "in sym_combine" (
-  case tbl1' of
-    Scope_empty ->
-      -- assert ((lv_1 == lv_2) && (anon_idents_1 == anon_idents_2))
-      (case syms_2 of
-         Sym_empty -> Scope_add (lv_1, anon_idents_1, syms_1) tbl2'
-         _ -> (case syms_1 of
-                 Sym_empty -> tbl2
-                 _ -> Scope_add (lv_1, anon_idents_1, (cat syms_1 syms_2)) tbl2'
-              )
-      )
-      where
-        cat :: Symtbl_cluster -> Symtbl_cluster -> Symtbl_cluster
-        cat (Sym_add sym syms1') syms2 =
-          case syms1' of
-            Sym_empty -> Sym_add sym syms2
-            _ -> Sym_add sym (cat syms1' syms2)
-            
-    _ -> Scope_add (lv_1, anon_idents_1, syms_1) (sym_combine tbl1' tbl2)
-  ) -}
+
 sym_combine :: Sym_tbl -> Sym_tbl -> Sym_tbl
 sym_combine tbl1@(Scope_add (lv_1, anon_idents_1, syms_1) tbl1') tbl2@(Scope_add (lv_2, anon_idents_2, syms_2) tbl2') =
   ras_trace "in sym_combine" (
