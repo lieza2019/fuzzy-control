@@ -83,6 +83,11 @@ data Symtbl =
   Symtbl {sym_typedef :: Sym_tbl, sym_record :: Sym_tbl, sym_func :: Sym_tbl, sym_decl :: Sym_tbl, fresh_tvar :: Fresh_tvar}
   deriving (Eq, Ord, Show)
 
+type Sym_stack = (Maybe [Sym_tbl], [Sym_tbl])
+data Symtbl' =
+  Symtbl' {sym_typedef' :: Sym_stack, sym_record' :: Sym_stack, sym_func' :: Sym_stack, sym_decl' :: Sym_stack, fresh_tvar' :: Fresh_tvar}
+  deriving (Eq, Ord, Show)
+
 sym_categorize :: Symtbl -> Sym_category -> Sym_tbl
 sym_categorize symtbl cat =
   ras_trace "in sym_categorize" (
