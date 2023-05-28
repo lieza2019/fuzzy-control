@@ -740,7 +740,7 @@ sym_dump symtbl cat =
       show_attr (Sym_attrib {sym_attr_geometry = (row, col), sym_attr_entity = entity}) = show entity
   in
     traverse (sym_categorize symtbl cat) -}
-sym_dump :: Symtbl -> Sym_category -> [(String, [String])]
+{- sym_dump :: Symtbl -> Sym_category -> [(String, [String])]
 sym_dump symtbl cat =
   let traverse sym_tbl =
         case sym_tbl of
@@ -752,14 +752,60 @@ sym_dump symtbl cat =
           Sym_add (Sym_entry {sym_ident = id, sym_attr = a}) syms' -> ("<" ++ id ++ ", " ++ (show_attr a) ++ ">") : (walk syms')
       show_attr (Sym_attrib {sym_attr_geometry = (row, col), sym_attr_entity = entity}) = show entity
   in
-    traverse (sym_scope_right $ sym_categorize symtbl cat)
+    traverse (sym_scope_right $ sym_categorize symtbl cat) -}
+sym_dump' :: Symtbl -> Sym_category -> (Maybe [(String, [String])], Maybe [(String, [String])])
+sym_dump' symtbl cat =
+  let traverse sym_tbl =
+        case sym_tbl of
+          Scope_empty -> []
+          Scope_add (lv, anon_ident, syms) sym_tbl' -> (("lv " ++ (show lv) ++ ": ") ,(walk syms)) : (traverse sym_tbl')
+      walk syms =
+        case syms of
+          Sym_empty -> []
+          Sym_add (Sym_entry {sym_ident = id, sym_attr = a}) syms' -> ("<" ++ id ++ ", " ++ (show_attr a) ++ ">") : (walk syms')
+      show_attr (Sym_attrib {sym_attr_geometry = (row, col), sym_attr_entity = entity}) = show entity
+  in
+    let ldump = let ltbl = sym_scope_left $ sym_categorize symtbl cat
+                in
+                  case ltbl of
+                    Nothing -> Nothing
+                    Just ltbl' -> Just $ traverse ltbl'
+        rdump = Just $ traverse (sym_scope_right $ sym_categorize symtbl cat)
+    in
+      (ldump, rdump)
 
-print_symtbl :: Symtbl -> Sym_category -> IO ()
+{- print_symtbl :: Symtbl -> Sym_category -> IO ()
 print_symtbl symtbl cat =
   Prelude.foldl (\r -> \s -> do
                     r' <- r
                     putStrLn (show s)
-                ) (return ()) (sym_dump symtbl cat)
+                ) (return ()) (sym_dump symtbl cat) -}
+print_symtbl' :: Symtbl -> Sym_category -> IO ()
+print_symtbl' symtbl cat =
+  let (ldump, rdump) = sym_dump' symtbl cat
+  in
+    do
+      putStr "syms_left: "
+      case ldump of
+        Nothing -> putStrLn "Nothing."
+        Just ldump' -> do
+          putStrLn ""
+          Prelude.foldl (\r -> \s -> do
+                            r' <- r
+                            putStr " "
+                            putStrLn (show s)
+                        ) (return ()) ldump'
+      
+      putStr "syms_right:"
+      case rdump of
+        Nothing -> putStrLn "Nothing."
+        Just rdump' -> do
+          putStrLn ""
+          Prelude.foldl (\r -> \s -> do
+                            r' <- r
+                            putStr " "
+                            putStrLn (show s)
+                        ) (return ()) rdump'
 
 data Expr =
   Var String
@@ -4004,7 +4050,7 @@ main = do
               --let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_val (Val_bool False) Ty_bool)
               
               putStrLn "original: "
-              print_symtbl symtbl31 Sym_cat_decl
+              print_symtbl' symtbl31 Sym_cat_decl
               
               putStrLn "" >> putStrLn "" >> putStrLn "Ph.1:"
               let r31' = sym_lkup_fun_decl' symtbl31 "eta"
@@ -4019,25 +4065,67 @@ main = do
                       show_internalerr err
                       putStrLn ("and changed to: " ++ (show attr'))
                       putStrLn ""
-                      print_symtbl symtbl31'' Sym_cat_decl
+                      print_symtbl' symtbl31'' Sym_cat_decl
                       
                       putStrLn "" >> putStrLn "" >> putStrLn "Ph.2:"
                       let (symtbl24', err2') = sym_leave_scope symtbl31'' Sym_cat_decl
                       case sym_internalerr err2' of
                         e:es -> show_internalerr [e]
-                        [] -> print_symtbl symtbl24' Sym_cat_decl
+                        [] -> print_symtbl' symtbl24' Sym_cat_decl
                       
+                      putStrLn "" >> putStrLn "" >> putStrLn "Ph.3:"
+                      let r24'' = sym_lkup_fun_decl' symtbl24' "gamma"
+                      case r24'' of
+                        (Just ((found, h), symtbl24''), err) ->
+                          do
+                            case sym_internalerr err of
+                              e:es -> show_internalerr [e]
+                              [] -> do
+                                putStrLn ("found: " ++ (show found))
+                                let attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_fun_decl "gamma" [] (Syn_scope ([], Syn_none)) Ty_top}
+                                let r = sym_modify (symtbl24'', h) "gamma" attr_new
+                                case r of
+                                  (Just ((attr', h'), symtbl24'''), err) -> do
+                                    case sym_internalerr err of
+                                      e:es -> show_internalerr [e]
+                                      [] -> (do
+                                                putStrLn ("and changed to: " ++ (show attr'))
+                                                putStrLn ""
+                                                print_symtbl' symtbl24''' Sym_cat_decl
+                                                
+                                                putStrLn "" >> putStrLn "" >> putStrLn "Ph.4:"
+                                                let (symtbl13', err1') = sym_leave_scope symtbl24''' Sym_cat_decl
+                                                case sym_internalerr err1' of
+                                                  e:es -> show_internalerr [e]
+                                                  [] -> print_symtbl' symtbl13' Sym_cat_decl
+                                            )
+                                  (Nothing, err) -> do
+                                    case sym_internalerr err of
+                                      e:es -> show_internalerr [e]
+                                      [] -> (do
+                                                putStrLn "Failed to modify!"
+                                                putStrLn ""
+                                                print_symtbl' symtbl24'' Sym_cat_decl
+                                            )
+                        (Nothing, err) -> do
+                          case sym_internalerr err of
+                            e:es -> show_internalerr [e]
+                            [] -> (do
+                                      putStrLn "no registration."
+                                      putStrLn ""
+                                      print_symtbl' symtbl24' Sym_cat_decl
+                                  )
                     (Nothing, err) -> do
                       show_internalerr err
                       putStrLn "Failed to modify!"
                       putStrLn ""
-                      print_symtbl symtbl31' Sym_cat_decl
+                      print_symtbl' symtbl31' Sym_cat_decl
                 
                 (Nothing, err) -> do
                   show_internalerr err
                   putStrLn "no registration."
                   putStrLn ""
-                  print_symtbl symtbl31 Sym_cat_decl
+                  print_symtbl' symtbl31 Sym_cat_decl
   --return ()
     where
       show_internalerr :: [Error_codes] -> IO ()
