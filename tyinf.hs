@@ -3644,7 +3644,7 @@ ty_inf symtbl expr =
     _ -> return ((Ty_env [], expr), symtbl, []) -- Syn_none
 
 
-{- main :: IO ()
+main :: IO ()
 main = do
   -- src = "bool fun x => (2)"
   -- src = "int boola fun x => (2)"
@@ -3663,54 +3663,58 @@ main = do
   putStrLn $ "source:  " ++ (show src)
   putStrLn $ "tokens:  " ++ (show (tokens, src_remains))
   
-  symtbl <- return $ sym_enter_scope Nothing Sym_cat_decl
-  
+  let (symtbl, err0) = sym_enter_scope Nothing Sym_cat_decl
   (syn_forest, symtbl', tokens') <- do
-    r <- (do
-             r <- runExceptT $ cons_ptree symtbl tokens (True, True, True)
-             case r of
-               Left err_exc -> (do
-                                   print_excepts err_exc
-                                   return $ Left ()
-                               )
-               Right ((syn_tree, symtbl', tokens'), err) -> do
-                 case syn_tree of
-                   Just s_tree -> do
-                     r_ts <- cons_p_trees symtbl' tokens'
-                     return (case r_ts of
-                               Right ((s_ts, symtbl'', tokens''), errs) -> Right ((Just (s_tree:s_ts), symtbl'', tokens''), (err ++ errs))
-                               _ -> Left ()
-                            )
-                   _ -> return $ Right ((Nothing, symtbl', tokens'), err)
-                   
-                   where
-                   cons_p_trees symtbl tokens =
-                     case tokens of
-                       [] -> return $ Right (([], symtbl, []), [])
-                       (Tk_smcl:ts) -> do
-                         r <- runExceptT $ cons_ptree symtbl ts (True, True, True)
-                         case r of
-                           Left err_exc -> (do
-                                               print_excepts err_exc
-                                               return $ Left ()
-                                           )
-                           Right ((syn_tree, symtbl', ts'), err) -> (case syn_tree of
-                                                                       Just s_tree -> do
-                                                                         r_ts <- cons_p_trees symtbl' ts'
-                                                                         return (case r_ts of
-                                                                                   Right ((s_trees, symtbl'', ts''), err') -> Right ((s_tree:s_trees, symtbl'', ts''), (err ++ err'))
-                                                                                   _ -> Left ()
-                                                                                )
-                                                                       _ -> return $ Right (([], symtbl', ts'), err)
-                                                                    )
-                       ts -> return $ Right (([], symtbl, ts), [])
-         )
-    case r of
-      Left _ -> return (Nothing, symtbl, tokens)
-      Right (r', err) -> (do
-                             mapM_ (putStrLn . show) err
-                             return r'
-                         )
+    case sym_internalerr err0 of
+      e:es -> do
+        show_internalerr [e]
+        return (Nothing, symtbl, tokens)
+      _ -> do
+        r <- (do
+                 r <- runExceptT $ cons_ptree symtbl tokens (True, True, True)
+                 case r of
+                   Left err_exc -> (do
+                                       print_excepts err_exc
+                                       return $ Left ()
+                                   )
+                   Right ((syn_tree, symtbl', tokens'), err) -> do
+                     case syn_tree of
+                       Just s_tree -> do
+                         r_ts <- cons_p_trees symtbl' tokens'
+                         return (case r_ts of
+                                   Right ((s_ts, symtbl'', tokens''), errs) -> Right ((Just (s_tree:s_ts), symtbl'', tokens''), (err ++ errs))
+                                   _ -> Left ()
+                                )
+                       _ -> return $ Right ((Nothing, symtbl', tokens'), err)
+                     
+                       where
+                         cons_p_trees symtbl tokens =
+                           case tokens of
+                             [] -> return $ Right (([], symtbl, []), [])
+                             (Tk_smcl:ts) -> do
+                               r <- runExceptT $ cons_ptree symtbl ts (True, True, True)
+                               case r of
+                                 Left err_exc -> (do
+                                                     print_excepts err_exc
+                                                     return $ Left ()
+                                                 )
+                                 Right ((syn_tree, symtbl', ts'), err) -> (case syn_tree of
+                                                                             Just s_tree -> do
+                                                                               r_ts <- cons_p_trees symtbl' ts'
+                                                                               return (case r_ts of
+                                                                                         Right ((s_trees, symtbl'', ts''), err') -> Right ((s_tree:s_trees, symtbl'', ts''), (err ++ err'))
+                                                                                         _ -> Left ()
+                                                                                      )
+                                                                             _ -> return $ Right (([], symtbl', ts'), err)
+                                                                          )
+                             ts -> return $ Right (([], symtbl, ts), [])
+             )
+        case r of
+          Left _ -> return (Nothing, symtbl, tokens)
+          Right (r', err) -> (do
+                                 mapM_ (putStrLn . show) err
+                                 return r'
+                             )
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
   putStrLn $ "reconstruction: " ++ (case syn_forest of
                                       Nothing -> ""
@@ -3763,8 +3767,7 @@ main = do
 
   putStrLn ""
   putStr "simtbl:  "
-  --putStrLn $ show (sym_func symtbl')
-  putStrLn (show $ sym_dump symtbl' Sym_cat_decl)
+  print_symtbl symtbl' Sym_cat_decl
   
     where
       read_src :: Handle -> IO String
@@ -3776,14 +3779,23 @@ main = do
           str' <- read_src h
           return $ str ++ str'
       
+      show_internalerr :: [Error_codes] -> IO ()
+      show_internalerr err =
+        Prelude.mapM_ putStrLn $ Prelude.foldl (\s -> \e -> (case e of
+                                                               Internal_error msg -> s ++ [msg]
+                                                               _ -> s
+                                                            )
+                                               ) [] err
+      
       print_excepts :: Error_Excep -> IO ()
       print_excepts err = do
         let errmsg = case err of
                        Error_Excep Excep_assert_failed assert_msg -> assert_msg
                        Error_Excep _ errmsg -> errmsg
         putStrLn errmsg
-        return () -}
-main :: IO ()
+        return ()
+
+{- main :: IO ()  -- test code for symbol table management
 main = do
   -- Lv.1
   let (symtbl, err1) = sym_enter_scope Nothing Sym_cat_decl
@@ -3898,3 +3910,4 @@ main = do
                                                                _ -> s
                                                             )
                                                ) [] err
+-}
