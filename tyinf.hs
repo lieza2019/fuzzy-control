@@ -4003,6 +4003,11 @@ main = do
               let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_var_decl "delta" Ty_bool)
               --let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_val (Val_bool False) Ty_bool)
               
+              putStrLn "original: "
+              print_symtbl symtbl31 Sym_cat_decl
+              putStrLn ""
+              putStrLn ""
+              
               let r31' = sym_lkup_fun_decl' symtbl31 "eta"
               case r31' of
                 (Just ((found, h), symtbl31'), err) -> do
@@ -4015,7 +4020,7 @@ main = do
                       show_internalerr err
                       putStrLn ("and changed to: " ++ (show attr'))
                       putStrLn ""
-                      print_symtbl symtbl31'' Sym_cat_decl 
+                      print_symtbl symtbl31'' Sym_cat_decl
                     (Nothing, err) -> do
                       show_internalerr err
                       putStrLn "Failed to modify!"
