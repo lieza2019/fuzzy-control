@@ -4005,9 +4005,8 @@ main = do
               
               putStrLn "original: "
               print_symtbl symtbl31 Sym_cat_decl
-              putStrLn ""
-              putStrLn ""
               
+              putStrLn "" >> putStrLn "" >> putStrLn "Ph.1:"
               let r31' = sym_lkup_fun_decl' symtbl31 "eta"
               case r31' of
                 (Just ((found, h), symtbl31'), err) -> do
@@ -4021,6 +4020,13 @@ main = do
                       putStrLn ("and changed to: " ++ (show attr'))
                       putStrLn ""
                       print_symtbl symtbl31'' Sym_cat_decl
+                      
+                      putStrLn "" >> putStrLn "" >> putStrLn "Ph.2:"
+                      let (symtbl24', err2') = sym_leave_scope symtbl31'' Sym_cat_decl
+                      case sym_internalerr err2' of
+                        e:es -> show_internalerr [e]
+                        [] -> print_symtbl symtbl24' Sym_cat_decl
+                      
                     (Nothing, err) -> do
                       show_internalerr err
                       putStrLn "Failed to modify!"
@@ -4032,7 +4038,6 @@ main = do
                   putStrLn "no registration."
                   putStrLn ""
                   print_symtbl symtbl31 Sym_cat_decl
-  
   --return ()
     where
       show_internalerr :: [Error_codes] -> IO ()
