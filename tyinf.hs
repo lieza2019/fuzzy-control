@@ -150,11 +150,10 @@ sym_enter_scope symtbl cat =
                    let (sym_tbl', err) = case sym_tbl of
                                            (left, Scope_empty) -> ((left, Scope_add (1, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, Sym_empty) Scope_empty), err')
                                              where
+                                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                err' = case left of
                                                  Nothing -> []
                                                  _ -> [Internal_error errmsg]
-                                                   where
-                                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                            (left, r@(Scope_add (lv, sym_anon_ident, _) _)) -> ((left, Scope_add (lv + 1, sym_anon_ident, Sym_empty) r), [])
                    in
                      (sym_update stbl cat sym_tbl', err)
@@ -1583,6 +1582,8 @@ cons_fun_tree symtbl fun tokens =
                                                              (scp, err) -> (case sym_internalerr err of
                                                                                [] -> Right (scp, err)
                                                                                (Internal_error errmsg):es -> Left (Error_Excep Excep_assert_failed errmsg)
+                                                                                 where
+                                                                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                     in
                                                                                       Left (Error_Excep Excep_assert_failed loc)
@@ -2712,14 +2713,13 @@ ty_inf_expr symtbl expr =
                                             where
                                               errmsg = "failed to regist on symbol table, for " ++ v_id
                            --Nothing ->
-                           (Nothing, _) ->
-                             let (symtbl', reg_err) = sym_regist False symtbl Sym_cat_decl (v_id, expr)
-                             in
-                               case reg_err of
-                                 Nothing -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
-                                 Just err -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
-                                   where
-                                     errmsg = "failed to regist on symbol table, for " ++ v_id
+                           (Nothing, _) -> let (symtbl', reg_err) = sym_regist False symtbl Sym_cat_decl (v_id, expr)
+                                           in
+                                             case reg_err of
+                                               Nothing -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
+                                               Just err -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
+                                                 where
+                                                   errmsg = "failed to regist on symbol table, for " ++ v_id
     
     Syn_expr_asgn expr_l expr_r ty -> do
       ((env_l, expr_l_inf), symtbl_l, err_l) <- ty_inf symtbl expr_l
