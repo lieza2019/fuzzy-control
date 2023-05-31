@@ -1570,6 +1570,8 @@ cons_fun_tree symtbl fun tokens =
                                                              (scp, err) -> (case sym_internalerr err of
                                                                                [] -> Right (scp, err)
                                                                                (Internal_error errmsg):es -> Left (Error_Excep Excep_assert_failed errmsg)
+                                                                                 where
+                                                                                   errms g= __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                     in
                                                                                       Left (Error_Excep Excep_assert_failed loc)
