@@ -129,10 +129,11 @@ sym_leave_scope symtbl cat =
     let (sym_tbl', err) = case sym_tbl of
                             (left, Scope_empty) -> (sym_tbl, err')
                               where
-                                errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                 err' = case left of
                                          Nothing -> []
                                          _ -> [Internal_error errmsg]
+                                           where
+                                             errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                             (left, Scope_add crnt prev) -> (case left of
                                                               Nothing -> ((Just (Scope_add crnt Scope_empty), prev), [])
                                                               Just left' -> ((Just (Scope_add crnt left'), prev), [])
@@ -2703,7 +2704,7 @@ ty_inf_expr symtbl expr =
                                                                          errmsg = v_id ++ " should have the type of " ++ (show v_ty) ++ "."
                                 _ -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [Internal_error errmsg])
                                   where
-                                    errmsg = "ill-registration detected in symbol table, for " ++ v_id
+                                    errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                              )
                            Nothing -> let (symtbl', err_symreg) = sym_regist False symtbl Sym_cat_decl (v_id, Syn_var_decl v_id v_ty)
                                       in
