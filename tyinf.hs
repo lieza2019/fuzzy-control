@@ -129,10 +129,11 @@ sym_leave_scope symtbl cat =
     let (sym_tbl', err) = case sym_tbl of
                             (left, Scope_empty) -> (sym_tbl, err')
                               where
-                                errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                 err' = case left of
                                          Nothing -> []
                                          _ -> [Internal_error errmsg]
+                                           where
+                                             errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                             (left, Scope_add crnt prev) -> (case left of
                                                               Nothing -> ((Just (Scope_add crnt Scope_empty), prev), [])
                                                               Just left' -> ((Just (Scope_add crnt left'), prev), [])
@@ -302,8 +303,9 @@ sym_lookup symtbl (cat, declp) ident =
                                                        where
                                                          past'' = sym_combine past past'
                                                          symtbl' = sym_update symtbl cat (left, sym_combine past'' remains'')
-                                                         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                          err' = err ++ [Internal_error errmsg]
+                                                           where
+                                                             errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                      (Nothing, err) -> (Nothing, err)
   )
 
@@ -321,8 +323,9 @@ sym_lkup_tydef_decl symtbl ident =
           verify symtbl symtbl' = (sym_categorize symtbl Sym_cat_typedef) == (sym_categorize symtbl' Sym_cat_typedef)
       (r@(Just ((_, (_, _)), symtbl')), err) -> (r, err')
         where
-          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
           err' = err ++ [Internal_error errmsg]
+            where
+              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
       (Nothing, err) -> (Nothing, err)
   )
 
@@ -364,8 +367,9 @@ sym_lkup_fun_decl symtbl ident =
           verify symtbl symtbl' = (sym_categorize symtbl Sym_cat_decl) == (sym_categorize symtbl' Sym_cat_decl)
       (r@(Just ((_, (_, _)), symtbl')), err) -> (r, err')
         where
-          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
           err' = err ++ [Internal_error errmsg]
+            where
+              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
       (Nothing, err) -> (case sym_lookup symtbl (Sym_cat_func, declp) ident of
                            (r'@(Just ((_, (_, _)), symtbl'')), err') | verify' symtbl symtbl'' -> (r', err ++ err')
                              where
@@ -373,8 +377,9 @@ sym_lkup_fun_decl symtbl ident =
                                verify' symtbl symtbl' = (sym_categorize symtbl Sym_cat_func) == (sym_categorize symtbl' Sym_cat_func)
                            (r'@(Just ((_, (_, _)), symtbl'')), err') -> (r', err'')
                              where
-                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                err'' = err ++ err' ++ [Internal_error errmsg]
+                                 where
+                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                            (Nothing, err') -> (Nothing, err ++ err')
                         )
   )
@@ -393,8 +398,9 @@ sym_lkup_rec_decl symtbl ident =
           verify symtbl symtbl' = (sym_categorize symtbl Sym_cat_record) == (sym_categorize symtbl' Sym_cat_record)
       (r@(Just ((_, (_, _)), symtbl')), err) -> (r, err')
         where
-          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
           err' = err ++ [Internal_error errmsg]
+            where
+              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
       (Nothing, err) -> (Nothing, err)
   )
 
@@ -424,22 +430,29 @@ sym_lkup_var_decl symtbl ident =
           verify symtbl symtbl' = (sym_categorize symtbl Sym_cat_decl) == (sym_categorize symtbl' Sym_cat_decl)
       (r@(Just ((_, (_, _)), symtbl')), err) -> (r, err')
         where
-          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
           err' = err ++ [Internal_error errmsg]
+            where
+              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
       (Nothing, err) -> (Nothing, err)
   )
 
 sym_modify :: (Symtbl, (Sym_category, (Sym_tbl, Sym_tbl))) -> String -> Sym_attrib -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
 sym_modify (symtbl, (cat, (top, btm))) ident attr_new =
   ras_trace "in sym_modify" (
-  let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+  let errmsg = ""
       (left, sym_tbl) = sym_categorize symtbl cat
   in    
-    if (sym_combine top btm) /= sym_tbl then (Nothing, [Internal_error errmsg])
+    if (sym_combine top btm) /= sym_tbl then let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                             in
+                                               (Nothing, [Internal_error errmsg])
     else
       case btm of
         Scope_empty -> (Nothing, [Internal_error errmsg])
+          where
+            errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
         Scope_add (_, _, Sym_empty) ps -> (Nothing, [Internal_error errmsg])
+          where
+            errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
         Scope_add (lv, anon_idents, Sym_add s ss) ps -> (case modify s attr_new of
                                                            Right s' -> (Just ((sym_attr s', (cat, (top, btm'))), symtbl'), [])
                                                              where
@@ -459,6 +472,8 @@ sym_modify (symtbl, (cat, (top, btm))) ident attr_new =
                                                                 _ -> Right sym{sym_attr = attr_new}
                                                              )
                 _ -> Left [Internal_error errmsg]
+                  where
+                    errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
   )
 
 walk_on_scope :: Symtbl_cluster -> (String, Syntree_node) -> Maybe Symtbl_node
@@ -1213,9 +1228,9 @@ par_type_decl symtbl tokens =
                                 Tk_int:ts' -> (Right Ty_int, symtbl, ts')
                                 t:ts' -> (Left [Illegal_type_specified t], symtbl, ts)
                              )
-    _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-         in
-           throwE (Error_Excep Excep_assert_failed loc)
+    _ -> throwE (Error_Excep Excep_assert_failed loc)
+      where
+        loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
 
 
 cons_var_decl :: Symtbl -> Syntree_node -> [Tk_code] -> ExceptT Error_Excep IO ((Maybe Syntree_node, Symtbl, [Tk_code]), [Error_codes])
@@ -1235,9 +1250,9 @@ cons_var_decl symtbl var tokens =
       case r of
         Left err -> throwE err
         Right r' -> return r'
-    _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-         in
-           throwE (Error_Excep Excep_assert_failed loc)
+    _ -> throwE (Error_Excep Excep_assert_failed loc)
+      where
+        loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
 
 
 par_fun_decl :: Symtbl -> Syntree_node -> [Tk_code] -> ExceptT Error_Excep IO ((Syntree_node, Symtbl, [Tk_code]), [Error_codes])
@@ -1330,9 +1345,9 @@ par_fun_decl symtbl fun tokens =
                                  return (case r_arg of
                                            Left err -> Left err
                                            Right ((Just (Syn_var_decl arg_id arg_ty), symtbl', ts'), errs) -> Right ((Just (Syn_arg_decl arg_id arg_ty), symtbl', ts'), errs)
-                                           Right ((_, symtbl', ts'), errs) -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                              in
-                                                                                Left (Error_Excep Excep_assert_failed loc)
+                                           Right ((_, symtbl', ts'), errs) -> Left (Error_Excep Excep_assert_failed loc)
+                                             where
+                                               loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                         )
                                _ -> return $ Right ((Nothing, symtbl, tokens), [])
                             )
@@ -1355,9 +1370,9 @@ par_fun_decl symtbl fun tokens =
               Left err -> throwE err
               Right r' -> return r'
       
-      _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-           in
-             throwE (Error_Excep Excep_assert_failed loc)
+      _ -> throwE (Error_Excep Excep_assert_failed loc)
+        where
+          loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
 
 
 type Redef_omits = [(String, Syntree_node)]
@@ -1399,9 +1414,9 @@ exam_redef (args, omits) =
                                                           (Syn_fun_decl' id _ _ _) -> Right (as' ++ [(id, a)])
                                                           (Syn_arg_decl id _) -> Right (as' ++ [(id, a)])
                                                           (Syn_var_decl id _) -> Right (as' ++ [(id, a)])
-                                                          _ -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                               in
-                                                                 Left (Error_Excep Excep_assert_failed loc)
+                                                          _ -> Left (Error_Excep Excep_assert_failed loc)
+                                                            where
+                                                              loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                     )
                                       ) (Right []) args
       case args' of
@@ -1487,13 +1502,13 @@ parse_fun_body symtbl (decls, omits) tokens = do
                                   Left err_exc -> return $ Left err_exc
                                   Right (((env', (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) -> do
                                     return $ Right (((env', (decls'', omits'')), (stmt1'':stmts)), symtbl'', tokens'', (err1 ++ err_cont))
-                          _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                               in
-                                 return $ Left (Error_Excep Excep_assert_failed loc)
+                          _ -> return $ Left (Error_Excep Excep_assert_failed loc)
+                            where
+                              loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                       
-                      ((_, symtbl', tokens'), err) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                      in
-                                                        return $ Left (Error_Excep Excep_assert_failed loc)
+                      ((_, symtbl', tokens'), err) -> return $ Left (Error_Excep Excep_assert_failed loc)
+                        where
+                          loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
             )
   case r of
     Left err -> throwE err
@@ -1571,11 +1586,11 @@ cons_fun_tree symtbl fun tokens =
                                                                                [] -> Right (scp, err)
                                                                                (Internal_error errmsg):es -> Left (Error_Excep Excep_assert_failed errmsg)
                                                                                  where
-                                                                                   errms g= __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                               _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                    in
-                                                                                      Left (Error_Excep Excep_assert_failed loc)
-                                                                            )
+                                                                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                               _ -> Left (Error_Excep Excep_assert_failed loc)
+                                                                                 where
+                                                                                   loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                           )
                                                           ) of
                                                        Left err -> return $ Left err
                                                        Right (prev_scope, err_leave) ->
@@ -1599,23 +1614,22 @@ cons_fun_tree symtbl fun tokens =
                                                                    where
                                                                      errmsg = "Missing R brace to end up declaration of function body."
                                                              
-                                             _ -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                  in
-                                                    return $ Left (Error_Excep Excep_assert_failed loc)
+                                             _ -> return $ Left (Error_Excep Excep_assert_failed loc)
+                                               where
+                                                 loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                    )
                       
-                      _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                           in
-                             return $ Left (Error_Excep Excep_assert_failed loc)
+                      _ -> return $ Left (Error_Excep Excep_assert_failed loc)
+                        where
+                          loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                 )
       case r of
         Left err -> throwE err
         Right r' -> return r'
     
-    _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-         in
-           throwE (Error_Excep Excep_assert_failed loc)
-
+    _ -> throwE (Error_Excep Excep_assert_failed loc)
+      where
+        loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
 
 cons_ptree :: Symtbl -> [Tk_code] -> (Bool, Bool, Bool) -> ExceptT Error_Excep IO ((Maybe Syntree_node, Symtbl, [Tk_code]), [Error_codes])
 cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
@@ -1684,9 +1698,9 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                         case r of
                           Left err -> throwE err
                           Right r' -> return r'
-          _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-               in
-                 throwE  (Error_Excep Excep_assert_failed loc)
+          _ -> throwE  (Error_Excep Excep_assert_failed loc)
+            where
+              loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
         
         where
           is_bin_op op = (op == Ope_div) || (op == Ope_mul) || (op == Ope_sub) || (op == Ope_add)
@@ -1710,9 +1724,9 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                            Left exc -> Left exc
                                                        else
                                                          Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
-              _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                   in
-                     Left (Error_Excep Excep_assert_failed loc)
+              _ -> Left (Error_Excep Excep_assert_failed loc)
+                where
+                  loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
       
       par_fun_call symtbl fun_app tokens = do
         r <- lift (case fun_app of
@@ -1732,15 +1746,15 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                Left err_exc -> Left err_exc
                                                Right (((Syn_expr_call fun_id' args' fun_ty'), symtbl'', tokens''), err')
                                                  | fun_id' == fun_id -> Right (((Syn_expr_call fun_id' (arg:args') fun_ty'), symtbl'', tokens''), (err ++ err'))
-                                               _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                    in
-                                                      Left (Error_Excep Excep_assert_failed loc)
+                                               _ -> Left (Error_Excep Excep_assert_failed loc)
+                                                 where
+                                                   loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                             )
                                  _ -> return $ Right (((Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens'), err)
                              Right ((Nothing, symtbl', tokens'), err) -> return $ Right ((fun_app, symtbl', tokens'), err)
-                     _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                          in
-                            return $ Left (Error_Excep Excep_assert_failed loc)
+                     _ -> return $ Left (Error_Excep Excep_assert_failed loc)
+                       where
+                         loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                   )
         case r of
           Left err -> throwE err
@@ -1830,9 +1844,9 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                       Syn_fun_decl' _ _ _ _ -> Right True
                                       Syn_rec_decl _ _ -> Right True
                                       Syn_var_decl _ _ -> Right True
-                                      Syn_arg_decl _ _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                          in
-                                                            Left (Error_Excep Excep_assert_failed loc)
+                                      Syn_arg_decl _ _ -> Left (Error_Excep Excep_assert_failed loc)
+                                        where
+                                          loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                       _ -> Right False  -- including the case of Syn_none
                                   
                                   tail_comp :: Syntree_node -> IO (Either Error_Excep Bool)
@@ -1845,9 +1859,9 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                --Syn_fun_decl' String [Syntree_node] Syntree_node (Ty_env, Type)
                                                Syn_fun_decl' _ _ _ _ -> Right True
                                                --Syn_arg_decl String Type
-                                               Syn_arg_decl _ _ -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                   in
-                                                                     Left (Error_Excep Excep_assert_failed loc)
+                                               Syn_arg_decl _ _ -> Left (Error_Excep Excep_assert_failed loc)
+                                                 where
+                                                   loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                --Syn_rec_decl String Type
                                                Syn_rec_decl _ _ -> Right False
                                                --Syn_var_decl String Type
@@ -1892,9 +1906,9 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                         case r_stmt of
                                           Left err_exc -> return $ Left err_exc
                                           Right ((Nothing, symtbl', ts'), err) -> cat_err err_delim (return $ Right (((decls, stmts), symtbl', ts'), err))
-                                          Right ((Just Syn_none, symtbl', ts'), err) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                        in
-                                                                                          return $ Left (Error_Excep Excep_assert_failed loc)
+                                          Right ((Just Syn_none, symtbl', ts'), err) -> return $ Left (Error_Excep Excep_assert_failed loc)
+                                            where
+                                              loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                           Right ((Just stmt, symtbl', ts'), err) -> do
                                             needs_delim <- tail_comp stmt
                                             case needs_delim of
@@ -2061,9 +2075,9 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                               case r_fdecl of
                                 Left err -> return $ Left err
                                 Right ((fun'@(Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty')), symtbl', tokens'), errs) -> return $ Right ((Just fun', symtbl', tokens'), errs)
-                                Right ((_, symtbl', tokens'), errs) -> let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                       in
-                                                                         return $ Left (Error_Excep Excep_assert_failed loc)
+                                Right ((_, symtbl', tokens'), errs) -> return $ Left (Error_Excep Excep_assert_failed loc)
+                                  where
+                                    loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                           )
                 case r of
                   Left err -> throwE err
@@ -2442,9 +2456,9 @@ ty_curve (expr, prev_tvar) = do
         Left err -> throwE err
         Right r' -> return r'
 
-    Syn_val _ Ty_abs -> let loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                        in
-                          throwE (Error_Excep Excep_assert_failed loc)
+    Syn_val _ Ty_abs -> throwE (Error_Excep Excep_assert_failed loc)
+      where
+        loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
     
     _ -> return (expr, prev_tvar) -- including the case of  Syn_tydef_decl, Syn_rec_decl, and Syn_none.
   
@@ -2633,7 +2647,7 @@ ty_inf_expr symtbl expr =
                                                                             )
                                  _ -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
                                    where
-                                     errmsg = "ill-registration detected in symbol table, for " ++ v_id
+                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                              )
                            --Nothing ->
                            (Nothing, _) ->
@@ -2643,7 +2657,7 @@ ty_inf_expr symtbl expr =
                                  Nothing -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
                                  Just err -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
                                    where
-                                     errmsg = "failed to regist on symbol table, for " ++ v_id
+                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
     
     Syn_expr_asgn expr_l expr_r ty -> do
       ((env_l, expr_l_inf), symtbl_l, err_l) <- ty_inf symtbl expr_l
@@ -3437,7 +3451,7 @@ ty_inf symtbl expr =
                              -- for Syn_scope, Syn_tydef_decl ,Syn_fun_decl, Syn_arg_decl, Syn_rec_decl, Syn_var_decl, Syn_expr_seq and Syn_none
                              _ -> assert False (
                                     do
-                                      errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                      let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                       throwE ((Ty_env [], arg_app), symtbl, [Internal_error errmsg])
                                     )
                      in
@@ -3508,7 +3522,7 @@ ty_inf symtbl expr =
                                                                             in
                                                                               assert False (
                                                                                 do
-                                                                                  errmsg <-  return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                  let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                   Left ((env_call_inf, Syn_expr_call fun_id f_args_inf ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
                                                                                 )
                                                            Left (ty'@(Ty_fun _ f_ty'), _) ->
@@ -3516,7 +3530,7 @@ ty_inf symtbl expr =
                                                              in
                                                                assert False (
                                                                  do
-                                                                   errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                   let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                    Left ((env_call_inf, Syn_expr_call fun_id args_inf ty'), symtbl'', (errs_args ++ [Internal_error errmsg]))
                                                                  )
                                                      Nothing ->
@@ -3541,7 +3555,7 @@ ty_inf symtbl expr =
                                                            Right ((envs_acc, ty_args_acc), substs) ->
                                                              assert False ( -- Its also seems to be internal error, for the fact that whole unification had even failed above.
                                                                do
-                                                                 errmsg <- return $ __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                 let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                  result (envs_acc, ty_args_acc) substs [Internal_error errmsg]
                                                                )
                                                            Left (((envs_acc, ty_args_acc), substs), _, errs) -> result (envs_acc, ty_args_acc) substs errs
