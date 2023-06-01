@@ -151,10 +151,11 @@ sym_enter_scope symtbl cat =
                    let (sym_tbl', err) = case sym_tbl of
                                            (left, Scope_empty) -> ((left, Scope_add (1, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, Sym_empty) Scope_empty), err')
                                              where
-                                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                err' = case left of
                                                  Nothing -> []
                                                  _ -> [Internal_error errmsg]
+                                                   where
+                                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                            (left, r@(Scope_add (lv, sym_anon_ident, _) _)) -> ((left, Scope_add (lv + 1, sym_anon_ident, Sym_empty) r), [])
                    in
                      (sym_update stbl cat sym_tbl', err)
