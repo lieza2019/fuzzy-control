@@ -2586,43 +2586,43 @@ ty_overlap_env1 :: Ty_env -> Ty_env -> ((Ty_env, Ty_env), [Equation])
 ty_overlap_env1 env1 env2 =
   case env1 of
     Ty_env [] -> ((env1, env2), [])
-    Ty_env ((b1, s1):bs1) -> case env2 of
-                               Ty_env [] -> ((env1, env2), [])
-                               Ty_env ((b2, s2):bs2) -> let overlaps = Set.intersection (Set.fromList $ Prelude.map fst b1) (Set.fromList $ Prelude.map fst b2)
-                                                        in
-                                                          case Set.toList overlaps of
-                                                            [] -> ((env1, env2), [])
-                                                            vs -> (case enum_equs vs (b1, b2) of
-                                                                     --((b1', b2'), equs) -> ((Ty_env es1', Ty_env es2'), equs)
-                                                                     ((b1', b2'), equs) -> ((Ty_env ((b1', s1):bs1), Ty_env ((b2', s2):bs2)), equs)
-                                                                  )
-                                 where
-                                   enum_equs :: [String] -> ([(String, Type)], [(String, Type)]) -> (([(String, Type)], [(String, Type)]), [Equation])
-                                   enum_equs overlaps (b1, b2) =
-                                     case overlaps of
-                                       [] -> ((b1, b2), [])
-                                       (v:vs) -> (case (Prelude.lookup v b1, Prelude.lookup v b2) of
-                                                    (Just ty1, Just ty2) -> (case ty_lcs ty1 ty2 of
-                                                                               Just lcs -> go_on v (ty1, ty2, lcs)
-                                                                               Nothing -> (case ty_lcs ty2 ty1 of
-                                                                                             Just lcs' -> go_on v (ty1, ty2, lcs')
-                                                                                             Nothing -> (case enum_equs vs (b1, b2) of
-                                                                                                           ((b1', b2'), equs) -> ((b1', b2'), (ty1, ty2):equs)
-                                                                                                        )
-                                                                                          )
-                                                                            )
-                                                      where
-                                                        promote :: Type -> Type -> Type
-                                                        promote ty_orig ty_prom = if ty_orig == ty_prom then ty_orig else (Ty_prom ty_orig ty_prom)
-                                                        
-                                                        go_on :: String -> (Type, Type, Type) -> (([(String, Type)], [(String, Type)]), [Equation])
-                                                        go_on var_id (ty1, ty2, ty_lcs) =
-                                                          let s_b1' = Set.toList $ Set.difference (Set.fromList b1) (Set.fromList [(var_id, ty1)])
-                                                              s_b2' = Set.toList $ Set.difference (Set.fromList b2) (Set.fromList [(var_id, ty2)])
-                                                          in
-                                                            enum_equs vs (((var_id, promote ty1 ty_lcs):s_b1'), ((var_id, promote ty2 ty_lcs):s_b2'))
-                                                    _ -> enum_equs vs (b1, b2)
-                                                 )
+    Ty_env ((bs1, s1):bss1) -> case env2 of
+                                 Ty_env [] -> ((env1, env2), [])
+                                 Ty_env ((bs2, s2):bss2) -> let overlaps = Set.intersection (Set.fromList $ Prelude.map fst bs1) (Set.fromList $ Prelude.map fst bs2)
+                                                            in
+                                                              case Set.toList overlaps of
+                                                                [] -> ((env1, env2), [])
+                                                                vs -> (case enum_equs vs (bs1, bs2) of
+                                                                         --((bs1', bs2'), equs) -> ((Ty_env es1', Ty_env es2'), equs)
+                                                                         ((bs1', bs2'), equs) -> ((Ty_env ((bs1', s1):bss1), Ty_env ((bs2', s2):bss2)), equs)
+                                                                      )
+                                   where
+                                     enum_equs :: [String] -> ([(String, Type)], [(String, Type)]) -> (([(String, Type)], [(String, Type)]), [Equation])
+                                     enum_equs overlaps (bs1, bs2) =
+                                       case overlaps of
+                                         [] -> ((bs1, bs2), [])
+                                         (v:vs) -> (case (Prelude.lookup v bs1, Prelude.lookup v bs2) of
+                                                      (Just ty1, Just ty2) -> (case ty_lcs ty1 ty2 of
+                                                                                 Just lcs -> go_on v (ty1, ty2, lcs)
+                                                                                 Nothing -> (case ty_lcs ty2 ty1 of
+                                                                                               Just lcs' -> go_on v (ty1, ty2, lcs')
+                                                                                               Nothing -> (case enum_equs vs (bs1, bs2) of
+                                                                                                             ((bs1', bs2'), equs) -> ((bs1', bs2'), (ty1, ty2):equs)
+                                                                                                          )
+                                                                                            )
+                                                                              )
+                                                        where
+                                                          promote :: Type -> Type -> Type
+                                                          promote ty_orig ty_prom = if ty_orig == ty_prom then ty_orig else (Ty_prom ty_orig ty_prom)
+                                                          
+                                                          go_on :: String -> (Type, Type, Type) -> (([(String, Type)], [(String, Type)]), [Equation])
+                                                          go_on var_id (ty1, ty2, ty_lcs) =
+                                                            let s_bs1' = Set.toList $ Set.difference (Set.fromList bs1) (Set.fromList [(var_id, ty1)])
+                                                                s_bs2' = Set.toList $ Set.difference (Set.fromList bs2) (Set.fromList [(var_id, ty2)])
+                                                            in
+                                                              enum_equs vs (((var_id, promote ty1 ty_lcs):s_bs1'), ((var_id, promote ty2 ty_lcs):s_bs2'))
+                                                      _ -> enum_equs vs (bs1, bs2)
+                                                   )
 
 
 ty_cat_env :: Ty_env -> Ty_env -> Ty_env
@@ -2669,7 +2669,6 @@ ty_merge_env env_1 env_2 =
                                                                            )
                                                                 return $ e1_bs'' ++ [(id, ty)]
                                                             ) (Just env1_binds) env2_binds
-        
 
 
 ty_inf_expr :: Symtbl -> Syntree_node -> ExceptT ((Ty_env, Syntree_node), Symtbl, [Error_codes]) IO ((Ty_env, Syntree_node), Symtbl, [Error_codes])
@@ -2682,80 +2681,65 @@ ty_inf_expr symtbl expr =
     Syn_val (Val_str s) ty_s -> if (ty_s == Ty_string) then return ((Ty_env [], expr), symtbl, [])
                                 else throwE ((Ty_env [], expr), symtbl, [Illtyped_constant])
     Syn_var v_id v_ty -> case sym_lkup_var_decl symtbl v_id of
-                           --Just (Sym_attrib { sym_attr_entity = v_attr }, symtbl') ->
-                           (Just ((Sym_attrib { sym_attr_entity = v_attr }, (_, _)), symtbl'), _) ->
-                             (case v_attr of
-<<<<<<< HEAD
-                                Syn_var_decl v_id' v_ty_decl | v_id == v_id' ->
-                                                               {- (case ty_lcs v_ty v_ty_decl of
-                                                                  Just lcs -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
-                                                                  Nothing -> let equ = (v_ty, v_ty_decl)
-                                                                             in
-                                                                               case ty_unif [equ] of
-                                                                                 Just u_var -> let env' = Ty_env [(v_id, (ty_subst u_var v_ty))]
-                                                                                                   expr' = Syn_var v_id (ty_subst u_var v_ty)
-                                                                                               in
-                                                                                                 return ((env', expr'), symtbl', [])
-                                                                                 Nothing -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Type_constraint_mismatched errmsg])
-                                                                                   where
-                                                                                     errmsg = "type of " ++ v_id ++ " does'nt meet with its declaration."
-                                                               ) -}
-                                                               if v_ty_decl == v_ty then return ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [])
-                                                               else
-                                                                 let equ = (v_ty, v_ty_decl)
-                                                                 in
-                                                                   case ty_unif [equ] of
-                                                                     Just u_var -> do
-                                                                       let env' = Ty_env [([(v_id, (ty_subst u_var v_ty))], u_var)]
-                                                                       let expr' = Syn_var v_id (ty_subst u_var v_t)
-                                                                       -- re-registration of v_id with the type of (ty_subst u_var v_ty), here.
-                                                                       {- let (symtbl'', err_symreg) = sym_regist True symtbl' Sym_cat_decl (v_id, Syn_var_decl v_id (ty_subst u_var v_ty))
-                                                                       case err_symreg of
-                                                                         Just e_reg -> throwE ((env', expr'), symtbl', [e_reg])
-                                                                         Nothing -> return ((env', expr'), symtbl', []) -}
-                                                                       return ((env', expr'), symtbl', [])
-                                                                       
-                                                                     Nothing -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [Type_constraint_mismatched errmsg])
-                                                                       where
-                                                                         errmsg = v_id ++ " should have the type of " ++ (show v_ty) ++ "."
-                                _ -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [Internal_error errmsg])
-                                  where
-                                    errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-=======
-                                 Syn_var v_id' v_ty_decl | v_id == v_id' -> (case ty_lcs v_ty v_ty_decl of
-                                                                               Just lcs -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
-                                                                               Nothing -> let equ = (v_ty, v_ty_decl)
-                                                                                          in
-                                                                                            case ty_unif [equ] of
-                                                                                              Just u_var -> let env' = Ty_env [(v_id, (ty_subst u_var v_ty))]
-                                                                                                                expr' = Syn_var v_id (ty_subst u_var v_ty)
-                                                                                                            in
-                                                                                                              return ((env', expr'), symtbl', [])
-                                                                                              Nothing -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Type_constraint_mismatched errmsg])
-                                                                                                where
-                                                                                                  errmsg = "type of " ++ v_id ++ " does'nt meet with its declaration."
-                                                                            )
-                                 _ -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
-                                   where
-                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
->>>>>>> main
-                             )
-                           Nothing -> let (symtbl', err_symreg) = sym_regist False symtbl Sym_cat_decl (v_id, Syn_var_decl v_id v_ty)
-                                      in
-                                        case err_symreg of
-                                          Nothing -> ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [])
-                                          Just e_reg -> ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', [Internal_error errmsg])
-                                            where
-                                              errmsg = "failed to regist on symbol table, for " ++ v_id
-                           --Nothing ->
-                           (Nothing, _) ->
-                             let (symtbl', reg_err) = sym_regist False symtbl Sym_cat_decl (v_id, expr)
-                             in
-                               case reg_err of
-                                 Nothing -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
-                                 Just err -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
-                                   where
-                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+      (r_lok, err_lok) | sym_internalerr err_lok /= [] -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl, (Internal_error errmsg):err_lok)
+        where
+          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+      (Just ((Sym_attrib { sym_attr_entity = v_attr }, h), symtbl'), err_lok) ->
+        (case v_attr of
+           Syn_var_decl v_id' v_ty_decl | v_id == v_id' ->
+                                          {- (case ty_lcs v_ty v_ty_decl of
+                                             Just lcs -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
+                                             Nothing -> let equ = (v_ty, v_ty_decl)
+                                                        in
+                                                          case ty_unif [equ] of
+                                                            Just u_var -> let env' = Ty_env [(v_id, (ty_subst u_var v_ty))]
+                                                                              expr' = Syn_var v_id (ty_subst u_var v_ty)
+                                                                          in
+                                                                            return ((env', expr'), symtbl', [])
+                                                            Nothing -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Type_constraint_mismatched errmsg])
+                                                              where
+                                                                errmsg = "type of " ++ v_id ++ " does'nt meet with its declaration."
+                                          ) -}
+                                          if v_ty_decl == v_ty then return ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', err_lok)
+                                          else
+                                            let equ = (v_ty, v_ty_decl)
+                                            in
+                                              case ty_unif [equ] of
+                                                Just u_var -> do
+                                                  let v_ty' = ty_subst u_var v_ty
+                                                  let env' = Ty_env [([(v_id, v_ty')], u_var)]
+                                                  let expr' = Syn_var v_id v_ty'
+                                                  -- re-registration of v_id with the type of v_ty'.
+                                                  let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl v_id v_ty'}
+                                                  let (r_mod, err_mod) = sym_modify (symtbl', h) v_id v_attr_new
+                                                  let err' = err_lok ++ err_mod
+                                                  case r_mod of
+                                                    Just ((a, _), symtbl'') -> if (sym_internalerr err_mod == []) && (a == v_attr_new) then return ((env', expr'), symtbl'', err')
+                                                                               else
+                                                                                 let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                 in
+                                                                                   throwE ((env', expr'), symtbl'', (Internal_error errmsg):err')
+                                                    
+                                                    Nothing -> throwE ((env', expr'), symtbl', (Internal_error errmsg):err')
+                                                      where
+                                                        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                
+                                                Nothing -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', (Type_constraint_mismatched errmsg):err')
+                                                  where
+                                                    errmsg = v_id ++ " should have the type of " ++ (show v_ty) ++ "."
+           _ -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', (Internal_error errmsg):err_lok)
+             where
+               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+        )
+      
+      (Nothing, err_lok) -> let (symtbl', err_reg) = sym_regist False symtbl Sym_cat_decl (v_id, Syn_var_decl v_id v_ty)
+                                err' = err_lok ++ err_reg
+                            in
+                              if sym_internalerr err_reg == [] then return ((Ty_env [(v_id, v_ty)], expr), symtbl', err')
+                              else
+                                let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                in
+                                  throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', (Internal_error errmsg):err')
     
     Syn_expr_asgn expr_l expr_r ty -> do
       ((env_l, expr_l_inf), symtbl_l, err_l) <- ty_inf symtbl expr_l
