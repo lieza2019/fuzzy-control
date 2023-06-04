@@ -2724,7 +2724,7 @@ ty_inf_expr symtbl expr =
                                                       where
                                                         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                 
-                                                Nothing -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', (Type_constraint_mismatched errmsg):err')
+                                                Nothing -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', (Type_constraint_mismatched errmsg):err_lok)
                                                   where
                                                     errmsg = v_id ++ " should have the type of " ++ (show v_ty) ++ "."
            _ -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', (Internal_error errmsg):err_lok)
