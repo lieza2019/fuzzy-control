@@ -508,21 +508,22 @@ walk_on_scope sym_cluster (ident, entity) =
                           else walk_on_scope syms (ident, entity)
       Sym_empty -> Nothing
   )
-sym_regist :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> (Symtbl, Maybe Error_codes)
+
+sym_regist :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> (Symtbl, [Error_codes])
 sym_regist ovwt symtbl cat (ident, entity) =
   ras_trace "in sym_regist" (
   let reg_sym sym_tbl (ident, sym) =
         case sym_tbl of
-          Scope_empty -> ((Scope_add (0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, (Sym_add sym Sym_empty)) Scope_empty), Nothing)            
+          Scope_empty -> ((Scope_add (0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, (Sym_add sym Sym_empty)) Scope_empty), [])
           Scope_add (lv, anon_idents, syms) scps -> (case syms of
-                                                       Sym_empty -> ((Scope_add (lv, anon_idents, (Sym_add sym Sym_empty)) scps), Nothing)
+                                                       Sym_empty -> ((Scope_add (lv, anon_idents, (Sym_add sym Sym_empty)) scps), [])
                                                        Sym_add _ _ -> (case walk_on_scope syms (ident, (sym_attr_entity . sym_attr) sym) of
-                                                                         Just e -> if (not ovwt) then (sym_tbl, Just (Symbol_redefinition errmsg))
-                                                                                   else ((Scope_add (lv, anon_idents, (Sym_add sym syms)) scps), Nothing)
+                                                                         Just e -> if (not ovwt) then (sym_tbl, [Symbol_redefinition errmsg])
+                                                                                   else ((Scope_add (lv, anon_idents, (Sym_add sym syms)) scps), [])
                                                                            where
                                                                              errmsg = "symbol table error, failed to register, " ++
                                                                                       "for detection of pre registered object with same identifier as " ++ ident
-                                                                         Nothing -> ((Scope_add (lv, anon_idents, (Sym_add sym syms)) scps), Nothing)
+                                                                         Nothing -> ((Scope_add (lv, anon_idents, (Sym_add sym syms)) scps), [])
                                                                       )
                                                     )
       (left, sym_tbl) = sym_categorize symtbl cat
@@ -1548,14 +1549,10 @@ cons_fun_tree symtbl fun tokens =
                                            let lv_before = sym_crnt_level $ sym_scope_right (sym_decl symtbl'')
                                            let (new_scope, errs_argreg) =
                                                  Prelude.foldl (\(stbl, es) -> \arg@(Syn_arg_decl id _) -> case sym_regist False stbl Sym_cat_decl (id, arg) of
-                                                                                                             (stbl', Just err_reg) -> (stbl', (es ++ [err_reg]))
-                                                                                                             (stbl', Nothing) -> (stbl', es)
+                                                                                                             (stbl', err_reg) -> (stbl', (es ++ err_reg))
                                                                ) (sym_enter_scope (Just symtbl'') Sym_cat_decl) args''
                                            
-                                           let errs0 = errs ++ errs_args ++ errs_parse ++ (case err_funreg of
-                                                                                             Just e -> [e]
-                                                                                             Nothing -> []
-                                                                                          ) ++ errs_argreg
+                                           let errs0 = errs ++ errs_args ++ errs_parse ++ err_funreg ++ errs_argreg
                                            case fun_body' of
                                              (Syn_scope ([], Syn_none)) -> do
                                                r_body <- runExceptT $ parse_fun_body new_scope (args'', omits) ts'
@@ -1599,14 +1596,15 @@ cons_fun_tree symtbl fun tokens =
                                                                                                                                        return $ Left (Error_Excep Excep_assert_failed loc)
                                                          else
                                                            do
-                                                             let (prev_scope', err_funreg') = sym_regist (case err_funreg of
-                                                                                                            Just (Symbol_redefinition _) -> False
-                                                                                                            _ -> True
+                                                             let (prev_scope', err_funreg') = sym_regist (Prelude.foldl (\cont -> \e -> (if cont then
+                                                                                                                                           case e of
+                                                                                                                                             Symbol_redefinition _ -> False
+                                                                                                                                             _ -> True
+                                                                                                                                         else False
+                                                                                                                                        )
+                                                                                                                        ) True err_funreg
                                                                                                          ) prev_scope Sym_cat_func (fun_id', fun'')
-                                                             let errs1 = errs0 ++ errs_body ++ err_leave ++ (case err_funreg' of
-                                                                                                               Just e -> [e]
-                                                                                                               Nothing -> []
-                                                                                                            )
+                                                             let errs1 = errs0 ++ errs_body ++ err_leave ++ err_funreg'
                                                              case ts'' of
                                                                Tk_R_bra:tokens'' -> return $ Right ((fun'', prev_scope', tokens''), errs1)
                                                                _ -> do
@@ -2103,10 +2101,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                           Left err -> return $ Left err
                                           Right ((Just (var_decl@(Syn_var_decl var_id var_ty)), symtbl', tokens'), errs) -> do
                                             let (symtbl'', err_symreg) = sym_regist False symtbl' Sym_cat_decl (var_id, var_decl)
-                                            let errs' = errs ++ (case err_symreg of
-                                                                   Just e_reg  -> [e_reg]
-                                                                   Nothing -> []
-                                                                )
+                                            let errs' = errs ++ err_symreg
                                             return $ Right ((Just var_decl, symtbl'', tokens'), errs')
                                           Right ((_, symtbl', tokens'), errs) -> return $ Right ((Nothing, symtbl', tokens'), errs)
                                       
@@ -2654,8 +2649,8 @@ ty_inf_expr symtbl expr =
                              let (symtbl', reg_err) = sym_regist False symtbl Sym_cat_decl (v_id, expr)
                              in
                                case reg_err of
-                                 Nothing -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
-                                 Just err -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
+                                 [] -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
+                                 _ -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Internal_error errmsg])
                                    where
                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
     
