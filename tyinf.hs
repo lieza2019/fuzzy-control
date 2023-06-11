@@ -3666,16 +3666,15 @@ ty_inf symtbl expr =
                                                 (b_groups, remains) -> assert ((length remains) == 0) $ gen_equs b_groups
                                             equs_over_args ty_params args =
                                               let ty_args = Prelude.map syn_node_typeof args
+                                                  equs = zip ty_params ty_args
+                                                  equs' = Prelude.foldl (\es -> \(ty_p, ty_a) -> es ++ (if (ty_p == ty_a) then [] else [(ty_p, ty_a)])) [] equs
                                               in
-                                                let equs = zip ty_params ty_args
-                                                    equs' = Prelude.foldl (\es -> \(ty_p, ty_a) -> es ++ (if (ty_p == ty_a) then [] else [(ty_p, ty_a)])) [] equs
-                                                in
-                                                  assert ((length ty_params) == (length ty_args)) equs'
+                                                assert ((length ty_params) == (length ty_args)) equs'
                                             union_binds envs =
                                               case envs of
                                                 [] -> []
                                                 (Ty_env []):es -> union_binds es
-                                                (Ty_env bs):es -> Set.toList $ Set.union (Set.fromList bs) (Set.fromList (union_binds es))
+                                                (Ty_env ((bs, _):_)):es -> Set.toList $ Set.union (Set.fromList bs) (Set.fromList (union_binds es))
                                             group_binds (groups, remains) =
                                               case remains of
                                                 [] -> (groups, [])
@@ -3688,15 +3687,15 @@ ty_inf symtbl expr =
                                               case b_groups of
                                                 [] -> []
                                                 [b]:gs -> gen_equs gs
-                                                g:gs -> (enum_equs g) ++ (gen_equs gs)
+                                                g:gs -> (Set.toList (enum_equs' g)) ++ (gen_equs gs)
                                                   where
-                                                    enum_equs binds =
+                                                    enum_equs' binds =
                                                       case binds of
-                                                        [] -> []
-                                                        (v_id, ty):bs ->
-                                                          let equs = Prelude.foldl (\es -> \(v_id', ty') -> assert (v_id' == v_id) (if (ty' == ty) then (es ++ [(ty, ty')]) else es)) [] bs
-                                                          in
-                                                            equs ++ (enum_equs bs)
+                                                        [] -> Set.fromList []
+                                                        (v_id, ty):bs -> Set.union (Set.fromList equs) (enum_equs' bs)
+                                                          where
+                                                            equs = Prelude.foldl (\es -> \(v_id', ty') -> assert (v_id' /= v_id) (if (ty' == ty) then (es ++ [(ty, ty')]) else es)) [] bs
+                           
                            Left ((judges_args, errs_args), symtbl'', ((f_args_matched, acc_args), f_args_remain)) ->
                              let args_ty = Prelude.foldl (\a_ts -> \a -> (a_ts ++ [syn_node_typeof a])) [] f_args_remain
                              in
