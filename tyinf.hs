@@ -981,13 +981,15 @@ data Type =
 type Ty_env_bind = [(String, Type)]
 type Ty_promote = (String, Type)
 type Subst = (String, Type)
+type Prom = (String, Type)
 data Ty_env =
   --Ty_env [(String, Type)]
   --Ty_env Ty_env_bind
   --Ty_env (Ty_env_bind, [Subst])
   --Ty_env [(Ty_env_bind, [Subst])]
   --Ty_env [(Ty_env_bind, ([Ty_promote], [Subst]))]
-  Ty_env [(Ty_env_bind, [Subst])]
+  --Ty_env [(Ty_env_bind, [Subst])]
+  Ty_env [(Ty_env_bind, ([Prom], [Subst]))]
   deriving (Eq, Ord, Show)
 
 {- ty_prom :: [Ty_promote] -> (String, Type) -> (String, Type)
