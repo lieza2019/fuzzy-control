@@ -2708,20 +2708,23 @@ ty_inf_expr symtbl expr =
                                                   let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl v_id v_ty'}
                                                   let (r_mod, err_mod) = sym_modify (symtbl', h) v_id v_attr_new
                                                   let err' = err_lok ++ err_mod
-                                                  case r_mod of
-                                                    Just ((a, _), symtbl'') -> if (sym_internalerr err_mod == []) && (a == v_attr_new) then return ((env', expr'), symtbl'', err')
-                                                                               else
-                                                                                 let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                 in
-                                                                                   throwE ((env', expr'), symtbl'', (Internal_error errmsg):err')
-                                                    
-                                                    Nothing -> throwE ((env', expr'), symtbl', (Internal_error errmsg):err')
-                                                      where
-                                                        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                  if sym_internalerr err_mod /= [] then let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                        in
+                                                                                          throwE ((env', expr'), symtbl', (Internal_error errmsg):err')
+                                                    else
+                                                    case r_mod of
+                                                      Just ((a, _), symtbl'') -> if a == v_attr_new then return ((env', expr'), symtbl'', err')
+                                                                                 else
+                                                                                   let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                   in
+                                                                                     throwE ((env', expr'), symtbl'', (Internal_error errmsg):err')
+                                                      Nothing -> throwE ((env', expr'), symtbl', (Internal_error errmsg):err')
+                                                        where
+                                                          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                 
                                                 Nothing -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', (Type_constraint_mismatched errmsg):err_lok)
                                                   where
-                                                    errmsg = v_id ++ " should have the type of " ++ (show v_ty) ++ "."
+                                                    errmsg = v_id ++ " should be declared as the type of " ++ (show v_ty) ++ "."
            _ -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', (Internal_error errmsg):err_lok)
              where
                errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
