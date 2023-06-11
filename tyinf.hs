@@ -1025,12 +1025,11 @@ ty_subst_env subst env =
   case env of
     Ty_env [] -> env
     Ty_env (([], _):es) -> env
-    Ty_env (((v_id, v_ty):bs, _):es) -> let v_ty' = ty_subst subst v_ty
+    Ty_env (((v_id, v_ty):bs, (p, s)):es) -> let v_ty' = ty_subst subst v_ty
                                         in
-                                          case ty_subst_env subst (Ty_env ((bs, []):es)) of
-                                            Ty_env ((bs', _):es') -> Ty_env (((v_id, v_ty'):bs', subst):es')
-                                            Ty_env (([], _):es') -> Ty_env (([(v_id, v_ty')], subst):es')
-                                            Ty_env [] -> Ty_env [([(v_id, v_ty')], subst)]
+                                          case ty_subst_env subst (Ty_env ((bs, (p, [])):es)) of
+                                            Ty_env ((bs', (p', _)):es') -> Ty_env (([(v_id, v_ty')] ++ bs', (p', subst)):es')
+                                            Ty_env [] -> Ty_env [([(v_id, v_ty')], (p, subst))]
 
 ty_ftv :: Type -> [String]
 ty_ftv ty_expr =
@@ -2678,7 +2677,7 @@ ty_inf_expr symtbl expr =
     Syn_val (Val_str s) ty_s -> if (ty_s == Ty_string) then return ((Ty_env [], expr), symtbl, [])
                                 else throwE ((Ty_env [], expr), symtbl, [Illtyped_constant])
     Syn_var v_id v_ty -> case sym_lkup_var_decl symtbl v_id of
-      (r_lok, err_lok) | sym_internalerr err_lok /= [] -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl, (Internal_error errmsg):err_lok)
+      (r_lok, err_lok) | sym_internalerr err_lok /= [] -> throwE ((Ty_env [([(v_id, v_ty)], ([], []))], expr), symtbl, (Internal_error errmsg):err_lok)
         where
           errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
       (Just ((Sym_attrib { sym_attr_entity = v_attr }, h), symtbl'), err_lok) ->
@@ -2697,14 +2696,14 @@ ty_inf_expr symtbl expr =
                                                               where
                                                                 errmsg = "type of " ++ v_id ++ " does'nt meet with its declaration."
                                           ) -}
-                                          if v_ty_decl == v_ty then return ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', err_lok)
+                                          if v_ty_decl == v_ty then return ((Ty_env [([(v_id, v_ty)], ([], []))], expr), symtbl', err_lok)
                                           else
                                             let equ = (v_ty, v_ty_decl)
                                             in
                                               case ty_unif [equ] of
                                                 Just u_var -> do
                                                   let v_ty' = ty_subst u_var v_ty
-                                                  let env' = Ty_env [([(v_id, v_ty')], u_var)]
+                                                  let env' = Ty_env [([(v_id, v_ty')], ([], u_var))]
                                                   let expr' = Syn_var v_id v_ty'
                                                   -- re-registration of v_id with the type of v_ty'.
                                                   let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl v_id v_ty'}
@@ -2724,10 +2723,10 @@ ty_inf_expr symtbl expr =
                                                         where
                                                           errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                 
-                                                Nothing -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', (Type_constraint_mismatched errmsg):err_lok)
+                                                Nothing -> throwE ((Ty_env [([(v_id, v_ty)], ([], []))], expr), symtbl', (Type_constraint_mismatched errmsg):err_lok)
                                                   where
                                                     errmsg = v_id ++ " should be declared as the type of " ++ (show v_ty) ++ "."
-           _ -> throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', (Internal_error errmsg):err_lok)
+           _ -> throwE ((Ty_env [([(v_id, v_ty)], ([], []))], expr), symtbl', (Internal_error errmsg):err_lok)
              where
                errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
         )
@@ -2735,11 +2734,11 @@ ty_inf_expr symtbl expr =
       (Nothing, err_lok) -> let (symtbl', err_reg) = sym_regist False symtbl Sym_cat_decl (v_id, Syn_var_decl v_id v_ty)
                                 err' = err_lok ++ err_reg
                             in
-                              if sym_internalerr err_reg == [] then return ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', err')
+                              if sym_internalerr err_reg == [] then return ((Ty_env [([(v_id, v_ty)], ([], []))], expr), symtbl', err')
                               else
                                 let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                 in
-                                  throwE ((Ty_env [([(v_id, v_ty)], [])], expr), symtbl', (Internal_error errmsg):err')
+                                  throwE ((Ty_env [([(v_id, v_ty)], ([], []))], expr), symtbl', (Internal_error errmsg):err')
     
     Syn_expr_asgn expr_l expr_r ty -> do
       ((env_l, expr_l_inf), symtbl_l, err_l) <- ty_inf symtbl expr_l
@@ -3575,7 +3574,7 @@ ty_inf symtbl expr =
                              return $ case judges_args of
                                         [] -> assert ((f_args_remain == f_args) && (f_args_matched == acc_args) && (acc_args == [])) $
                                                 --Right ((Ty_env [], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args)
-                                                Right ((Ty_env [([(fun_id, Ty_fun args_ty f_ty)], [])], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args)
+                                                Right ((Ty_env [([(fun_id, Ty_fun args_ty f_ty)], ([], []))], Syn_expr_call fun_id [] (Ty_fun args_ty f_ty)), symtbl'', errs_args)
                                         _ -> let args' = Prelude.map snd judges_args
                                                  --env_call = make_env_ovwt (Prelude.map fst judges_args)
                                              in
