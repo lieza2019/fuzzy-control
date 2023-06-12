@@ -978,7 +978,7 @@ data Type =
   | Ty_unknown
   deriving (Eq, Ord, Show)
 
-type Ty_env_bind = [(String, Type)]
+type Ty_env_bind = (String, Type)
 type Ty_promote = (String, Type)
 type Subst = (String, Type)
 type Prom = (String, Type)
@@ -989,7 +989,7 @@ data Ty_env =
   --Ty_env [(Ty_env_bind, [Subst])]
   --Ty_env [(Ty_env_bind, ([Ty_promote], [Subst]))]
   --Ty_env [(Ty_env_bind, [Subst])]
-  Ty_env [(Ty_env_bind, ([Prom], [Subst]))]
+  Ty_env [([Ty_env_bind], ([Prom], [Subst]))]
   deriving (Eq, Ord, Show)
 
 {- ty_prom :: [Ty_promote] -> (String, Type) -> (String, Type)
@@ -1030,6 +1030,13 @@ ty_subst_env subst env =
                                           case ty_subst_env subst (Ty_env ((bs, (p, [])):es)) of
                                             Ty_env ((bs', (p', _)):es') -> Ty_env (([(v_id, v_ty')] ++ bs', (p', subst)):es')
                                             Ty_env [] -> Ty_env [([(v_id, v_ty')], (p, subst))]
+ty_base :: Type -> Bool
+ty_base ty =
+  case ty of
+    Ty_bool -> True
+    Ty_string -> True
+    Ty_int -> True
+    _ -> False
 
 ty_ftv :: Type -> [String]
 ty_ftv ty_expr =
@@ -2683,23 +2690,41 @@ ty_inf_expr symtbl expr =
       (Just ((Sym_attrib { sym_attr_entity = v_attr }, h), symtbl'), err_lok) ->
         (case v_attr of
            Syn_var_decl v_id' v_ty_decl | v_id == v_id' ->
-                                          {- (case ty_lcs v_ty v_ty_decl of
-                                             Just lcs -> return ((Ty_env [(v_id, v_ty)], expr), symtbl', [])
-                                             Nothing -> let equ = (v_ty, v_ty_decl)
-                                                        in
-                                                          case ty_unif [equ] of
-                                                            Just u_var -> let env' = Ty_env [(v_id, (ty_subst u_var v_ty))]
-                                                                              expr' = Syn_var v_id (ty_subst u_var v_ty)
-                                                                          in
-                                                                            return ((env', expr'), symtbl', [])
-                                                            Nothing -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Type_constraint_mismatched errmsg])
-                                                              where
-                                                                errmsg = "type of " ++ v_id ++ " does'nt meet with its declaration."
-                                          ) -}
                                           if v_ty_decl == v_ty then return ((Ty_env [([(v_id, v_ty)], ([], []))], expr), symtbl', err_lok)
                                           else
-                                            let equ = (v_ty, v_ty_decl)
-                                            in
+                                            do
+                                              ((env, ty_decl'), symtbl'', err) =
+                                                (case ty_lcs v_ty v_ty_decl of
+                                                   Just lcs -> Right ((Ty_env [([(v_id, v_ty)], ([], []))], v_ty_decl), symtbl', err_lok)
+                                                   Nothing -> (case ty_lcs v_ty_decl v_ty of
+                                                                 Just lcs -> do
+                                                                   let errmsg = ""
+                                                                   let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl v_id lcs}
+                                                                   let (r_mod, err_mod) = sym_modify (symtbl', h) v_id v_attr_new
+                                                                   let err' = err_lok ++ err_mod
+                                                                   if sym_internalerr err_mod /= [] then let msg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                         in
+                                                                                                           Left ((Ty_env [([(v_id, v_ty)], ([], []))], v_ty_decl), symtbl',
+                                                                                                                 (Internal_error msg):err')
+                                                                     else 
+                                                                     Right ((Ty_env [([(v_id, v_ty)], ([(v_id, lcs)], [])), ([(v_id, v_ty_decl)], ([], []))], lcs), symtbl',
+                                                                            [Type_constraint_mismatched errmsg] ++ err')
+                                                                 Nothing -> Right ((Ty_env [([(v_id, v_ty)], ([], []))], v_ty_decl), symtbl', err_lok)
+                                                              )
+                                                )  
+                                              {- let equ = (v_ty, v_ty_decl)
+                                              in
+                                                case ty_unif [equ] of
+                                                  Just u_var -> let env' = Ty_env [(v_id, (ty_subst u_var v_ty))]
+                                                                    expr' = Syn_var v_id (ty_subst u_var v_ty)
+                                                                in
+                                                                  return ((env', expr'), symtbl', [])
+                                                  Nothing -> throwE ((Ty_env [(v_id, v_ty)], expr), symtbl', [Type_constraint_mismatched errmsg])
+                                                    where
+                                                      errmsg = "type of " ++ v_id ++ " does'nt meet with its declaration." -}
+                                              
+                                              --let equ = (v_ty, v_ty_decl)
+                                              let equ = if (ty_base v_ty) && (ty_base ty_decl') then (v_ty, v_ty) else (v_ty, ty_decl')
                                               case ty_unif [equ] of
                                                 Just u_var -> do
                                                   let v_ty' = ty_subst u_var v_ty
@@ -2726,6 +2751,7 @@ ty_inf_expr symtbl expr =
                                                 Nothing -> throwE ((Ty_env [([(v_id, v_ty)], ([], []))], expr), symtbl', (Type_constraint_mismatched errmsg):err_lok)
                                                   where
                                                     errmsg = v_id ++ " should be declared as the type of " ++ (show v_ty) ++ "."
+           
            _ -> throwE ((Ty_env [([(v_id, v_ty)], ([], []))], expr), symtbl', (Internal_error errmsg):err_lok)
              where
                errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
