@@ -1231,7 +1231,6 @@ data Error_codes =
   | Imcomplete_function_declaration String
   | Imcomplete_variable_declaration String
   | Imcomplete_type_specifier
-  | Illegal_left_expression_for_assignment
   | Illegal_type_specified Tk_code
   | Illegal_operands Operation Syntree_node
   | Undefined_symbol String
@@ -2532,71 +2531,17 @@ ty_unif equs =
                                                  )
             _ -> Nothing
 
-
-ty_overlap_env :: Ty_env -> Ty_env -> [Equation]
-ty_overlap_env env1 env2 =
-  case env1 of
-    Ty_env [] -> []
-    Ty_env ((b1, s1):_) -> case env2 of
-                             Ty_env [] -> []
-                             Ty_env ((b2, s2):_) -> let overlaps = Set.intersection (Set.fromList $ Prelude.map fst b1) (Set.fromList $ Prelude.map fst b2)
-                                                    in
-                                                      pairing (Set.toList overlaps)
-                               where
-                                 pairing [] = []
-                                 pairing (v:vs) = case (Prelude.lookup v b1, Prelude.lookup v b2) of
-                                                    (Just ty1, Just ty2) -> (ty1, ty2):(pairing vs)
-                                                    _ -> pairing vs
-
 {- ty_overlap_env1 :: Ty_env -> Ty_env -> ((Ty_env, Ty_env), [Equation])
-ty_overlap_env1 env1 env2 =
-  case env1 of
-    Ty_env [] -> ((env1, env2), [])
-    Ty_env es1 -> case env2 of
-                    Ty_env [] -> ((env1, env2), [])
-                    Ty_env es2 -> let overlaps = Set.intersection (Set.fromList $ Prelude.map fst es1) (Set.fromList $ Prelude.map fst es2)
-                                  in
-                                    case Set.toList overlaps of
-                                      [] -> ((env1, env2), [])
-                                      vs -> (case enum_equs vs (es1, es2) of
-                                               ((es1', es2'), equs) -> ((Ty_env es1', Ty_env es2'), equs)
-                                            )
-                                        where
-                                          enum_equs :: [String] -> ([(String, Type)], [(String, Type)]) -> (([(String, Type)], [(String, Type)]), [Equation])
-                                          enum_equs overlaps (es1, es2) =
-                                            case overlaps of
-                                              [] -> ((es1, es2), [])
-                                              (v:vs) -> (case (Prelude.lookup v es1, Prelude.lookup v es2) of
-                                                           (Just ty_es1, Just ty_es2) -> (case ty_lcs ty_es1 ty_es2 of
-                                                                                            Just lcs -> go_on v (ty_es1, ty_es2, lcs)
-                                                                                            Nothing -> (case ty_lcs ty_es2 ty_es1 of
-                                                                                                          Just lcs' -> go_on v (ty_es1, ty_es2, lcs')
-                                                                                                          Nothing -> (case enum_equs vs (es1, es2) of
-                                                                                                                        ((es1', es2'), equs) -> ((es1', es2'), (ty_es1, ty_es2):equs)
-                                                                                                                     )
-                                                                                                       )
-                                                                                         )
-                                                             where
-                                                               go_on :: String -> (Type, Type, Type) -> (([(String, Type)], [(String, Type)]), [Equation])
-                                                               go_on var_id (ty1_mapsto, ty2_mapsto, ty_lcs) =
-                                                                 let s_es1' = Set.toList $ Set.difference (Set.fromList es1) (Set.fromList [(var_id, ty1_mapsto)])
-                                                                     s_es2' = Set.toList $ Set.difference (Set.fromList es2) (Set.fromList [(var_id, ty2_mapsto)])
-                                                                 in
-                                                                   enum_equs vs ((s_es1' ++ [(var_id, ty_lcs)]), (s_es2' ++ [(var_id, ty_lcs)]))
-                                                           _ -> enum_equs vs (es1, es2)
-                                                        ) -}
-ty_overlap_env1 :: Ty_env -> Ty_env -> ((Ty_env, Ty_env), [Equation])
 ty_overlap_env1 env1 env2 =
   case env1 of
     Ty_env [] -> ((env1, env2), [])
     Ty_env ((bs1, s1):bss1) -> case env2 of
                                  Ty_env [] -> ((env1, env2), [])
                                  Ty_env ((bs2, s2):bss2) -> let overlaps = Set.intersection (Set.fromList $ Prelude.map fst bs1) (Set.fromList $ Prelude.map fst bs2)
-                                                            in
+                                   in
                                                               case Set.toList overlaps of
                                                                 [] -> ((env1, env2), [])
                                                                 vs -> (case enum_equs vs (bs1, bs2) of
-                                                                         --((bs1', bs2'), equs) -> ((Ty_env es1', Ty_env es2'), equs)
                                                                          ((bs1', bs2'), equs) -> ((Ty_env ((bs1', s1):bss1), Ty_env ((bs2', s2):bss2)), equs)
                                                                       )
                                    where
@@ -2625,17 +2570,32 @@ ty_overlap_env1 env1 env2 =
                                                             in
                                                               enum_equs vs (((var_id, promote ty1 ty_lcs):s_bs1'), ((var_id, promote ty2 ty_lcs):s_bs2'))
                                                       _ -> enum_equs vs (bs1, bs2)
-                                                   )
+                                                   ) -}
 
-
-ty_cat_env :: Ty_env -> Ty_env -> Ty_env
-ty_cat_env env1 env2 =
+ty_equ_envs :: Ty_env -> Ty_env -> ((Ty_env, Ty_env), [Equation])
+ty_equ_envs env1 env2 =
   case env1 of
-    Ty_env [] -> env2
-    Ty_env env1' -> (case env2 of
-                       Ty_env [] -> env1
-                       Ty_env env2' -> Ty_env $ concat [env1', env2']
-                    )
+    Ty_env [] -> ((env1, env2), [])
+    Ty_env ((bs1, s1):bss1) -> case env2 of
+                                 Ty_env [] -> ((env1, env2), [])
+                                 Ty_env ((bs2, s2):bss2) -> let overlaps = Set.intersection (Set.fromList $ Prelude.map fst bs1) (Set.fromList $ Prelude.map fst bs2)
+                                                            in
+                                                              case Set.toList overlaps of
+                                                                [] -> ((env1, env2), [])
+                                                                vs -> (case enum_equs vs (bs1, bs2) of
+                                                                         ((bs1', bs2'), equs) -> ((Ty_env ((bs1', s1):bss1), Ty_env ((bs2', s2):bss2)), equs)
+                                                                      )
+                                   where
+                                     enum_equs :: [String] -> ([(String, Type)], [(String, Type)]) -> (([(String, Type)], [(String, Type)]), [Equation])
+                                     enum_equs overlaps (bs1, bs2) =
+                                       case overlaps of
+                                         [] -> ((bs1, bs2), [])
+                                         (v:vs) -> (case (Prelude.lookup v bs1, Prelude.lookup v bs2) of
+                                                      (Just ty1, Just ty2) -> (case enum_equs vs (bs1, bs2) of
+                                                                                  ((bs1', bs2'), equs) -> ((bs1', bs2'), (ty1, ty2):equs)
+                                                                              )
+                                                      _ -> enum_equs vs (bs1, bs2)
+                                                   )
 
 ty_ovwt_env :: Ty_env -> Ty_env -> Ty_env
 ty_ovwt_env env_1 env_2 =
@@ -2663,14 +2623,14 @@ ty_merge_env env_1 env_2 =
                                      )
                    )
       where
-        chk_and_merge env1_binds env2_binds = Prelude.foldl (\e1_bs -> \(id, ty) -> do
+        chk_and_merge env1_binds env2_binds = Prelude.foldl (\e1_bs -> \(v_id, ty) -> do
                                                                 e1_bs' <- e1_bs
-                                                                e1_bs'' <- (case Prelude.lookup id e1_bs' of
+                                                                e1_bs'' <- (case Prelude.lookup v_id e1_bs' of
                                                                                Nothing -> Just e1_bs'
                                                                                Just ty_e1 | ty_e1 == ty -> Just e1_bs'
                                                                                _ -> Nothing
                                                                            )
-                                                                return $ e1_bs'' ++ [(id, ty)]
+                                                                return $ e1_bs'' ++ [(v_id, ty)]
                                                             ) (Just env1_binds) env2_binds
 
 
@@ -2767,9 +2727,9 @@ ty_inf_expr symtbl expr =
       case expr_l_inf of
         Syn_var var_id var_ty -> do
           ((env_r, expr_r_inf), symtbl_r, err_r) <- ty_inf symtbl_l expr_r
-          let ((env_l', env_r'), equ_env) = ty_overlap_env1 env_l env_r
+          let ((env_l', env_r'), equ_env) = ty_equ_envs env_l env_r
           let equ_asgn = ((syn_node_typeof expr_l_inf), (syn_node_typeof expr_r_inf))
-          case ty_unif (equ_asgn:equ_env) of
+          case ty_unif (equ_env ++ [equ_asgn]) of
             Just u_asgn -> let env_l_inf = ty_subst_env u_asgn env_l'
                                expr_l_inf' = syn_node_subst u_asgn expr_l_inf
                                env_r_inf = ty_subst_env u_asgn env_r'
@@ -2779,22 +2739,22 @@ ty_inf_expr symtbl expr =
                                Just e_merged -> if (syn_node_typeof expr_l_inf') == (syn_node_typeof expr_r_inf') then
                                                   return ((e_merged, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')), symtbl_r, (err_l ++ err_r))
                                                 else
-                                                  let errmsg = "ill unification detected in type reconstruction on assignment expression."
+                                                  let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                   in
-                                                    throwE ((e_merged, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')),
-                                                            symtbl_r, (err_l ++ err_r ++ [Internal_error errmsg]))
-                               Nothing -> throwE ((ty_ovwt_env env_l_inf env_r_inf, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')),
-                                                  symtbl_r, (err_l ++ err_r ++ [Internal_error errmsg]))
+                                                    throwE ((e_merged, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')), symtbl_r,
+                                                            (Internal_error errmsg):(err_l ++ err_r))
+                               Nothing -> throwE ((ty_ovwt_env env_l_inf env_r_inf, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')), symtbl_r,
+                                                  (Internal_error errmsg):(err_l ++ err_r))
                                  where
-                                   errmsg = "ill unification detected in type reconstruction on assignment expression."
-            Nothing -> throwE ((ty_ovwt_env env_l env_r, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_r, (err_l ++ err_r ++ [Internal_error errmsg]))
+                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+            Nothing -> throwE ((ty_ovwt_env env_l env_r, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_r, (err_l ++ err_r ++ [Type_constraint_mismatched errmsg]))
               where
-                errmsg = "both left and right expressions must have same type, in assignment expression."
+                errmsg = "Both left and right expressions must have same type, in assignment expression."
         _ -> do
           ((env_r, expr_r_inf), symtbl_r, err_r) <- ty_inf symtbl_l expr_r
-          throwE ((ty_ovwt_env env_l env_r, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_r, (err_l ++ err_r ++ [Internal_error errmsg]))
+          throwE ((ty_ovwt_env env_l env_r, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_r, (err_l ++ err_r ++ [Ill_formed_expression errmsg]))
           where
-            errmsg = "left expression must be lvalue in assignment expression"
+            errmsg = "Left expression must be lvalue in assignment expression"
     
     Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> do
       ((env_cond, cond_expr_inf), symtbl_c, cond_err) <-
@@ -2837,7 +2797,7 @@ ty_inf_expr symtbl expr =
         let equ_cond = ((syn_node_typeof cond_expr_inf), Ty_bool)
         in
           case false_expr of
-            Nothing -> let ((env_cond'', env_true'), equs_cond_true) = ty_overlap_env1 env_cond env_true
+            Nothing -> let ((env_cond'', env_true'), equs_cond_true) = ty_equ_envs env_cond env_true
                        in
                          case ty_unif (equ_cond:equs_cond_true) of
                            Just u_ct -> let env_cond_inf =  ty_subst_env u_ct env_cond''
@@ -2865,9 +2825,9 @@ ty_inf_expr symtbl expr =
             Just f_expr -> do
               ((env_false, false_expr_inf), symtbl_ctf, false_err) <- ty_inf_expr symtbl_ct f_expr
               let equ_if_body = ((syn_node_typeof true_expr_inf), (syn_node_typeof false_expr_inf))
-              let ((env_cond'', env_true'), equs_cond_true) = ty_overlap_env1 env_cond env_true
-              let ((env_cond''', env_false'), equs_cond_false) = ty_overlap_env1 env_cond'' env_false
-              let ((env_true'', env_false''), equs_true_false) = ty_overlap_env1 env_true' env_false'
+              let ((env_cond'', env_true'), equs_cond_true) = ty_equ_envs env_cond env_true
+              let ((env_cond''', env_false'), equs_cond_false) = ty_equ_envs env_cond'' env_false
+              let ((env_true'', env_false''), equs_true_false) = ty_equ_envs env_true' env_false'
               case ty_unif (equ_cond:equ_if_body:(equs_cond_true ++ equs_cond_false ++ equs_true_false)) of
                 Just u_ctf -> let env_cond_inf =  ty_subst_env u_ctf env_cond'''
                                   cond_expr_inf'' = syn_node_subst u_ctf cond_expr_inf
@@ -2986,7 +2946,7 @@ ty_inf_expr symtbl expr =
                                                      Nothing -> ((expr1_inf, expr2_inf), [equ])
                                                        where
                                                          equ = ((syn_node_typeof expr1_inf), (syn_node_typeof expr2_inf))
-      let ((env1', env2'), equ_env') = ty_overlap_env1 env1 env2
+      let ((env1', env2'), equ_env') = ty_equ_envs env1 env2
       lift $ putStrLn ("equations: " ++ (show equ_bin_op) ++ (show equ_env'))
       ((env'', expr_bin_inf), symtbl', err') <- case ty_unif (equ_bin_op ++ equ_env') of
                                                   Just u_bin -> let ty1_inf' = ty_subst u_bin $ syn_node_typeof expr1_inf'
@@ -3463,7 +3423,7 @@ ty_inf symtbl expr =
                                                                                                                         Right judge' -> return judge'
                                                                                                                         Left judge' ->throwE judge'
                                                                                                                   )
-                                                          let ((env_seq', env_next'), equ_env_seq') = ty_overlap_env1 env_seq env_next
+                                                          let ((env_seq', env_next'), equ_env_seq') = ty_equ_envs env_seq env_next
                                                           case ty_unif equ_env_seq' of
                                                             Just u_seq' -> do
                                                               let env_seq_inf = ty_subst_env u_seq' env_seq'
