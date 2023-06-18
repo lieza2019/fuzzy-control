@@ -2895,21 +2895,16 @@ ty_inf_expr symtbl expr =
         Left r' -> throwE r'
     
     Syn_expr_una ope expr0 ty -> do
-      ((env, expr0_inf), symtbl', una_err) <- do
-        r_expr0' <- lift (do
-                             r_expr0 <- runExceptT $ ty_inf_expr symtbl expr0
-                             case r_expr0 of
-                               Right r -> return r_expr0
-                               Left ((env0, e0_inf), symtbl', e0_err) -> return $ Left ((env0, e0_inf'), symtbl', e0_err)
-                                 where
-                                   e0_inf' = Syn_expr_una ope e0_inf (syn_node_typeof e0_inf)
-                         )
-        case r_expr0' of
-          Right r' -> return r'
-          Left r' -> throwE r'
-      let expr_una_inf = Syn_expr_una ope expr0_inf (syn_node_typeof expr0_inf)
-      return ((env, expr_una_inf), symtbl', una_err)
-    
+      r_expr0' <- lift $ runExceptT (ty_inf_expr symtbl expr0)
+      case r_expr0' of
+        Right ((env0, e0_inf), symtbl', e0_err) -> (case (ope, (syn_node_typeof e0_inf)) of
+                                                      (Ope_decre, Ty_int) -> return ((env0, Syn_expr_una Ope_decre e0_inf Ty_int), symtbl', e0_err)
+                                                      (Ope_incre, Ty_int) -> return ((env0, Syn_expr_una Ope_incre e0_inf Ty_int), symtbl', e0_err)
+                                                      (Ope_neg, Ty_int) -> return ((env0, Syn_expr_una Ope_neg e0_inf Ty_int), symtbl', e0_err)
+                                                      _ -> throwE ((env0, Syn_expr_una ope e0_inf (syn_node_typeof e0_inf)), symtbl', e0_err)
+                                                   )
+        Left ((env0, e0_inf), symtbl', e0_err) -> throwE ((env0, Syn_expr_una ope e0_inf (syn_node_typeof e0_inf)), symtbl', e0_err)
+        
     Syn_expr_bin ope (expr1, expr2) ty -> do
       ((env1, expr1_inf), symtbl_1, err1) <- do
         r_expr1' <- lift (do
