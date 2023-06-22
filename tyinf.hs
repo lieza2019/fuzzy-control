@@ -2633,16 +2633,70 @@ ty_merge_env env_1 env_2 =
                                                                 return $ e1_bs'' ++ [(v_id, ty)]
                                                             ) (Just env1_binds) env2_binds
 
+ty_modify_var_decl :: Symtbl -> (String, Type)
+                   -> ExceptT (((String, Type), (Maybe (String, Type), Type)), Symtbl, [Error_codes]) IO (((String, Type), (Maybe (String, Type), Type)), Symtbl, [Error_codes])
+ty_modify_var_decl symtbl (v_id, v_ty) =
+  case sym_lkup_var_decl symtbl v_id of
+    (_, err_lok) | sym_internalerr err_lok /= [] -> throwE (((v_id, v_ty), (Nothing, v_ty)), symtbl, (Internal_error errmsg):err_lok)
+      where
+        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+    (Just ((Sym_attrib { sym_attr_entity = v_attr }, h), symtbl'), err_lok) ->
+      (case v_attr of
+          Syn_var_decl v_id' v_ty_decl | v_id == v_id' ->
+                                         if v_ty_decl == v_ty then return (((v_id, v_ty), (Nothing, v_ty_decl)), symtbl', err_lok)
+                                         else
+                                           do
+                                             case ty_lcs v_ty v_ty_decl of
+                                               Just _ -> return (((v_id, v_ty), (Nothing, v_ty_decl)), symtbl', err_lok)
+                                               Nothing -> (case ty_lcs v_ty_decl v_ty of
+                                                             Just lcs ->
+                                                               if lcs /= v_ty then let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                   in
+                                                                                     throwE (((v_id, v_ty_decl), (Nothing, v_ty_decl)), symtbl', (Internal_error errmsg):err_lok)
+                                                               else do
+                                                                 let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl v_id lcs}
+                                                                 let (r_mod, err_mod) = sym_modify (symtbl', h) v_id v_attr_new
+                                                                 let err' = err_lok ++ err_mod
+                                                                 case r_mod of
+                                                                   Just ((a, _), symtbl'') -> if (sym_internalerr err_mod == []) && (a == v_attr_new) then
+                                                                                                let errmsg = "Variable " ++ v_id ++ " has insufficient type in expression, converted to " ++
+                                                                                                             (show lcs) ++ " from " ++ (show v_ty_decl) ++ "."
+                                                                                                in
+                                                                                                  return ((((v_id, lcs), (Just (v_id, lcs), v_ty_decl))), symtbl'',
+                                                                                                          [Type_constraint_mismatched errmsg] ++ err')
+                                                                                              else
+                                                                                                let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                in
+                                                                                                  throwE (((v_id, v_ty_decl), (Nothing, v_ty_decl)), symtbl'', (Internal_error errmsg):err')
+                                                                   
+                                                                   Nothing -> throwE (((v_id, v_ty_decl), (Nothing, v_ty_decl)), symtbl', (Internal_error errmsg):err')
+                                                                     where
+                                                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                             
+                                                             Nothing -> return (((v_id, v_ty_decl), (Nothing, v_ty_decl)), symtbl', err_lok)
+                                                          )
+          
+          _ -> throwE (((v_id, v_ty), (Nothing, v_ty)), symtbl', (Internal_error errmsg):err_lok)
+            where
+              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+      )
 
 ty_inf_expr :: Symtbl -> Syntree_node -> ExceptT ((Ty_env, Syntree_node), Symtbl, [Error_codes]) IO ((Ty_env, Syntree_node), Symtbl, [Error_codes])
 ty_inf_expr symtbl expr =
   case expr of
     Syn_val (Val_bool b) ty_b -> if ty_b == Ty_bool then return ((Ty_env [], expr), symtbl, [])
-                                 else throwE ((Ty_env [], expr), symtbl, [Illtyped_constant])
+                                 else let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                      in
+                                        throwE ((Ty_env [], expr), symtbl, [Internal_error errmsg])
     Syn_val (Val_int n) ty_n -> if (ty_n == Ty_int) then return ((Ty_env [], expr), symtbl, [])
-                                else throwE ((Ty_env [], expr), symtbl, [Illtyped_constant])
+                                else let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                     in
+                                       throwE ((Ty_env [], expr), symtbl, [Internal_error errmsg])
     Syn_val (Val_str s) ty_s -> if (ty_s == Ty_string) then return ((Ty_env [], expr), symtbl, [])
-                                else throwE ((Ty_env [], expr), symtbl, [Illtyped_constant])
+                                else let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                     in
+                                       throwE ((Ty_env [], expr), symtbl, [Internal_error errmsg])
+    
     Syn_var v_id v_ty -> case sym_lkup_var_decl symtbl v_id of
       (_, err_lok) | sym_internalerr err_lok /= [] -> throwE ((Ty_env [([(v_id, v_ty)], ([], []))], expr), symtbl, (Internal_error errmsg):err_lok)
         where
@@ -2703,8 +2757,8 @@ ty_inf_expr symtbl expr =
                                                           Nothing -> throwE ((env', expr'), symtbl'', (Internal_error errmsg):err')
                                                             where
                                                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                
-                                                      Nothing -> throwE ((env, expr), symtbl'', (Type_constraint_mismatched errmsg):err)
+                                                      
+                                                      Nothing -> return ((env, expr), symtbl'', (Type_constraint_mismatched errmsg):err)
                                                         where
                                                           errmsg = "Valriable " ++ v_id ++ " should be declared with the type of " ++ (show v_ty) ++ "."
            
