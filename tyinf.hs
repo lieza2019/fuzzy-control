@@ -2792,39 +2792,6 @@ ty_inf_expr symtbl expr =
                                        throwE ((Ty_env [], expr), symtbl, [Internal_error errmsg])
     Syn_var v_id v_ty -> ty_inf_var symtbl ((v_id, v_ty), expr)
     
-    {- Syn_expr_asgn expr_l expr_r ty -> do
-      ((env_l, expr_l_inf), symtbl_l, err_l) <- ty_inf symtbl expr_l
-      case expr_l_inf of
-        Syn_var var_id var_ty -> do
-          ((env_r, expr_r_inf), symtbl_r, err_r) <- ty_inf symtbl_l expr_r
-          let ((env_l', env_r'), equ_env) = ty_equ_envs env_l env_r
-          let equ_asgn = ((syn_node_typeof expr_l_inf), (syn_node_typeof expr_r_inf))
-          case ty_unif (equ_env ++ [equ_asgn]) of
-            Just u_asgn -> let env_l_inf = ty_subst_env u_asgn env_l'
-                               expr_l_inf' = syn_node_subst u_asgn expr_l_inf
-                               env_r_inf = ty_subst_env u_asgn env_r'
-                               expr_r_inf' = syn_node_subst u_asgn expr_r_inf
-                           in
-                             case ty_merge_env env_l_inf env_r_inf of
-                               Just e_merged -> if (syn_node_typeof expr_l_inf') == (syn_node_typeof expr_r_inf') then
-                                                  return ((e_merged, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')), symtbl_r, (err_l ++ err_r))
-                                                else
-                                                  let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                  in
-                                                    throwE ((e_merged, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')), symtbl_r,
-                                                            (Internal_error errmsg):(err_l ++ err_r))
-                               Nothing -> throwE ((ty_ovwt_env env_l_inf env_r_inf, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')), symtbl_r,
-                                                  (Internal_error errmsg):(err_l ++ err_r))
-                                 where
-                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-            Nothing -> throwE ((ty_ovwt_env env_l env_r, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_r, (err_l ++ err_r ++ [Type_constraint_mismatched errmsg]))
-              where
-                errmsg = "Both left and right expressions must have same type, in assignment expression."
-        _ -> do
-          ((env_r, expr_r_inf), symtbl_r, err_r) <- ty_inf symtbl_l expr_r
-          throwE ((ty_ovwt_env env_l env_r, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_r, (err_l ++ err_r ++ [Ill_formed_expression errmsg]))
-          where
-            errmsg = "Left expression must be lvalue in assignment expression" -}
     Syn_expr_asgn expr_l expr_r ty -> do
       ((env_r, expr_r_inf), symtbl_r, err_r) <- ty_inf symtbl expr_r
       ((env_l@(Ty_env l_bs), expr_l_inf), symtbl_rl, err_l) <- ty_inf symtbl_r expr_l
@@ -3028,16 +2995,37 @@ ty_inf_expr symtbl expr =
         Left r' -> throwE r'
     
     Syn_expr_una ope expr0 ty -> do
-      r_expr0' <- lift $ runExceptT (ty_inf_expr symtbl expr0)
-      case r_expr0' of
-        Right ((env0, e0_inf), symtbl', e0_err) -> (case (ope, (syn_node_typeof e0_inf)) of
-                                                      (Ope_decre, Ty_int) -> return ((env0, Syn_expr_una Ope_decre e0_inf Ty_int), symtbl', e0_err)
-                                                      (Ope_incre, Ty_int) -> return ((env0, Syn_expr_una Ope_incre e0_inf Ty_int), symtbl', e0_err)
-                                                      (Ope_neg, Ty_int) -> return ((env0, Syn_expr_una Ope_neg e0_inf Ty_int), symtbl', e0_err)
-                                                      _ -> throwE ((env0, Syn_expr_una ope e0_inf (syn_node_typeof e0_inf)), symtbl', e0_err)
-                                                   )
-        Left ((env0, e0_inf), symtbl', e0_err) -> throwE ((env0, Syn_expr_una ope e0_inf (syn_node_typeof e0_inf)), symtbl', e0_err)
-        
+      r_e0 <- lift $ runExceptT (ty_inf_expr symtbl expr0)
+      case r_e0 of
+        Right ((env0, e0_inf), symtbl', err) -> (case (ope, (syn_node_typeof e0_inf)) of
+                                                   (Ope_decre, ty0) -> (case ty0 of
+                                                                          Ty_int -> return ((env0, Syn_expr_una Ope_decre e0_inf Ty_int), symtbl', err)
+                                                                          _ -> return ((env0, Syn_expr_una Ope_decre e0_inf ty0), symtbl', err')
+                                                                            where
+                                                                              errmsg = "Cannot increment/decrement the expression with type of " ++ (show ty0) ++ "."
+                                                                              err' = err ++ [Type_constraint_mismatched errmsg]
+                                                                       )
+                                                   (Ope_incre, ty0) -> (case ty0 of
+                                                                          Ty_int -> return ((env0, Syn_expr_una Ope_incre e0_inf Ty_int), symtbl', err)
+                                                                          _ -> return ((env0, Syn_expr_una Ope_incre e0_inf ty0), symtbl', err')
+                                                                            where
+                                                                              errmsg = "Cannot increment/decrement the expression with type of " ++ (show ty0) ++ "."
+                                                                              err' = err ++ [Type_constraint_mismatched errmsg]
+                                                                       )
+                                                   (Ope_neg, ty0) -> (case ty0 of
+                                                                        Ty_int -> return ((env0, Syn_expr_una Ope_neg e0_inf Ty_int), symtbl', err)
+                                                                        _ -> return ((env0, Syn_expr_una Ope_neg e0_inf ty0), symtbl', err')
+                                                                          where
+                                                                            errmsg = "Cannot negate the expression with type of " ++ (show ty0) ++ "."
+                                                                            err' = err ++ [Type_constraint_mismatched errmsg]
+                                                                     )
+                                                   _ -> throwE ((env0, Syn_expr_una ope e0_inf (syn_node_typeof e0_inf)), symtbl', err')
+                                                     where
+                                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                       err' = (Internal_error errmsg):err
+                                                )
+        Left ((env0, e0_inf), symtbl', err) -> throwE ((env0, Syn_expr_una ope e0_inf (syn_node_typeof e0_inf)), symtbl', err)
+    
     Syn_expr_bin ope (expr1, expr2) ty -> do
       ((env1, expr1_inf), symtbl_1, err1) <- do
         r_expr1' <- lift (do
