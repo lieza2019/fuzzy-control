@@ -2979,20 +2979,40 @@ ty_inf_expr symtbl expr =
     
     Syn_expr_call fun_id app_args ty -> return ((Ty_env [], expr), symtbl, [])
     
-    Syn_expr_par expr0 ty -> do
-      r_expr0' <- lift (do
-                           r_expr0 <- runExceptT $ ty_inf symtbl expr0
-                           case r_expr0 of
-                             Right ((env0, expr0_inf), symtbl', expr0_err) -> return $ Right ((env0, expr'), symtbl', expr0_err)
-                               where
-                                 expr' = Syn_expr_par expr0_inf (syn_node_typeof expr0_inf)
-                             Left ((env0, expr0_inf), symtbl', expr0_err) ->  return $ Left ((env0, expr'), symtbl', expr0_err)
-                               where
-                                 expr' = Syn_expr_par expr0_inf (syn_node_typeof expr0_inf)
-                       )
-      case r_expr0' of
+    {- Syn_expr_par expr0 ty -> do
+      r_0 <- lift $ do
+        r <- runExceptT $ ty_inf symtbl expr0
+        case r of
+          Right ((env0, expr0_inf), symtbl', err0) -> return $ Right ((env0, expr'), symtbl', err0)
+            where
+              expr' = Syn_expr_par expr0_inf (syn_node_typeof expr0_inf)
+          Left ((env0, expr0_inf), symtbl', err0) ->  return $ Left ((env0, expr'), symtbl', err0)
+            where
+              expr' = Syn_expr_par expr0_inf (syn_node_typeof expr0_inf)
+      case r_0 of
         Right r' -> return r'
-        Left r' -> throwE r'
+        Left r' -> throwE r' -}
+    Syn_expr_par expr0 ty -> do
+      r_0 <- lift $ runExceptT $ ty_inf symtbl expr0
+      case r_0 of
+        Left ((env0, expr0_inf), symtbl', err0) ->  throwE ((env0, expr'), symtbl', err0)
+          where
+            expr' = Syn_expr_par expr0_inf (syn_node_typeof expr0_inf)
+        Right ((env0, expr0_inf), symtbl', err0) -> (case expr0_inf of
+                                                       Syn_val _ _ -> return $ ((env0, expr'), symtbl', err0)
+                                                       Syn_var _ _ -> return $ ((env0, expr'), symtbl', err0)
+                                                       Syn_expr_asgn _ _ _ -> return $ ((env0, expr'), symtbl', err0)
+                                                       Syn_expr_par _ _ -> return $ ((env0, expr'), symtbl', err0)
+                                                       Syn_expr_call _ _ _ -> return $ ((env0, expr'), symtbl', err0)
+                                                       Syn_expr_una _ _ _ -> return $ ((env0, expr'), symtbl', err0)
+                                                       Syn_expr_bin _ _ _ -> return $ ((env0, expr'), symtbl', err0)
+                                                       _ -> return $ ((env0, expr'), symtbl', err0)
+                                                         where
+                                                           errmsg = "parentheses expects expression."
+                                                           err' = err0 ++ [Type_constraint_mismatched errmsg]
+                                                    )
+          where
+            expr' = Syn_expr_par expr0_inf (syn_node_typeof expr0_inf)
     
     Syn_expr_una ope expr0 ty -> do
       r_e0 <- lift $ runExceptT (ty_inf_expr symtbl expr0)
