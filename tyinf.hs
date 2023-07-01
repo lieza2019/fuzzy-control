@@ -981,7 +981,8 @@ data Type =
 type Ty_env_bind = (String, Type)
 type Ty_promote = (String, Type)
 type Subst = (String, Type)
-type Prom = (String, Type)
+--type Prom = (String, Type)
+type Prom = (String, (Maybe Type, Type))
 data Ty_env =
   --Ty_env [(String, Type)]
   --Ty_env Ty_env_bind
@@ -997,6 +998,83 @@ ty_prom proms (var_id, ty) =
   case Prelude.lookup var_id proms of
     Just ty_p -> (var_id, Ty_prom ty ty_p)
     Nothing -> (var_id, ty) -}
+
+ty_reveal :: Type -> Type
+ty_reveal ty =
+  case ty of
+    Ty_prom ty0 ty' -> ty_reveal ty'
+    Ty_ovride ty0 ty' -> ty_reveal ty'
+    _ -> ty
+
+ty_base :: Type -> Bool
+ty_base ty =
+  case ty of
+    Ty_bool -> True
+    Ty_string -> True
+    Ty_int -> True
+    _ -> False
+
+ty_ftv :: Type -> [String]
+ty_ftv ty_expr =
+  case ty_expr of
+    Ty_ovride _ t_exp' -> ty_ftv t_exp'
+    Ty_prom _ t_exp' -> ty_ftv t_exp'
+    Ty_var tvar_id -> [tvar_id]
+    Ty_pair (t_exp1, t_exp2) -> (ty_ftv t_exp1) ++ (ty_ftv t_exp2)
+    Ty_fun args t_exp ->  Set.toList $ Set.union (Set.fromList (case args of
+                                                                 [] -> []
+                                                                 _ -> Prelude.foldr (\a -> \ftvs -> let tvs_a = ty_ftv a
+                                                                                                    in
+                                                                                                      Set.toList $ Set.union (Set.fromList tvs_a) (Set.fromList ftvs)
+                                                                                    ) [] args
+                                                               )
+                                                 ) (Set.fromList $ ty_ftv t_exp)
+    _ -> [] -- for Ty_top, Ty_bool, Ty_string, Ty_int, Ty_abs, Ty_btm and Ty_unknown
+
+-- returns Least Common Supertype, as ty_1 <: ty_2, if exists.
+ty_lcs :: Type -> Type -> Maybe Type
+ty_lcs ty_1 ty_2 =
+  let is_subty ty_1 ty_2 =
+        case ty_2 of
+          Ty_top -> True
+          Ty_bool -> (case ty_1 of
+                        Ty_btm -> True
+                        Ty_abs -> True
+                        Ty_bool -> True
+                        _ -> False
+                     )
+          Ty_string -> (case ty_1 of
+                          Ty_btm -> True
+                          Ty_abs -> True
+                          Ty_string -> True
+                          _ -> False
+                       )
+          Ty_int -> (case ty_1 of
+                       Ty_btm -> True
+                       Ty_abs -> True
+                       Ty_int -> True
+                       _ -> False
+                    )
+          Ty_pair (ty_21, ty_22) -> (case ty_1 of
+                                       Ty_pair (ty_11, ty_12) -> (is_subty ty_11 ty_21) && (is_subty ty_12 ty_22)
+                                       _ -> False
+                                    )
+          Ty_abs -> (case ty_1 of
+                       Ty_btm -> True
+                       Ty_abs -> True
+                       _ -> False
+                    )
+          Ty_btm -> (case ty_1 of
+                       Ty_btm -> True
+                       _ -> False
+                    )
+          Ty_prom _ ty_2' -> is_subty ty_1 ty_2'
+          Ty_ovride _ ty_2' -> is_subty ty_1 ty_2'
+          _ -> False
+  in
+    if (is_subty ty_1 ty_2) then Just ty_2
+    else
+      if (is_subty ty_2 ty_1) then Just ty_1 else Nothing
 
 ty_subst :: [Subst] -> Type -> Type
 ty_subst subst ty_expr =
@@ -1030,67 +1108,6 @@ ty_subst_env subst env =
                                           case ty_subst_env subst (Ty_env ((bs, (p, [])):es)) of
                                             Ty_env ((bs', (p', _)):es') -> Ty_env (([(v_id, v_ty')] ++ bs', (p', subst)):es')
                                             Ty_env [] -> Ty_env [([(v_id, v_ty')], (p, subst))]
-ty_base :: Type -> Bool
-ty_base ty =
-  case ty of
-    Ty_bool -> True
-    Ty_string -> True
-    Ty_int -> True
-    _ -> False
-
-ty_ftv :: Type -> [String]
-ty_ftv ty_expr =
-  case ty_expr of
-    Ty_ovride _ t_exp' -> ty_ftv t_exp'
-    Ty_prom _ t_exp' -> ty_ftv t_exp'
-    Ty_var tvar_id -> [tvar_id]
-    Ty_pair (t_exp1, t_exp2) -> (ty_ftv t_exp1) ++ (ty_ftv t_exp2)
-    Ty_fun args t_exp ->  Set.toList $ Set.union (Set.fromList (case args of
-                                                                 [] -> []
-                                                                 _ -> Prelude.foldr (\a -> \ftvs -> let tvs_a = ty_ftv a
-                                                                                                    in
-                                                                                                      Set.toList $ Set.union (Set.fromList tvs_a) (Set.fromList ftvs)
-                                                                                    ) [] args
-                                                               )
-                                                 ) (Set.fromList $ ty_ftv t_exp)
-    _ -> [] -- for Ty_top, Ty_bool, Ty_string, Ty_int, Ty_abs, Ty_btm and Ty_unknown
-
-
--- returns Least Common Supertype, as ty_1 <: ty_2, if exists.
-ty_lcs :: Type -> Type -> Maybe Type
-ty_lcs ty_1 ty_2 =
-  let is_subty ty_1 ty_2 =
-        case ty_2 of
-          Ty_top -> True
-          Ty_ovride _ ty_2' -> is_subty ty_1 ty_2'
-          Ty_prom _ ty_2' -> is_subty ty_1 ty_2'
-          Ty_bool -> (case ty_1 of
-                        Ty_btm -> True
-                        Ty_abs -> True
-                        Ty_bool -> True
-                        _ -> False
-                     )
-          Ty_string -> (case ty_1 of
-                          Ty_btm -> True
-                          Ty_abs -> True
-                          Ty_string -> True
-                          _ -> False
-                       )
-          Ty_int -> (case ty_1 of
-                       Ty_btm -> True
-                       Ty_abs -> True
-                       Ty_int -> True
-                       _ -> False
-                    )
-          Ty_pair (ty_21, ty_22) -> (case ty_1 of
-                                       Ty_pair (ty_11, ty_12) -> (is_subty ty_11 ty_21) && (is_subty ty_12 ty_22)
-                                       _ -> False
-                                    )
-          _ -> False
-  in
-    if (is_subty ty_1 ty_2) then Just ty_2
-    else
-      if (is_subty ty_2 ty_1) then Just ty_1 else Nothing
 
 
 data Operation =
@@ -2649,42 +2666,44 @@ ty_prom_var_decl symtbl (v_id, v_ty) =
                                 throwE (((v_id, v_ty), (Nothing, Nothing)), symtbl', (Internal_error errmsg):err')
     (Just ((Sym_attrib { sym_attr_entity = v_attr }, h), symtbl'), err_lok) ->
       (case v_attr of
-          Syn_var_decl v_id' v_ty_decl | v_id == v_id' ->
-                                         if v_ty_decl == v_ty then return (((v_id, v_ty), (Nothing, Just v_ty_decl)), symtbl', err_lok)
-                                         else
-                                           case ty_lcs v_ty v_ty_decl of
-                                             Just _ -> return (((v_id, v_ty), (Nothing, Just v_ty_decl)), symtbl', err_lok)
-                                             Nothing -> (case ty_lcs v_ty_decl v_ty of
-                                                            Just lcs ->
-                                                              if lcs /= v_ty then let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                  in
-                                                                                    throwE (((v_id, v_ty_decl), (Nothing, Just v_ty_decl)), symtbl', (Internal_error errmsg):err_lok)
-                                                              else do
-                                                                let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl v_id lcs}
-                                                                let (r_mod, err_mod) = sym_modify (symtbl', h) v_id v_attr_new
-                                                                let err' = err_lok ++ err_mod
-                                                                case r_mod of
-                                                                  Just ((a, _), symtbl'') -> if (sym_internalerr err_mod == []) && (a == v_attr_new) then
-                                                                                               let errmsg = "Variable " ++ v_id ++ " has insufficient type in expression, promoted to " ++
-                                                                                                            (show lcs) ++ " from " ++ (show v_ty_decl) ++ "."
-                                                                                               in
-                                                                                                 return ((((v_id, lcs), (Just lcs, Just v_ty_decl))), symtbl'',
-                                                                                                         err' ++ [Type_constraint_mismatched errmsg])
-                                                                                             else
-                                                                                               let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                               in
-                                                                                                 throwE (((v_id, v_ty_decl), (Nothing, Just v_ty_decl)), symtbl'', (Internal_error errmsg):err')
+          Syn_var_decl v_id' v_ty_decl | v_id' == v_id ->
+                                         let v_ty_decl' = ty_reveal v_ty_decl
+                                         in
+                                           if v_ty_decl' == v_ty then return (((v_id, v_ty), (Nothing, Just v_ty_decl')), symtbl', err_lok)
+                                           else
+                                             case ty_lcs v_ty v_ty_decl' of
+                                               Just _ -> return (((v_id, v_ty), (Nothing, Just v_ty_decl')), symtbl', err_lok)
+                                               Nothing -> (case ty_lcs v_ty_decl' v_ty of
+                                                             Just lcs ->
+                                                               if lcs /= v_ty then let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                   in
+                                                                                     throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err_lok)
+                                                               else do
+                                                                 let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl v_id (Ty_prom v_ty_decl lcs)}
+                                                                 let (r_mod, err_mod) = sym_modify (symtbl', h) v_id v_attr_new
+                                                                 let err' = err_lok ++ err_mod
+                                                                 case r_mod of
+                                                                   Just ((a, _), symtbl'') -> if (sym_internalerr err_mod == []) && (a == v_attr_new) then
+                                                                                                let errmsg = "Variable " ++ v_id ++ " has insufficient type in expression, promoted to " ++
+                                                                                                             (show lcs) ++ " from " ++ (show v_ty_decl') ++ "."
+                                                                                                in
+                                                                                                  return ((((v_id, lcs), (Just lcs, Just v_ty_decl'))), symtbl'',
+                                                                                                          err' ++ [Type_constraint_mismatched errmsg])
+                                                                                              else
+                                                                                                let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                in
+                                                                                                  throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl'', (Internal_error errmsg):err')
                                                                   
-                                                                  Nothing -> throwE (((v_id, v_ty_decl), (Nothing, Just v_ty_decl)), symtbl', (Internal_error errmsg):err')
-                                                                    where
-                                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                   Nothing -> throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err')
+                                                                     where
+                                                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                              
-                                                            Nothing -> if v_ty_decl /= v_ty then return (((v_id, v_ty_decl), (Nothing, Just v_ty_decl)), symtbl', err_lok)
-                                                                       else
-                                                                         let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                         in
-                                                                           throwE (((v_id, v_ty_decl), (Nothing, Just v_ty_decl)), symtbl', (Internal_error errmsg):err_lok)
-                                                        )
+                                                             Nothing -> if v_ty_decl' /= v_ty then return (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', err_lok)
+                                                                        else
+                                                                          let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                          in
+                                                                            throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err_lok)
+                                                          )
           
           _ -> throwE (((v_id, v_ty), (Nothing, Nothing)), symtbl', (Internal_error errmsg):err_lok)
             where
@@ -2698,12 +2717,9 @@ ty_inf_var symtbl ((v_id, v_ty), expr) =
     r_decl <- lift $ runExceptT $ ty_prom_var_decl symtbl (v_id, v_ty)
     let env_decl ((v_id, v_ty), (v_ty_prom, v_ty_decl)) = [([(v_id, v_ty)], (case v_ty_prom of
                                                                                 Nothing -> ([], [])
-                                                                                Just ty_prom -> ([(v_id, ty_prom)], [])
+                                                                                Just ty_prom -> ([(v_id, (v_ty_decl, ty_prom))], [])
                                                                             )
-                                                           )] ++ (case v_ty_decl of
-                                                                    Nothing -> []
-                                                                    Just ty_decl -> [([(v_id, ty_decl)], ([], []))]
-                                                                 )
+                                                           )]
     case r_decl of
       Left ((decl@((v_id', v_ty'), _)), symtbl', err) -> throwE $ if v_id' == v_id then ((Ty_env (env_decl decl), expr), symtbl', err)
                                                                   else
@@ -2751,7 +2767,7 @@ ty_inf_var symtbl ((v_id, v_ty), expr) =
                         where
                           env'' = case mod_ty_prom of
                                     Nothing -> env'
-                                    Just ty_prom -> Ty_env (([(v_id, mod_ty)], ([(v_id, ty_prom)], [])):e_bin')
+                                    Just ty_prom -> Ty_env (([(v_id, mod_ty)], ([(v_id, (mod_ty_decl, ty_prom))], [])):e_bin')
                       
                       _ -> throwE ((env', expr'), symtbl'', (Internal_error errmsg):err')
                         where
@@ -2850,7 +2866,7 @@ ty_inf_expr symtbl expr =
                             Just _ -> if l_v_ty' == (syn_node_typeof expr_l_inf') then
                                         return (case v_ty_prom of
                                                   Nothing -> Right (Ty_env l_env_bs, symtbl', (err ++ err_mod))
-                                                  Just ty_prom -> Right (Ty_env (([(l_v_id, l_v_ty')], ([(l_v_id, ty_prom)], [])):l_env_bs), symtbl', (err ++ err_mod))
+                                                  Just ty_prom -> Right (Ty_env (([(l_v_id, l_v_ty')], ([(l_v_id, (v_ty_decl, ty_prom))], [])):l_env_bs), symtbl', (err ++ err_mod))
                                                )
                                       else
                                         return $ Right (Ty_env l_env_bs, symtbl', (err ++ err_mod) ++ [Type_constraint_mismatched errmsg_decl])
@@ -2868,7 +2884,7 @@ ty_inf_expr symtbl expr =
             
             Nothing -> return ((ty_ovwt_env env_r env_l, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_rl, (err ++ [Type_constraint_mismatched errmsg]))
               where
-                errmsg = "Both left and right expressions must have same type, in assignment expression."
+                errmsg = "Left-handside expression must have supertype of r.h.s. in assignment expression."
         _ -> return ((ty_ovwt_env env_r env_l, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_rl, (err_l ++ [Ill_formed_expression errmsg]))
           where
             errmsg = "Left expression must be lvalue in assignment expression"
