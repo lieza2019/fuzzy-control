@@ -3106,7 +3106,7 @@ ty_inf_expr symtbl expr =
         _ -> do  
           let equ_bin_op = ((syn_node_typeof expr1_inf'), (syn_node_typeof expr2_inf'))
           let ((env1', env2'), equ_env) = ty_equ_envs env1 env2
-          lift $ putStrLn ("equations: " ++ (show equ_bin_op) ++ (show equ_env))
+          --lift $ putStrLn ("equations: " ++ (show equ_bin_op) ++ (show equ_env))
           
           let r_u = case ty_unif (equ_env ++ [equ_bin_op]) of
                       Just u_bin -> let expr1_inf'' = syn_node_subst u_bin expr1_inf'
@@ -3123,11 +3123,15 @@ ty_inf_expr symtbl expr =
                         where
                           env' = ty_ovwt_env env1' env2'
                           errmsg = "Type environments of operands doesn't meet, in binary operation of " ++ (show ope)
+          
           case r_u of
             Left u -> throwE u
             Right u -> (case u of
                           Left u' -> return u'
-                          Right ((env'@(Ty_env ((bs', (ps', ss')):bss')), expr_bin_inf), symtbl', err') -> do
+                          Right (u'@((Ty_env [], expr_bin_inf), symtbl', err')) -> do
+                            --(lift $ putStrLn ("expr': " ++ (show expr_bin_inf)))
+                            return u'
+                          Right ((Ty_env ((bs', (ps', ss')):bss'), expr_bin_inf), symtbl', err') -> do
                             r_mod <- lift $ runExceptT $ ty_prom_var_decl symtbl' bs'
                             case r_mod of
                               Left (bs_mod, symtbl'', err_mod) -> throwE ((Ty_env (bs_mod:((bs', (ps', ss')):bss')), expr_bin_inf), symtbl'', err' ++ err_mod)
@@ -3942,6 +3946,7 @@ main = do
                                       Nothing -> ""
                                       Just ss -> Prelude.foldl (\str -> \s -> (str ++ (recons_src s) ++ " ")) "" ss
                                    )
+  putStrLn ""
   
   putStr "ty-raw:  "
   ty_curved <- case syn_forest of
@@ -3970,26 +3975,27 @@ main = do
                      Nothing -> return []
                      Just (s_trees', _) -> return s_trees'
   mapM_ putStrLn $ Prelude.map show ty_curved
+  putStrLn ""
   
-  {- putStr "ty-inf:  "
+  putStr "ty-inf:  "
   (judges_inf, symtbl'', errs) <- do
     r <- runExceptT $ Prelude.foldl (\js -> \t_raw -> do
-                                        (judges, symtbl, errs) <- js
-                                        ((env, t_inf), symtbl', errs') <- ty_inf symtbl t_raw
+                                        (judges, stbl, errs) <- js
+                                        ((env, t_inf), stbl', errs') <- ty_inf stbl t_raw
                                         return (case judges of
-                                                  [] -> ([(env, t_inf)], symtbl', (errs ++ errs'))
-                                                  _ -> ((judges ++ [(env, t_inf)]), symtbl', (errs ++ errs'))
+                                                  [] -> ([(env, t_inf)], stbl', (errs ++ errs'))
+                                                  _ -> ((judges ++ [(env, t_inf)]), stbl', (errs ++ errs'))
                                                )
                                     ) (return ([], symtbl', [])) ty_curved
     return (case r of
               Right r -> r
               Left ((env, t_inf), symtbl', errs) -> ([(env, t_inf)], symtbl', errs)
            )
-  mapM_ putStrLn $ Prelude.map show judges_inf -}
-
+  mapM_ putStrLn $ Prelude.map show judges_inf
   putStrLn ""
-  putStr "simtbl:  "
-  print_symtbl symtbl' Sym_cat_decl
+  
+  {- putStr "simtbl:  "
+  print_symtbl symtbl' Sym_cat_decl -}
   
     where
       read_src :: Handle -> IO String
