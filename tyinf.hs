@@ -2665,13 +2665,14 @@ ty_chk_var_decl symtbl (v_id, v_ty) =
                               let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                               in
                                 throwE (((v_id, v_ty), (Nothing, Nothing)), symtbl', (Internal_error errmsg):err')
+    
     (Just ((Sym_attrib { sym_attr_entity = v_attr }, h), symtbl'), err_lok) ->
       (case v_attr of
           Syn_var_decl v_id' v_ty_decl | v_id' == v_id ->
                                          let v_ty_decl' = ty_reveal v_ty_decl
                                          in
                                            if v_ty_decl' == v_ty then return (((v_id, v_ty), (Nothing, Just v_ty_decl')), symtbl', err_lok)
-                                           else
+                                           else do
                                              case ty_lcs v_ty v_ty_decl' of
                                                Just _ -> return (((v_id, v_ty), (Nothing, Just v_ty_decl')), symtbl', err_lok)
                                                Nothing -> (case ty_lcs v_ty_decl' v_ty of
@@ -3128,9 +3129,7 @@ ty_inf_expr symtbl expr =
             Left u -> throwE u
             Right u -> (case u of
                           Left u' -> return u'
-                          Right (u'@((Ty_env [], expr_bin_inf), symtbl', err')) -> do
-                            --(lift $ putStrLn ("expr': " ++ (show expr_bin_inf)))
-                            return u'
+                          Right (u'@((Ty_env [], expr_bin_inf), symtbl', err')) -> return u'
                           Right ((Ty_env ((bs', (ps', ss')):bss'), expr_bin_inf), symtbl', err') -> do
                             r_mod <- lift $ runExceptT $ ty_prom_var_decl symtbl' bs'
                             case r_mod of
@@ -3977,6 +3976,10 @@ main = do
   mapM_ putStrLn $ Prelude.map show ty_curved
   putStrLn ""
   
+  putStr "simtbl_before:  "
+  print_symtbl symtbl' Sym_cat_decl
+  putStrLn ""
+  
   putStr "ty-inf:  "
   (judges_inf, symtbl'', errs) <- do
     r <- runExceptT $ Prelude.foldl (\js -> \t_raw -> do
@@ -3994,8 +3997,8 @@ main = do
   mapM_ putStrLn $ Prelude.map show judges_inf
   putStrLn ""
   
-  {- putStr "simtbl:  "
-  print_symtbl symtbl' Sym_cat_decl -}
+  putStr "simtbl_after:  "
+  print_symtbl symtbl' Sym_cat_decl
   
     where
       read_src :: Handle -> IO String
@@ -4139,3 +4142,20 @@ main = do
                                                             )
                                                ) [] err
 -}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
