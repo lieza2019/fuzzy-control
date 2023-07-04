@@ -3955,10 +3955,9 @@ main = do
                                                                     r' <- lift (do
                                                                                    r_cur <- runExceptT $ ty_curve (stmt, prev_tv)
                                                                                    case r_cur of
-                                                                                     Left err -> (do
-                                                                                                     putStrLn errmsg
-                                                                                                     return $ Nothing
-                                                                                                 )
+                                                                                     Left err -> do
+                                                                                       putStrLn errmsg
+                                                                                       return $ Nothing
                                                                                        where
                                                                                          errmsg = case err of
                                                                                                     Error_Excep Excep_assert_failed assert_msg -> assert_msg
@@ -3976,9 +3975,9 @@ main = do
   mapM_ putStrLn $ Prelude.map show ty_curved
   putStrLn ""
   
-  putStr "simtbl_before:  "
+  {- putStr "simtbl_before:  "
   print_symtbl symtbl' Sym_cat_decl
-  putStrLn ""
+  putStrLn "" -}
   
   putStr "ty-inf:  "
   (judges_inf, symtbl'', errs) <- do
@@ -4142,20 +4141,3 @@ main = do
                                                             )
                                                ) [] err
 -}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
