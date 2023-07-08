@@ -2180,9 +2180,14 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                         case r_v of
                                           Left err -> return $ Left err
                                           Right ((Just (var_decl@(Syn_var_decl var_id var_ty)), symtbl', tokens'), errs) -> do
-                                            let (symtbl'', err_symreg) = sym_regist False symtbl' Sym_cat_decl (var_id, var_decl)
-                                            let errs' = errs ++ err_symreg
-                                            return $ Right ((Just var_decl, symtbl'', tokens'), errs')
+                                            r_cur <- runExceptT $ ty_curve (var_decl, fresh_tvar_initial)
+                                            case r_cur of
+                                              Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                where
+                                                  errmsg = show err_cur
+                                              Right (var_decl', prev_tv) -> return $ Right ((Just var_decl', symtbl'', tokens'), (errs ++ err_reg))
+                                                where
+                                                  (symtbl'', err_reg) = sym_regist False symtbl' Sym_cat_decl (var_id, var_decl')
                                           Right ((_, symtbl', tokens'), errs) -> return $ Right ((Nothing, symtbl', tokens'), errs)
                                       
                                       _ -> return $ Right ((Nothing, symtbl, ts), [err])
