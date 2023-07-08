@@ -1532,7 +1532,8 @@ parse_fun_body symtbl (decls, omits) tokens = do
                           Right (((env1, (decls', omits')), stmt1), symtbl1, tokens1, err1) -> do
                             stmt1' <- runExceptT $ ty_curve (stmt1, (fresh_tvar symtbl1))
                             case stmt1' of
-                              Left err_exc -> return $ Left err_exc
+                              --Left err_exc -> return $ Left err_exc
+                              Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                               Right (stmt1'', prev_tv') -> do
                                 symtbl1' <- return $ sym_adjust_tvar symtbl1 prev_tv'
                                 
@@ -2074,7 +2075,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                              r <- lift $ do
                                r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
                                case r_cur of
-                                 Left (Error_Excep _ errmsg) -> return $ Right ((Just expr, symtbl, ts'), [Internal_error errmsg])
+                                 Left err_cur -> return $ Right ((Just expr, symtbl, ts'), err_cur)
                                  Right (expr', prev_tv) -> runExceptT $ cont_par symtbl expr' ts'
                              case r of
                                Left r' -> throwE r'
@@ -2092,7 +2093,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                             r <- lift $ do
                               r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
                               case r_cur of
-                                Left (Error_Excep _ errmsg) -> return $ Right ((Just expr, symtbl, ts), [Internal_error errmsg])
+                                Left err_cur -> return $ Right ((Just expr, symtbl, ts), err_cur)
                                 Right (expr_cur, prev_tv) -> runExceptT $ cont_par symtbl expr_cur ts'
                             case r of
                               Left r' -> throwE r'
@@ -2299,7 +2300,7 @@ succ_flesh_tvar prev =
   where
     last_id = (snd prev)
 
-ty_curve :: (Syntree_node, Fresh_tvar) -> ExceptT Error_Excep IO (Syntree_node, Fresh_tvar)
+ty_curve :: (Syntree_node, Fresh_tvar) -> ExceptT [Error_codes] IO (Syntree_node, Fresh_tvar)
 ty_curve (expr, prev_tvar) = do
   case expr of
     Syn_arg_decl arg_id Ty_abs -> return (Syn_arg_decl arg_id (fst tvar_arg), tvar_arg)
@@ -2513,14 +2514,15 @@ ty_curve (expr, prev_tvar) = do
         Left err -> throwE err
         Right r' -> return r'
 
-    Syn_val _ Ty_abs -> throwE (Error_Excep Excep_assert_failed loc)
+    --Syn_val _ Ty_abs -> throwE (Error_Excep Excep_assert_failed loc)
+    Syn_val _ Ty_abs -> throwE [Internal_error errmsg]
       where
-        loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+        errmsg  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
     
     _ -> return (expr, prev_tvar) -- including the case of  Syn_tydef_decl, Syn_rec_decl, and Syn_none.
   
   where
-    curve_decls :: [Syntree_node] -> Fresh_tvar -> ExceptT Error_Excep IO ([Syntree_node], Fresh_tvar)
+    curve_decls :: [Syntree_node] -> Fresh_tvar -> ExceptT [Error_codes] IO ([Syntree_node], Fresh_tvar)
     curve_decls decls prev_tvar = do
       r <- lift (do
                     case decls of
@@ -3979,12 +3981,8 @@ main = do
                                                                                    r_cur <- runExceptT $ ty_curve (stmt, prev_tv)
                                                                                    case r_cur of
                                                                                      Left err -> do
-                                                                                       putStrLn errmsg
+                                                                                       Prelude.foldl (\u -> \e -> putStrLn (show e)) (return ()) err
                                                                                        return $ Nothing
-                                                                                       where
-                                                                                         errmsg = case err of
-                                                                                                    Error_Excep Excep_assert_failed assert_msg -> assert_msg
-                                                                                                    Error_Excep _ errmsg -> errmsg
                                                                                      Right (stmt', prev_tv') -> return $ Just (stmts ++ [stmt'], prev_tv')
                                                                                )
                                                                     case r' of
