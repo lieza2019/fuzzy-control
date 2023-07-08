@@ -2075,7 +2075,10 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                              r <- lift $ do
                                r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
                                case r_cur of
-                                 Left err_cur -> return $ Right ((Just expr, symtbl, ts'), err_cur)
+                                 --Left err_cur -> return $ Right ((Just expr, symtbl, ts'), err_cur)
+                                 Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                   where
+                                     errmsg = show err_cur
                                  Right (expr', prev_tv) -> runExceptT $ cont_par symtbl expr' ts'
                              case r of
                                Left r' -> throwE r'
@@ -2093,7 +2096,10 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                             r <- lift $ do
                               r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
                               case r_cur of
-                                Left err_cur -> return $ Right ((Just expr, symtbl, ts), err_cur)
+                                --Left err_cur -> return $ Right ((Just expr, symtbl, ts), err_cur)
+                                Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                  where
+                                    errmsg = show err_cur
                                 Right (expr_cur, prev_tv) -> runExceptT $ cont_par symtbl expr_cur ts'
                             case r of
                               Left r' -> throwE r'
@@ -2109,13 +2115,24 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
           r <- lift (do
                         r0 <- runExceptT $ cons_ptree symtbl ts (False, False, False)
                         case r0 of
-                          Left err_exc -> return $ Left err_exc
+                          Left err0 -> return r0
                           Right ((Nothing, symtbl', ts'), err) -> return r0
                           Right ((Just expr0, symtbl', ts'), err) -> do
-                            r1 <- runExceptT $ cont_par symtbl' (Syn_expr_una Ope_neg expr0 Ty_abs) ts'
+                            {- r1 <- runExceptT $ cont_par symtbl' (Syn_expr_una Ope_neg expr0 Ty_abs) ts'
                             case r1 of
-                              Left err_exc -> return r1
-                              Right ((expr1, symtbl'', ts''), err') -> cat_err err (return r1)
+                              Left err1 -> return r1
+                              Right ((expr1, symtbl'', ts''), err') -> cat_err err (return r1) -}
+                            let expr1 = Syn_expr_una Ope_neg expr0 Ty_abs
+                            r1 <- runExceptT $ ty_curve (expr1, fresh_tvar_initial)
+                            case r1 of
+                              Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                where
+                                  errmsg = show err_cur
+                              Right (expr1', prev_tv) -> do
+                                r1' <- runExceptT $ cont_par symtbl' expr1' ts'
+                                case r1' of
+                                  Left err1 -> return r1'
+                                  Right ((expr1'', symtbl'', ts''), err') -> cat_err err (return r1')
                     )
           case r of
             Left err -> throwE err
