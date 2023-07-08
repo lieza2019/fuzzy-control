@@ -2068,19 +2068,42 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
             Right r' -> return r'
         
         Tk_decre:ts -> (case ts of
-                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs) ts'
-                          _ -> return ((Nothing, symtbl, ts), err)
-                            where
-                              errmsg = "Expression must be assignable."
-                              err = [Ill_formed_expression errmsg]
+                          --(Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs) ts'
+                           (Tk_ident ident):ts' -> do
+                             let expr = (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs)
+                             r <- lift $ do
+                               r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
+                               case r_cur of
+                                 Left (Error_Excep _ errmsg) -> return $ Right ((Just expr, symtbl, ts'), [Internal_error errmsg])
+                                 Right (expr', prev_tv) -> runExceptT $ cont_par symtbl expr' ts'
+                             case r of
+                               Left r' -> throwE r'
+                               Right r' -> return r'
+                             
+                           _ -> return ((Nothing, symtbl, ts), err)
+                             where
+                               errmsg = "Expression must be assignable."
+                               err = [Ill_formed_expression errmsg]
                        )
         Tk_incre:ts -> (case ts of
-                          (Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_incre (Syn_var ident Ty_abs) Ty_abs) ts'
+                          --(Tk_ident ident):ts' -> cont_par symtbl (Syn_expr_una Ope_incre (Syn_var ident Ty_abs) Ty_abs) ts'
+                          (Tk_ident ident):ts' -> do
+                            let expr = Syn_expr_una Ope_incre (Syn_var ident Ty_abs) Ty_abs
+                            r <- lift $ do
+                              r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
+                              case r_cur of
+                                Left (Error_Excep _ errmsg) -> return $ Right ((Just expr, symtbl, ts), [Internal_error errmsg])
+                                Right (expr_cur, prev_tv) -> runExceptT $ cont_par symtbl expr_cur ts'
+                            case r of
+                              Left r' -> throwE r'
+                              Right r' -> return r'
+                          
                           _ -> return ((Nothing, symtbl, ts), err)
                             where
                               errmsg = "Expression must be assignable."
                               err = [Ill_formed_expression errmsg]
                        )
+                       
         Tk_shaft:ts -> do
           r <- lift (do
                         r0 <- runExceptT $ cons_ptree symtbl ts (False, False, False)
