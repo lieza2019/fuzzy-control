@@ -2540,6 +2540,261 @@ ty_curve (expr, prev_tvar) = do
       case r of
         Left err -> throwE err
         Right r' -> return r'
+ty_curve' :: Symtbl -> Syntree_node -> ExceptT [Error_codes] IO (Syntree_node, Symtbl)
+ty_curve' symtbl expr = do
+  case expr of
+    Syn_arg_decl arg_id Ty_abs -> return (Syn_arg_decl arg_id (fst tvar_arg), symtbl')
+      where
+        symtbl' = sym_adjust_tvar symtbl $ succ_flesh_tvar (fresh_tvar symtbl)
+        tvar_arg = fresh_tvar symtbl'
+    Syn_var var_id Ty_abs -> return (Syn_var var_id (fst tvar_var), symtbl')
+      where
+        symtbl' = sym_adjust_tvar symtbl $ succ_flesh_tvar (fresh_tvar symtbl)
+        tvar_var = fresh_tvar symtbl'
+    
+    Syn_expr_par expr' ty_par -> do
+      r <- lift (do
+                    r' <- runExceptT $ ty_curve' symtbl expr'
+                    return $ case r' of
+                               Left err -> r'
+                               Right (expr'', symtbl') -> Right (case ty_par of
+                                                                   Ty_abs -> (Syn_expr_par expr'' (syn_retrieve_typeof expr''), symtbl')
+                                                                   _ -> (Syn_expr_par expr'' ty_par, symtbl')
+                                                                )
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_expr_una ope_una expr' ty_una -> do
+      r <- lift (do
+                    r' <- runExceptT $ ty_curve' symtbl expr'
+                    return $ case r' of
+                      Left err -> r'
+                      Right (expr'', symtbl') -> Right (case ty_una of
+                                                           Ty_abs -> (Syn_expr_una ope_una expr'' (fst tvar_una), symtbl'')
+                                                             where
+                                                               symtbl'' = sym_adjust_tvar symtbl' $ succ_flesh_tvar (fresh_tvar symtbl')
+                                                               tvar_una = fresh_tvar symtbl''
+                                                           _ -> (Syn_expr_una ope_una expr'' ty_una, symtbl')
+                                                       )
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_expr_bin ope_bin (expr1, expr2) ty_bin -> do
+      r <- lift (do
+                    r1 <- runExceptT $ ty_curve' symtbl expr1
+                    case r1 of
+                      Left err -> return r1
+                      Right (expr1', symtbl1) -> do
+                        r2 <- runExceptT $ ty_curve' symtbl1 expr2
+                        return $ case r2 of
+                                   Left err -> r2
+                                   Right (expr2', symtbl2) -> Right (case ty_bin of
+                                                                       Ty_abs -> (Syn_expr_bin ope_bin (expr1', expr2') (fst tvar_bin), symtbl')
+                                                                         where
+                                                                           symtbl' = sym_adjust_tvar symtbl2 $ succ_flesh_tvar (fresh_tvar symtbl2)
+                                                                           tvar_bin = fresh_tvar symtbl'
+                                                                       _ -> (Syn_expr_bin ope_bin (expr1', expr2') ty_bin, symtbl2)
+                                                                    )
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_expr_call fun_id args ty_call -> do
+      r <- lift (do
+                    r_args <- case args of
+                                [] -> return $ Right ([], symtbl)
+                                _ -> runExceptT $ curve_args symtbl' args
+                                  where
+                                    symtbl' = sym_adjust_tvar symtbl $ succ_flesh_tvar (fresh_tvar symtbl)
+                    return r_args
+                )
+      case r of
+        Left err -> throwE err
+        Right (args', symtbl') -> return $ case ty_call of
+                                             Ty_abs -> (Syn_expr_call fun_id args' (fst tvar_call), symtbl'')
+                                               where
+                                                 symtbl'' = sym_adjust_tvar symtbl' $ succ_flesh_tvar (fresh_tvar symtbl')
+                                                 tvar_call = fresh_tvar symtbl''
+                                             _ -> (Syn_expr_call fun_id args' ty_call, symtbl')
+        where
+          curve_args = curve_decls
+    
+    Syn_cond_expr (cond_expr, (expr_true, expr_false)) ty_cond -> do
+      r <- lift (do
+                    r_cond <- runExceptT $ ty_curve' symtbl cond_expr
+                    case r_cond of
+                      Left err -> return r_cond
+                      Right (cond_expr', symtbl_c) -> do
+                        r_true <- runExceptT $ ty_curve' symtbl_c expr_true
+                        case r_true of
+                          Left err -> return r_true
+                          Right (expr_true', symtbl_ct) -> do
+                            r_false <- (case expr_false of
+                                          Nothing -> return $ Right (Nothing, symtbl_ct)
+                                          Just f_expr -> do
+                                            r_false' <- runExceptT $ ty_curve' symtbl_ct f_expr
+                                            case r_false' of
+                                              Left err -> return $ Left err
+                                              Right (f_expr', symtbl_ctf) -> return $ Right (Just f_expr', symtbl_ctf)
+                                       )
+                            case r_false of
+                              Left err -> return $ Left err
+                              Right (expr_false', symtbl') -> return $ Right (case ty_cond of
+                                                                                Ty_abs -> (Syn_cond_expr (cond_expr', (expr_true', expr_false')) (fst tvar_cond), symtbl'')
+                                                                                  where
+                                                                                    symtbl'' = sym_adjust_tvar symtbl' $ succ_flesh_tvar (fresh_tvar symtbl')
+                                                                                    tvar_cond = fresh_tvar symtbl''
+                                                                                _ -> (Syn_cond_expr (cond_expr', (expr_true', expr_false')) ty_cond, symtbl')
+                                                                             )
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_fun_decl' fun_id args fun_body (_, ty_fun) -> do
+      r <- lift (do
+                      r_args <- case args of
+                                  [] -> return $ Right ([], symtbl)
+                                  _ -> runExceptT $ curve_decls symtbl args
+                      case r_args of
+                        Left err -> return $ Left err
+                        Right (args', symtbl_a) -> do
+                          r_body <- runExceptT $ ty_curve' symtbl_a fun_body
+                          case r_body of
+                            Left err -> return r_body
+                            Right (fun_body', symtbl') -> return $ Right (Syn_fun_decl fun_id args' fun_body' ty_fun', symtbl'')
+                              where
+                                (ty_fun', symtbl'') = case ty_fun of
+                                                        --Ty_abs -> curve_funty (args', ty_fun) prev_tvar''
+                                                        Ty_abs -> (case curve_funty (args', ty_fun) (succ_flesh_tvar $ fresh_tvar symtbl') of
+                                                                     (ty_fun'', last) -> (ty_fun'', sym_adjust_tvar symtbl' last)
+                                                                  )
+                                                        _ -> (ty_fun, symtbl')
+                                curve_funty :: ([Syntree_node], Type) -> Fresh_tvar -> (Type, Fresh_tvar)
+                                curve_funty (args, fun_ty) prev_tvar =
+                                  let from_args = Prelude.foldl (\(as', prev_tv) -> (\a -> case syn_node_typeof a of
+                                                                                             Ty_abs -> (as' ++ [fst prev_tv'], prev_tv')
+                                                                                               where
+                                                                                                 prev_tv' = succ_flesh_tvar prev_tv
+                                                                                             (a_ty@_) -> (as' ++ [a_ty], prev_tv)
+                                                                                    )
+                                                                ) ([], prev_tvar) args
+                                  in
+                                    case from_args of
+                                      (args', prev_tvar') -> (case fun_ty of
+                                                                Ty_abs -> (Ty_fun args' (fst tvar_fun_decl), tvar_fun_decl)
+                                                                  where
+                                                                    tvar_fun_decl = succ_flesh_tvar prev_tvar'
+                                                                _ -> (Ty_fun args' fun_ty, prev_tvar')
+                                                             )
+                  )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_var_decl var_id Ty_abs -> return (Syn_var_decl var_id (fst tvar_var), symtbl')
+      where
+        symtbl' = sym_adjust_tvar symtbl $ succ_flesh_tvar (fresh_tvar symtbl)
+        tvar_var = fresh_tvar symtbl'
+    
+    Syn_expr_seq exprs seq_ty -> do
+      r <- lift (do
+                    r_exprs <- case exprs of
+                                 [] -> return $ Right ([], symtbl)
+                                 e:es -> do
+                                   r_e <- runExceptT $ ty_curve' symtbl e
+                                   case r_e of
+                                     Left err -> return $ Left err
+                                     Right (e', symtbl') -> (do
+                                                                r_es <- runExceptT $ curve_seqs symtbl' es
+                                                                case r_es of
+                                                                  Left err -> return r_es
+                                                                  Right (es', symtbl'') -> return $ Right ((e':es'), symtbl'')
+                                                            )
+                                       where
+                                         curve_seqs = curve_decls
+                    case r_exprs of
+                      Left err -> return $ Left err
+                      Right (exprs', symtbl') -> return $ Right (case seq_ty of
+                                                                   Ty_abs -> (Syn_expr_seq exprs' seq_ty', symtbl'')
+                                                                     where
+                                                                       (seq_ty', symtbl'')  = case exprs' of
+                                                                                                [] -> (fst (fresh_tvar symtbl''), symtbl'')
+                                                                                                  where
+                                                                                                    symtbl'' = sym_adjust_tvar symtbl' $ succ_flesh_tvar (fresh_tvar symtbl')
+                                                                                                _ -> (syn_retrieve_typeof (Syn_expr_seq exprs' seq_ty), symtbl')
+                                                                   _ -> (Syn_expr_seq exprs' seq_ty, symtbl')
+                                                                )
+                )
+      case r of
+        Left err -> throwE err
+        Right r'-> return r'
+    
+    Syn_scope (decls, body) -> do
+      r <- lift (do
+                    r_decls <- runExceptT $ curve_decls symtbl decls
+                    case r_decls of
+                      Left err -> return $ Left err
+                      Right (decls', symtbl') -> do
+                        r_body <- runExceptT $ ty_curve' symtbl' body
+                        case r_body of
+                          Left err -> return r_body
+                          Right (body', symtbl'') -> return $ Right (Syn_scope (decls', body'), symtbl'')
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    Syn_expr_asgn expr_l expr_r ty_asgn -> do
+      r <- lift (do
+                    r_l <- runExceptT $ ty_curve' symtbl expr_l
+                    case r_l of
+                      Left err -> return r_l
+                      Right (expr_l', symtbl') -> do
+                        r_r <- runExceptT $ ty_curve' symtbl' expr_r
+                        case r_r of
+                          Left err -> return r_r
+                          Right (expr_r', symtbl'') -> return $ Right (Syn_expr_asgn expr_l' expr_r' ty_asgn', symtbl'')
+                          where
+                            ty_asgn' = case ty_asgn of
+                                         Ty_abs -> syn_retrieve_typeof expr_l'
+                                         _ -> ty_asgn
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
+    
+    --Syn_val _ Ty_abs -> throwE (Error_Excep Excep_assert_failed loc)
+    Syn_val _ Ty_abs -> throwE [Internal_error errmsg]
+      where
+        errmsg  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+    
+    _ -> return (expr, symtbl) -- including the case of  Syn_tydef_decl, Syn_rec_decl, and Syn_none.
+  
+  where
+    curve_decls :: Symtbl -> [Syntree_node] -> ExceptT [Error_codes] IO ([Syntree_node], Symtbl)
+    curve_decls symtbl decls = do
+      r <- lift (do
+                    case decls of
+                      [] -> return $ Right ([], symtbl)
+                      d:ds -> do
+                        r' <- runExceptT $ ty_curve' symtbl d
+                        case r' of
+                          Left err -> return (Left err)
+                          Right (d', symtbl') -> do
+                            r'' <- runExceptT $ curve_decls symtbl' ds
+                            return $ case r'' of
+                                       Left err -> r''
+                                       Right (ds', symtbl'') -> Right (d':ds', symtbl'')
+                )
+      case r of
+        Left err -> throwE err
+        Right r' -> return r'
 
 
 type Equation = (Type, Type)
