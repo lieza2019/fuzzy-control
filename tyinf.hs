@@ -1532,18 +1532,18 @@ parse_fun_body symtbl (decls, omits) tokens = do
                           Right (((env1, (decls', omits')), stmt1), symtbl1, tokens1, err1) -> do
                            r_cur <- runExceptT $ ty_curve symtbl stmt1
                            case r_cur of
-                              --Left err_exc -> return $ Left err_exc
-                              Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                              --Right (stmt1'', prev_tv') -> do
-                              Right (stmt1', symtbl') -> do
-                                --symtbl1' <- return $ sym_adjust_tvar symtbl1 prev_tv' -}
-                                
-                                --r_body' <- runExceptT $ parse_fun_body symtbl1' (decls', omits') tokens1
-                                r_body' <- runExceptT $ parse_fun_body symtbl' (decls', omits') tokens1
-                                case r_body' of
-                                  Left err_exc -> return $ Left err_exc
-                                  Right (((env', (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) -> do
-                                    return $ Right (((env', (decls'', omits'')), (stmt1':stmts)), symtbl'', tokens'', (err1 ++ err_cont))
+                             --Left err_exc -> return $ Left err_exc
+                             Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                             --Right (stmt1'', prev_tv') -> do
+                             Right (stmt1', symtbl') -> do
+                               --symtbl1' <- return $ sym_adjust_tvar symtbl1 prev_tv' -}
+                               
+                               --r_body' <- runExceptT $ parse_fun_body symtbl1' (decls', omits') tokens1
+                               r_body' <- runExceptT $ parse_fun_body symtbl' (decls', omits') tokens1
+                               case r_body' of
+                                 Left err_exc -> return $ Left err_exc
+                                 Right (((env', (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) -> do
+                                   return $ Right (((env', (decls'', omits'')), (stmt1':stmts)), symtbl'', tokens'', (err1 ++ err_cont))
                           _ -> return $ Left (Error_Excep Excep_assert_failed loc)
                             where
                               loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -2077,7 +2077,8 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                              r <- lift $ do
                                r_cur <- runExceptT $ ty_curve symtbl expr
                                case r_cur of
-                                 Left err_cur -> return $ Right ((Just expr, symtbl, ts'), err_cur)
+                                 --Left err_cur -> return $ Right ((Just expr, symtbl, ts'), err_cur)
+                                 Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                  Right (expr', symtbl') -> runExceptT $ cont_par symtbl' expr' ts'
                              case r of
                                Left r' -> throwE r'
@@ -2095,7 +2096,8 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                             r <- lift $ do
                               r_cur <- runExceptT $ ty_curve symtbl expr
                               case r_cur of
-                                Left err_cur -> return $ Right ((Just expr, symtbl, ts), err_cur)
+                                --Left err_cur -> return $ Right ((Just expr, symtbl, ts), err_cur)
+                                Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                 Right (expr_cur, symtbl') -> runExceptT $ cont_par symtbl' expr_cur ts'
                             case r of
                               Left r' -> throwE r'
