@@ -1530,7 +1530,6 @@ parse_fun_body symtbl (decls, omits) tokens = do
                                          )
                         case r_stmt of
                           Right (((env1, (decls', omits')), stmt1), symtbl1, tokens1, err1) -> do
-                            --stmt1' <- runExceptT $ ty_curve (stmt1, (fresh_tvar symtbl1))
                            r_cur <- runExceptT $ ty_curve' symtbl stmt1
                            case r_cur of
                               --Left err_exc -> return $ Left err_exc
@@ -2076,7 +2075,6 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                            (Tk_ident ident):ts' -> do
                              let expr = (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs)
                              r <- lift $ do
-                               --r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
                                r_cur <- runExceptT $ ty_curve' symtbl expr
                                case r_cur of
                                  Left err_cur -> return $ Right ((Just expr, symtbl, ts'), err_cur)
@@ -2095,7 +2093,6 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                           (Tk_ident ident):ts' -> do
                             let expr = Syn_expr_una Ope_incre (Syn_var ident Ty_abs) Ty_abs
                             r <- lift $ do
-                              --r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
                               r_cur <- runExceptT $ ty_curve' symtbl expr
                               case r_cur of
                                 Left err_cur -> return $ Right ((Just expr, symtbl, ts), err_cur)
@@ -4233,33 +4230,11 @@ main = do
   putStrLn ""
   
   putStr "ty-raw:  "
-  {- ty_curved <- case syn_forest of
-                 Just s_trees -> do
-                   r <- runMaybeT $ Prelude.foldl (\stmts_tv -> (\stmt -> do
-                                                                    (stmts, prev_tv) <- stmts_tv
-                                                                    r' <- lift (do
-                                                                                   r_cur <- runExceptT $ ty_curve (stmt, prev_tv)
-                                                                                   --r_cur <- runExceptT $ ty_curve' symtbl' stmt
-                                                                                   case r_cur of
-                                                                                     Left err -> do
-                                                                                       Prelude.foldl (\u -> \e -> putStrLn (show e)) (return ()) err
-                                                                                       return $ Nothing
-                                                                                     Right (stmt', prev_tv') -> return $ Just (stmts ++ [stmt'], prev_tv')
-                                                                               )
-                                                                    case r' of
-                                                                      Nothing -> mzero
-                                                                      Just (stmts', crnt_tv) -> return (stmts', crnt_tv)
-                                                                )
-                                                  ) (return ([], fresh_tvar_initial)) s_trees
-                   case r of
-                     Nothing -> return []
-                     Just (s_trees', _) -> return s_trees' -}
   ty_curved <- case syn_forest of
                  Just s_trees -> do
                    r <- runMaybeT $ Prelude.foldl (\stmts_tv -> (\stmt -> do
                                                                     (stmts, stbl) <- stmts_tv
                                                                     r' <- lift (do
-                                                                                   --r_cur <- runExceptT $ ty_curve (stmt, prev_tv)
                                                                                    r_cur <- runExceptT $ ty_curve' stbl stmt
                                                                                    case r_cur of
                                                                                      Left err -> do
