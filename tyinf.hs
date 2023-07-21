@@ -1530,7 +1530,7 @@ parse_fun_body symtbl (decls, omits) tokens = do
                                          )
                         case r_stmt of
                           Right (((env1, (decls', omits')), stmt1), symtbl1, tokens1, err1) -> do
-                           r_cur <- runExceptT $ ty_curve' symtbl stmt1
+                           r_cur <- runExceptT $ ty_curve symtbl stmt1
                            case r_cur of
                               --Left err_exc -> return $ Left err_exc
                               Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
@@ -2075,7 +2075,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                            (Tk_ident ident):ts' -> do
                              let expr = (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs)
                              r <- lift $ do
-                               r_cur <- runExceptT $ ty_curve' symtbl expr
+                               r_cur <- runExceptT $ ty_curve symtbl expr
                                case r_cur of
                                  Left err_cur -> return $ Right ((Just expr, symtbl, ts'), err_cur)
                                  Right (expr', symtbl') -> runExceptT $ cont_par symtbl' expr' ts'
@@ -2093,7 +2093,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                           (Tk_ident ident):ts' -> do
                             let expr = Syn_expr_una Ope_incre (Syn_var ident Ty_abs) Ty_abs
                             r <- lift $ do
-                              r_cur <- runExceptT $ ty_curve' symtbl expr
+                              r_cur <- runExceptT $ ty_curve symtbl expr
                               case r_cur of
                                 Left err_cur -> return $ Right ((Just expr, symtbl, ts), err_cur)
                                 Right (expr_cur, symtbl') -> runExceptT $ cont_par symtbl' expr_cur ts'
@@ -2542,8 +2542,8 @@ ty_curve (expr, prev_tvar) = do
       case r of
         Left err -> throwE err
         Right r' -> return r' -}
-ty_curve' :: Symtbl -> Syntree_node -> ExceptT [Error_codes] IO (Syntree_node, Symtbl)
-ty_curve' symtbl expr = do
+ty_curve :: Symtbl -> Syntree_node -> ExceptT [Error_codes] IO (Syntree_node, Symtbl)
+ty_curve symtbl expr = do
   case expr of
     Syn_arg_decl arg_id Ty_abs -> return (Syn_arg_decl arg_id (fst tvar_arg), symtbl')
       where
@@ -2556,7 +2556,7 @@ ty_curve' symtbl expr = do
     
     Syn_expr_par expr' ty_par -> do
       r <- lift (do
-                    r' <- runExceptT $ ty_curve' symtbl expr'
+                    r' <- runExceptT $ ty_curve symtbl expr'
                     return $ case r' of
                                Left err -> r'
                                Right (expr'', symtbl') -> Right (case ty_par of
@@ -2570,7 +2570,7 @@ ty_curve' symtbl expr = do
     
     Syn_expr_una ope_una expr' ty_una -> do
       r <- lift (do
-                    r' <- runExceptT $ ty_curve' symtbl expr'
+                    r' <- runExceptT $ ty_curve symtbl expr'
                     return $ case r' of
                       Left err -> r'
                       Right (expr'', symtbl') -> Right (case ty_una of
@@ -2587,11 +2587,11 @@ ty_curve' symtbl expr = do
     
     Syn_expr_bin ope_bin (expr1, expr2) ty_bin -> do
       r <- lift (do
-                    r1 <- runExceptT $ ty_curve' symtbl expr1
+                    r1 <- runExceptT $ ty_curve symtbl expr1
                     case r1 of
                       Left err -> return r1
                       Right (expr1', symtbl1) -> do
-                        r2 <- runExceptT $ ty_curve' symtbl1 expr2
+                        r2 <- runExceptT $ ty_curve symtbl1 expr2
                         return $ case r2 of
                                    Left err -> r2
                                    Right (expr2', symtbl2) -> Right (case ty_bin of
@@ -2628,18 +2628,18 @@ ty_curve' symtbl expr = do
     
     Syn_cond_expr (cond_expr, (expr_true, expr_false)) ty_cond -> do
       r <- lift (do
-                    r_cond <- runExceptT $ ty_curve' symtbl cond_expr
+                    r_cond <- runExceptT $ ty_curve symtbl cond_expr
                     case r_cond of
                       Left err -> return r_cond
                       Right (cond_expr', symtbl_c) -> do
-                        r_true <- runExceptT $ ty_curve' symtbl_c expr_true
+                        r_true <- runExceptT $ ty_curve symtbl_c expr_true
                         case r_true of
                           Left err -> return r_true
                           Right (expr_true', symtbl_ct) -> do
                             r_false <- (case expr_false of
                                           Nothing -> return $ Right (Nothing, symtbl_ct)
                                           Just f_expr -> do
-                                            r_false' <- runExceptT $ ty_curve' symtbl_ct f_expr
+                                            r_false' <- runExceptT $ ty_curve symtbl_ct f_expr
                                             case r_false' of
                                               Left err -> return $ Left err
                                               Right (f_expr', symtbl_ctf) -> return $ Right (Just f_expr', symtbl_ctf)
@@ -2666,7 +2666,7 @@ ty_curve' symtbl expr = do
                       case r_args of
                         Left err -> return $ Left err
                         Right (args', symtbl_a) -> do
-                          r_body <- runExceptT $ ty_curve' symtbl_a fun_body
+                          r_body <- runExceptT $ ty_curve symtbl_a fun_body
                           case r_body of
                             Left err -> return r_body
                             Right (fun_body', symtbl') -> return $ Right (Syn_fun_decl fun_id args' fun_body' ty_fun', symtbl'')
@@ -2709,7 +2709,7 @@ ty_curve' symtbl expr = do
                     r_exprs <- case exprs of
                                  [] -> return $ Right ([], symtbl)
                                  e:es -> do
-                                   r_e <- runExceptT $ ty_curve' symtbl e
+                                   r_e <- runExceptT $ ty_curve symtbl e
                                    case r_e of
                                      Left err -> return $ Left err
                                      Right (e', symtbl') -> (do
@@ -2743,7 +2743,7 @@ ty_curve' symtbl expr = do
                     case r_decls of
                       Left err -> return $ Left err
                       Right (decls', symtbl') -> do
-                        r_body <- runExceptT $ ty_curve' symtbl' body
+                        r_body <- runExceptT $ ty_curve symtbl' body
                         case r_body of
                           Left err -> return r_body
                           Right (body', symtbl'') -> return $ Right (Syn_scope (decls', body'), symtbl'')
@@ -2754,11 +2754,11 @@ ty_curve' symtbl expr = do
     
     Syn_expr_asgn expr_l expr_r ty_asgn -> do
       r <- lift (do
-                    r_l <- runExceptT $ ty_curve' symtbl expr_l
+                    r_l <- runExceptT $ ty_curve symtbl expr_l
                     case r_l of
                       Left err -> return r_l
                       Right (expr_l', symtbl') -> do
-                        r_r <- runExceptT $ ty_curve' symtbl' expr_r
+                        r_r <- runExceptT $ ty_curve symtbl' expr_r
                         case r_r of
                           Left err -> return r_r
                           Right (expr_r', symtbl'') -> return $ Right (Syn_expr_asgn expr_l' expr_r' ty_asgn', symtbl'')
@@ -2785,7 +2785,7 @@ ty_curve' symtbl expr = do
                     case decls of
                       [] -> return $ Right ([], symtbl)
                       d:ds -> do
-                        r' <- runExceptT $ ty_curve' symtbl d
+                        r' <- runExceptT $ ty_curve symtbl d
                         case r' of
                           Left err -> return (Left err)
                           Right (d', symtbl') -> do
@@ -4235,7 +4235,7 @@ main = do
                    r <- runMaybeT $ Prelude.foldl (\stmts_tv -> (\stmt -> do
                                                                     (stmts, stbl) <- stmts_tv
                                                                     r' <- lift (do
-                                                                                   r_cur <- runExceptT $ ty_curve' stbl stmt
+                                                                                   r_cur <- runExceptT $ ty_curve stbl stmt
                                                                                    case r_cur of
                                                                                      Left err -> do
                                                                                        Prelude.foldl (\u -> \e -> putStrLn (show e)) (return ()) err
@@ -4244,7 +4244,6 @@ main = do
                                                                                )
                                                                     case r' of
                                                                       Nothing -> mzero
-
                                                                       Just r'' -> return r''
                                                                 )
                                                   ) (return ([], symtbl')) s_trees
