@@ -1530,18 +1530,21 @@ parse_fun_body symtbl (decls, omits) tokens = do
                                          )
                         case r_stmt of
                           Right (((env1, (decls', omits')), stmt1), symtbl1, tokens1, err1) -> do
-                            stmt1' <- runExceptT $ ty_curve (stmt1, (fresh_tvar symtbl1))
-                            case stmt1' of
+                            --stmt1' <- runExceptT $ ty_curve (stmt1, (fresh_tvar symtbl1))
+                           r_cur <- runExceptT $ ty_curve' symtbl stmt1
+                           case r_cur of
                               --Left err_exc -> return $ Left err_exc
                               Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                              Right (stmt1'', prev_tv') -> do
-                                symtbl1' <- return $ sym_adjust_tvar symtbl1 prev_tv'
+                              --Right (stmt1'', prev_tv') -> do
+                              Right (stmt1', symtbl') -> do
+                                --symtbl1' <- return $ sym_adjust_tvar symtbl1 prev_tv' -}
                                 
-                                r_body' <- runExceptT $ parse_fun_body symtbl1' (decls', omits') tokens1
+                                --r_body' <- runExceptT $ parse_fun_body symtbl1' (decls', omits') tokens1
+                                r_body' <- runExceptT $ parse_fun_body symtbl' (decls', omits') tokens1
                                 case r_body' of
                                   Left err_exc -> return $ Left err_exc
                                   Right (((env', (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) -> do
-                                    return $ Right (((env', (decls'', omits'')), (stmt1'':stmts)), symtbl'', tokens'', (err1 ++ err_cont))
+                                    return $ Right (((env', (decls'', omits'')), (stmt1':stmts)), symtbl'', tokens'', (err1 ++ err_cont))
                           _ -> return $ Left (Error_Excep Excep_assert_failed loc)
                             where
                               loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -2073,10 +2076,11 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                            (Tk_ident ident):ts' -> do
                              let expr = (Syn_expr_una Ope_decre (Syn_var ident Ty_abs) Ty_abs)
                              r <- lift $ do
-                               r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
+                               --r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
+                               r_cur <- runExceptT $ ty_curve' symtbl expr
                                case r_cur of
                                  Left err_cur -> return $ Right ((Just expr, symtbl, ts'), err_cur)
-                                 Right (expr', prev_tv) -> runExceptT $ cont_par symtbl expr' ts'
+                                 Right (expr', symtbl') -> runExceptT $ cont_par symtbl' expr' ts'
                              case r of
                                Left r' -> throwE r'
                                Right r' -> return r'
@@ -2091,10 +2095,11 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                           (Tk_ident ident):ts' -> do
                             let expr = Syn_expr_una Ope_incre (Syn_var ident Ty_abs) Ty_abs
                             r <- lift $ do
-                              r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
+                              --r_cur <- runExceptT $ ty_curve (expr, fresh_tvar_initial)
+                              r_cur <- runExceptT $ ty_curve' symtbl expr
                               case r_cur of
                                 Left err_cur -> return $ Right ((Just expr, symtbl, ts), err_cur)
-                                Right (expr_cur, prev_tv) -> runExceptT $ cont_par symtbl expr_cur ts'
+                                Right (expr_cur, symtbl') -> runExceptT $ cont_par symtbl' expr_cur ts'
                             case r of
                               Left r' -> throwE r'
                               Right r' -> return r'
@@ -2300,7 +2305,7 @@ succ_flesh_tvar prev =
   where
     last_id = (snd prev)
 
-ty_curve :: (Syntree_node, Fresh_tvar) -> ExceptT [Error_codes] IO (Syntree_node, Fresh_tvar)
+{- ty_curve :: (Syntree_node, Fresh_tvar) -> ExceptT [Error_codes] IO (Syntree_node, Fresh_tvar)
 ty_curve (expr, prev_tvar) = do
   case expr of
     Syn_arg_decl arg_id Ty_abs -> return (Syn_arg_decl arg_id (fst tvar_arg), tvar_arg)
@@ -2539,7 +2544,7 @@ ty_curve (expr, prev_tvar) = do
                 )
       case r of
         Left err -> throwE err
-        Right r' -> return r'
+        Right r' -> return r' -}
 ty_curve' :: Symtbl -> Syntree_node -> ExceptT [Error_codes] IO (Syntree_node, Symtbl)
 ty_curve' symtbl expr = do
   case expr of
@@ -4228,12 +4233,13 @@ main = do
   putStrLn ""
   
   putStr "ty-raw:  "
-  ty_curved <- case syn_forest of
+  {- ty_curved <- case syn_forest of
                  Just s_trees -> do
                    r <- runMaybeT $ Prelude.foldl (\stmts_tv -> (\stmt -> do
                                                                     (stmts, prev_tv) <- stmts_tv
                                                                     r' <- lift (do
                                                                                    r_cur <- runExceptT $ ty_curve (stmt, prev_tv)
+                                                                                   --r_cur <- runExceptT $ ty_curve' symtbl' stmt
                                                                                    case r_cur of
                                                                                      Left err -> do
                                                                                        Prelude.foldl (\u -> \e -> putStrLn (show e)) (return ()) err
@@ -4245,6 +4251,28 @@ main = do
                                                                       Just (stmts', crnt_tv) -> return (stmts', crnt_tv)
                                                                 )
                                                   ) (return ([], fresh_tvar_initial)) s_trees
+                   case r of
+                     Nothing -> return []
+                     Just (s_trees', _) -> return s_trees' -}
+  ty_curved <- case syn_forest of
+                 Just s_trees -> do
+                   r <- runMaybeT $ Prelude.foldl (\stmts_tv -> (\stmt -> do
+                                                                    (stmts, stbl) <- stmts_tv
+                                                                    r' <- lift (do
+                                                                                   --r_cur <- runExceptT $ ty_curve (stmt, prev_tv)
+                                                                                   r_cur <- runExceptT $ ty_curve' stbl stmt
+                                                                                   case r_cur of
+                                                                                     Left err -> do
+                                                                                       Prelude.foldl (\u -> \e -> putStrLn (show e)) (return ()) err
+                                                                                       return $ Nothing
+                                                                                     Right (stmt', stbl') -> return $ Just (stmts ++ [stmt'], stbl')
+                                                                               )
+                                                                    case r' of
+                                                                      Nothing -> mzero
+
+                                                                      Just r'' -> return r''
+                                                                )
+                                                  ) (return ([], symtbl')) s_trees
                    case r of
                      Nothing -> return []
                      Just (s_trees', _) -> return s_trees'
