@@ -2098,7 +2098,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                               case r_cur of
                                 --Left err_cur -> return $ Right ((Just expr, symtbl, ts), err_cur)
                                 Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                Right (expr_cur, symtbl') -> runExceptT $ cont_par symtbl' expr_cur ts'
+                                Right (expr', symtbl') -> runExceptT $ cont_par symtbl' expr' ts'
                             case r of
                               Left r' -> throwE r'
                               Right r' -> return r'
@@ -2114,12 +2114,16 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                         r0 <- runExceptT $ cons_ptree symtbl ts (False, False, False)
                         case r0 of
                           Left err_exc -> return $ Left err_exc
-                          Right ((Nothing, symtbl', ts'), err) -> return r0
-                          Right ((Just expr0, symtbl', ts'), err) -> do
-                            r1 <- runExceptT $ cont_par symtbl' (Syn_expr_una Ope_neg expr0 Ty_abs) ts'
-                            case r1 of
-                              Left err_exc -> return r1
-                              Right ((expr1, symtbl'', ts''), err') -> cat_err err (return r1)
+                          Right ((Nothing, symtbl0, ts'), err) -> return r0
+                          Right ((Just expr0, symtbl0, ts'), err) -> do
+                            r_cur <- runExceptT $ ty_curve symtbl0 expr0
+                            case r_cur of
+                              Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                              Right (expr0', symtbl0') -> do
+                                r1 <- runExceptT $ cont_par symtbl0' (Syn_expr_una Ope_neg expr0' Ty_abs) ts'
+                                case r1 of
+                                  Left err_exc -> return r1
+                                  Right ((expr1, symtbl'', ts''), err') -> cat_err err (return r1)
                     )
           case r of
             Left err -> throwE err
