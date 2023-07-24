@@ -2102,7 +2102,6 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                             case r of
                               Left r' -> throwE r'
                               Right r' -> return r'
-                          
                           _ -> return ((Nothing, symtbl, ts), err)
                             where
                               errmsg = "Expression must be assignable."
@@ -2175,7 +2174,6 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                             let errs' = errs ++ err_symreg
                                             return $ Right ((Just var_decl, symtbl'', tokens'), errs')
                                           Right ((_, symtbl', tokens'), errs) -> return $ Right ((Nothing, symtbl', tokens'), errs)
-                                      
                                       _ -> return $ Right ((Nothing, symtbl, ts), [err])
                                         where
                                           errmsg = "Invalid variable declaration."
@@ -2200,12 +2198,25 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                               Left err_exc -> return $ Left err_exc
                               Right (((fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl', tokens'), err) -> do
                                 case tokens' of
-                                  Tk_R_par:ts'' -> cat_err err (runExceptT $ cont_par symtbl' fun_app' ts'')
-                                  _ -> return $ Right ((Nothing, symtbl', tokens'), [err])
+                                  Tk_R_par:ts'' -> do
+                                    r_cur <- runExceptT $ ty_curve symtbl' fun_app'
+                                    case r_cur of
+                                      Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                      Right (fun_app'', symtbl'') -> cat_err err (runExceptT $ cont_par symtbl'' fun_app'' ts'')
+                                  --_ -> return $ Right ((Nothing, symtbl', tokens'), [err])
+                                  _ -> do
+                                    r_cur <- runExceptT $ ty_curve symtbl' fun_app'
+                                    case r_cur of
+                                      Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                      Right (fun_app'', symtbl'') -> cat_err err' $ cat_err err (runExceptT $ cont_par symtbl'' fun_app'' tokens')
                                     where
                                       errmsg = "Missing closing R paren in function calling."
-                                      err = Ill_formed_expression errmsg
-                          _ -> runExceptT $ cont_par symtbl var ts
+                                      err' = [Ill_formed_expression errmsg]
+                          _ -> do
+                            r_cur <- runExceptT $ ty_curve symtbl var
+                            case r_cur of
+                              Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                              Right (var', symtbl') -> runExceptT $ cont_par symtbl' var' ts
                     )
           case r of
             Left err -> throwE err
