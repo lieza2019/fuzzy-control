@@ -1825,11 +1825,16 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
             do
               r <- lift (do
                             r_cont <- runExceptT $ cons_expr symtbl subexpr tokens
-                            return (case r_cont of
-                                      Left err_exc -> Left err_exc
-                                      Right ((Just expr', symtbl', tokens'), err) -> Right ((Just expr', symtbl', tokens'), err)
-                                      Right ((Nothing, symtbl', tokens'), err) -> Right ((Nothing, symtbl', tokens'), err)
-                                   )
+                            case r_cont of
+                              Left err_exc -> return $ Left err_exc
+                              Right ((Nothing, symtbl', tokens'), err) -> return $ Right ((Nothing, symtbl', tokens'), err)
+                              --Right ((Just expr', symtbl', tokens'), err) -> Right ((Just expr', symtbl', tokens'), err)
+                              Right ((Just expr', symtbl', tokens'), err) -> do
+                                r_cur <- runExceptT $ ty_curve symtbl' expr'
+                                return (case r_cur of
+                                          Left [Internal_error errmsg] -> Left (Error_Excep Excep_assert_failed errmsg)
+                                          Right (expr'', symtbl'') -> Right ((Just expr'', symtbl'', tokens'), err)
+                                       )
                         )
               case r of
                 Left err -> throwE err
