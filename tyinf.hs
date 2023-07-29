@@ -2208,10 +2208,13 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                     r_cur <- runExceptT $ ty_curve symtbl' fun_app'
                                     case r_cur of
                                       Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                      Right (fun_app'', symtbl'') -> cat_err err' $ cat_err err (runExceptT $ cont_par symtbl'' fun_app'' tokens')
+                                      Right (fun_app'', symtbl'') -> cat_err err $ cat_err err' (runExceptT $ cont_par symtbl'' fun_app'' tokens')
                                     where
                                       errmsg = "Missing closing R paren in function calling."
                                       err' = [Ill_formed_expression errmsg]
+                              _ -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                where
+                                  errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                           _ -> do
                             r_cur <- runExceptT $ ty_curve symtbl var
                             case r_cur of
