@@ -4254,7 +4254,7 @@ main = do
                                    )
   putStrLn ""
   
-  putStr "ty-raw:  "
+  {- putStr "ty-raw:  "
   ty_curved <- case syn_forest of
                  Just s_trees -> do
                    r <- runMaybeT $ Prelude.foldl (\stmts_tv -> (\stmt -> do
@@ -4276,13 +4276,13 @@ main = do
                      Nothing -> return []
                      Just (s_trees', _) -> return s_trees'
   mapM_ putStrLn $ Prelude.map show ty_curved
-  putStrLn ""
-  
-  {- putStr "simtbl_before:  "
-  print_symtbl symtbl' Sym_cat_decl
   putStrLn "" -}
   
-  putStr "ty-inf:  "
+  --putStr "simtbl_before:  "
+  --print_symtbl symtbl' Sym_cat_decl
+  --putStrLn "" -}
+  
+  {- putStr "ty-inf:  "
   (judges_inf, symtbl'', errs) <- do
     r <- runExceptT $ Prelude.foldl (\js -> \t_raw -> do
                                         (judges, stbl, errs) <- js
@@ -4297,10 +4297,10 @@ main = do
               Left ((env, t_inf), symtbl', errs) -> ([(env, t_inf)], symtbl', errs)
            )
   mapM_ putStrLn $ Prelude.map show judges_inf
-  putStrLn ""
+  putStrLn "" -}
   
-  putStr "simtbl_after:  "
-  print_symtbl symtbl' Sym_cat_decl
+  --putStr "simtbl_after:  "
+  --print_symtbl symtbl' Sym_cat_decl
   
     where
       read_src :: Handle -> IO String
