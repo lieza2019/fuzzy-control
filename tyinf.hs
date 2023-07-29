@@ -2174,13 +2174,17 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                         case r_v of
                                           Left err -> return $ Left err
                                           Right ((Just (var_decl@(Syn_var_decl var_id var_ty)), symtbl', tokens'), errs) -> do
-                                            let (symtbl'', err_symreg) = sym_regist False symtbl' Sym_cat_decl (var_id, var_decl)
-                                            let errs' = errs ++ err_symreg
-                                            return $ Right ((Just var_decl, symtbl'', tokens'), errs')
+                                            r_cur <- runExceptT $ ty_curve symtbl' var_decl
+                                            case r_cur of
+                                              Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                              Right (var_decl', symtbl'_cur) -> return $ Right ((Just var_decl', symtbl'', tokens'), (errs ++ err_symreg))
+                                                where
+                                                  (symtbl'', err_symreg) = sym_regist False symtbl'_cur Sym_cat_decl (var_id, var_decl')
+                                          
                                           Right ((_, symtbl', tokens'), errs) -> return $ Right ((Nothing, symtbl', tokens'), errs)
                                       _ -> return $ Right ((Nothing, symtbl, ts), [err])
                                         where
-                                          errmsg = "Invalid variable declaration."
+                                          errmsg = ""
                                           err = Imcomplete_variable_declaration errmsg
                                    )
                          case r of
@@ -4186,7 +4190,7 @@ main = do
   -- src = "fun a (g as int) { c + (b + a) }"
   -- src = "fun a (g as int) { -c - ++d + (b - -a) }"
   -- src = "fun a (g as int) { h as int; i as int; x + w; }"
-  h <- openFile "src3.txt" ReadMode
+  h <- openFile "src4.txt" ReadMode
   src <- read_src h
   
   let (tokens, src_remains) = conv2_tokens src
