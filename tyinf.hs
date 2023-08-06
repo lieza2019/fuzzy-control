@@ -292,6 +292,7 @@ sym_combine tbl1@(Scope_add (lv_1, anon_idents_1, syms_1) tbl1') tbl2@(Scope_add
     _ -> Scope_add (lv_1, anon_idents_1, syms_1) (sym_combine tbl1' tbl2)
   )
 
+type Sym_handle = (Sym_category, (Sym_tbl, Sym_tbl))
 sym_lookup :: Symtbl -> (Sym_category, Syntree_node -> Bool) -> String -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
 sym_lookup symtbl (cat, declp) ident =
   ras_trace "in sym_lookup" (
@@ -2259,7 +2260,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                  )
                                      where
                                        cur_tv :: Syntree_node -> (Symtbl, (Sym_category, (Sym_tbl, Sym_tbl))) ->
-                                                 IO (Either [Error_Excep] (Syntree_node, (Symtbl, (Sym_category, (Sym_tbl, Sym_tbl))), [Error_codes]))
+                                                 IO (Either [Error_Excep] (Syntree_node, (Symtbl, Sym_handle), [Error_codes]))
                                        cur_tv var (symtbl, h) =
                                          case var of
                                            Syn_var ident _ -> do
