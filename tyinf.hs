@@ -1996,10 +1996,10 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
             Left err -> throwE err
             Right ((Just par_expr, symtbl', (Tk_R_par:ts')), err) -> do
               r' <- lift (do
-                             r_par <- runExceptT $ cont_par symtbl' (Syn_expr_par par_expr (syn_node_typeof par_expr)) ts'
+                             r_par <- cat_err err (runExceptT $ cont_par symtbl' (Syn_expr_par par_expr (syn_node_typeof par_expr)) ts')
                              return (case r_par of
                                        Left err_exc -> Left err_exc
-                                       Right (r_cont, err_cont) -> Right (r_cont, (err ++ err_cont))
+                                       Right (r_cont, err') -> Right (r_cont, err')
                                     )
                          )
               case r' of
@@ -2007,16 +2007,13 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                 Right r'' -> return r''
             Right ((Just par_expr, symtbl', ts'), err) -> do
               r' <- lift (do
-                             r_cont <- runExceptT $ cont_par symtbl' (Syn_expr_par par_expr (syn_node_typeof par_expr)) ts'
                              let errmsg = "Missing R-paren of the expression."
+                             let err' = err ++ [Ill_formed_expression errmsg]
+                             r_cont <- cat_err err' (runExceptT $ cont_par symtbl' (Syn_expr_par par_expr (syn_node_typeof par_expr)) ts')
                              return (case r_cont of
                                        Left err_exc -> Left err_exc
-                                       Right ((Just par_expr', symtbl'', ts''), err_cont) -> Right ((Just par_expr', symtbl'', ts''), err')
-                                         where
-                                           err' = err ++ [Ill_formed_expression errmsg] ++ err_cont
-                                       Right ((_, symtbl'', ts''), err_cont) -> Right ((Nothing, symtbl', ts'), err')
-                                         where
-                                           err' = err ++ err_cont
+                                       Right ((Just par_expr', symtbl'', ts''), err'') -> Right ((Just par_expr', symtbl'', ts''), err'')
+                                       Right ((_, symtbl'', ts''), err'') -> Right ((Nothing, symtbl', ts'), err'')
                                     )
                          )
               case r' of
@@ -2126,16 +2123,16 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                         r0 <- runExceptT $ cons_ptree symtbl ts (False, False, False)
                         case r0 of
                           Left err_exc -> return $ Left err_exc
-                          Right ((Nothing, symtbl0, ts'), err) -> return r0
-                          Right ((Just expr0, symtbl0, ts'), err) -> do
+                          Right ((Nothing, symtbl0, ts'), err0) -> return r0
+                          Right ((Just expr0, symtbl0, ts'), err0) -> do
                             r_cur <- runExceptT $ ty_curve symtbl0 expr0
                             case r_cur of
                               Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                               Right (expr0', symtbl0') -> do
-                                r1 <- runExceptT $ cont_par symtbl0' (Syn_expr_una Ope_neg expr0' Ty_abs) ts'
+                                r1 <- cat_err err0 (runExceptT $ cont_par symtbl0' (Syn_expr_una Ope_neg expr0' Ty_abs) ts')
                                 case r1 of
                                   Left err_exc -> return r1
-                                  Right ((expr1, symtbl'', ts''), err') -> cat_err err (return r1)
+                                  Right ((expr1, symtbl'', ts''), err) -> return r1
                     )
           case r of
             Left err -> throwE err
