@@ -2224,10 +2224,10 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                     r_cur <- runExceptT $ ty_curve symtbl' fun_app'
                                     case r_cur of
                                       Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                      Right (fun_app'', symtbl'') -> cat_err err $ cat_err err' (runExceptT $ cont_par symtbl'' fun_app'' tokens')
-                                      where
-                                      errmsg = "Missing closing R paren in function calling."
-                                      err' = [Ill_formed_expression errmsg]
+                                      Right (fun_app'', symtbl'') -> cat_err err' (runExceptT $ cont_par symtbl'' fun_app'' tokens')
+                                        where
+                                          errmsg = "Missing closing R paren in function calling."
+                                          err' = err ++ [Ill_formed_expression errmsg]
                               _ -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                 where
                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -2249,7 +2249,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                                                    Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                                                      where
                                                                                        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                   Right (var'', (symtbl'', _), err_cur) -> runExceptT $ cont_par symtbl'' var'' ts
+                                                                                   Right (var'', (symtbl'', _), err_cur) -> cat_err err'' (runExceptT $ cont_par symtbl'' var'' ts)
                                                                                      where
                                                                                        err'' = err' ++ err_cur
                                                     _ -> do
@@ -2258,7 +2258,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                                         Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                           where
                                                             errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                        Right (var', (symtbl'', _), err_cur) -> runExceptT $ cont_par symtbl'' var' ts
+                                                        Right (var', (symtbl'', _), err_cur) -> cat_err err'' (runExceptT $ cont_par symtbl'' var' ts)
                                                           where
                                                             errmsg = ident ++ " hasn't been declared as variable"
                                                             err'' = err' ++ err_cur ++ [Type_constraint_mismatched errmsg]
@@ -2300,25 +2300,34 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                              where
                                                errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                 )
-                              (Just _, err) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                where
-                                  errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                              (Just _, err) -> (case sym_internalerr err of
+                                                  (es_fatal, es_others) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                    where
+                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                               )
                               
                               (Nothing, err) -> do
-                                r_cur <- runExceptT $ ty_curve symtbl var
-                                case r_cur of
-                                  Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                  Right (var'@(Syn_var ident' v_ty'), symtbl')
-                                    | ident' == ident -> do
-                                        (symtbl'', err_reg) <- return $ sym_regist False symtbl' Sym_cat_decl (ident, Syn_var_decl ident v_ty')
-                                        case sym_internalerr err_reg of
-                                          (e:es, err_reg') -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                            where
-                                              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                          ([], err_reg') -> runExceptT $ cont_par symtbl'' var' ts
-                                  _ -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                case sym_internalerr err of
+                                  (e:es, err') -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                     where
                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                  ([], err') -> do
+                                    r_cur <- runExceptT $ ty_curve symtbl var
+                                    case r_cur of
+                                      Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                      Right (var'@(Syn_var ident' v_ty'), symtbl')
+                                        | ident' == ident -> do
+                                            (symtbl'', err_reg) <- return $ sym_regist False symtbl' Sym_cat_decl (ident, Syn_var_decl ident v_ty')
+                                            case sym_internalerr err_reg of
+                                              (e:es, err_reg') -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                where
+                                                  errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                              ([], err_reg') -> cat_err err'' (runExceptT $ cont_par symtbl'' var' ts)
+                                                where
+                                                  err'' = err' ++ err_reg'
+                                      _ -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                        where
+                                          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                     )
           case r of
             Left err -> throwE err
