@@ -2211,19 +2211,12 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                               Left err_exc -> return $ Left err_exc
                               Right (((fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl', tokens'), err) -> do
                                 case tokens' of
-                                  Tk_R_par:ts'' -> do
-                                    r_cur <- runExceptT $ ty_curve symtbl' fun_app'
-                                    case r_cur of
-                                      Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                      Right (fun_app'', symtbl'') -> cat_err err (runExceptT $ cont_par symtbl'' fun_app'' ts'')
-                                  _ -> do
-                                    r_cur <- runExceptT $ ty_curve symtbl' fun_app'
-                                    case r_cur of
-                                      Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                      Right (fun_app'', symtbl'') -> cat_err err' (runExceptT $ cont_par symtbl'' fun_app'' tokens')
-                                        where
-                                          errmsg = "Missing closing R paren in function calling."
-                                          err' = err ++ [Ill_formed_expression errmsg]
+                                  Tk_R_par:ts'' -> cat_err err (runExceptT $ cont_par symtbl' fun_app' ts'')
+                                  _ -> cat_err err' (runExceptT $ cont_par symtbl' fun_app' tokens')
+                                    where
+                                      errmsg = "Missing closing R paren in function calling."
+                                      err' = err ++ [Ill_formed_expression errmsg]
+                              
                               _ -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                 where
                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
