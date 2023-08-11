@@ -4065,6 +4065,59 @@ ty_inf symtbl expr =
     _ -> return ((Ty_env [], expr), symtbl, []) -- Syn_none
 
 
+compile :: [Tk_code] -> IO ((Maybe [Syntree_node], [Error_codes]), Symtbl, [Tk_code])
+compile tokens =
+  let comp_main symtbl (tokens, errs) =
+        case tokens of
+          [] -> return $ Right (([], errs), symtbl, [])
+          (Tk_smcl:ts) -> comp_main symtbl (ts, errs)
+          ts -> do
+            r <- runExceptT $ cons_ptree symtbl ts (True, True, True)
+            case r of
+              Left err_exc -> (do
+                                  print_excepts [err_exc]
+                                  return $ Left ()
+                              )
+                where
+                  print_excepts :: [Error_Excep] -> IO ()
+                  print_excepts errs = do
+                    let errmsgs = Prelude.foldl (\s -> \e -> (s ++ (case e of
+                                                                      Error_Excep Excep_assert_failed assert_msg -> [assert_msg]
+                                                                      Error_Excep _ errmsg -> [errmsg]
+                                                                      _ -> []
+                                                                   )
+                                                             )
+                                                ) [] errs
+                    forM_ errmsgs putStrLn
+              
+              Right ((syn_tree, symtbl', ts'), err) -> (case syn_tree of
+                                                          Just s_tree -> do
+                                                            r_ts <- comp_main symtbl' (ts', (errs ++ err))
+                                                            return $ case r_ts of
+                                                                       Right ((s_ts, errs'), symtbl'', ts'') -> Right ((s_tree:s_ts, errs'), symtbl'', ts'')
+                                                                       _ -> Left ()
+                                                          _ -> return $ Right (([], (errs ++ err)), symtbl', ts')
+                                                       )
+  in
+    do
+      let (symtbl, err0) = sym_enter_scope Nothing Sym_cat_decl
+      case sym_internalerr err0 of
+        (e:es, err0') -> show_internalerr (e:es) >> return ((Nothing, []), symtbl, tokens)
+          where
+            show_internalerr :: [Error_codes] -> IO ()
+            show_internalerr errs =
+              mapM_ putStrLn $ Prelude.foldl (\s -> \e -> (case e of
+                                                             Internal_error msg -> s ++ [msg]
+                                                             _ -> s
+                                                          )
+                                             ) [] errs
+        ([], err0') -> do
+          r <- comp_main symtbl (tokens, err0')
+          case r of
+            Left _ -> return ((Nothing, []), symtbl, tokens)
+            Right ((syn_trees, errs), symtbl', tokens') -> return ((Just syn_trees, errs), symtbl', tokens')
+
+
 main :: IO ()
 main = do
   -- src = "bool fun x => (2)"
