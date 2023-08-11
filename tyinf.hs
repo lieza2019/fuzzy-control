@@ -1809,7 +1809,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                  r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False)
                                  case r_a of
                                    Left err_exc -> return $ Left err_exc
-                                   Right ((Just arg, symtbl', tokens'), err) -> do
+                                   Right ((Just arg, symtbl', tokens'), err) ->
                                      case tokens' of
                                        Tk_comma:ts' -> do
                                          case params of
@@ -4133,9 +4133,7 @@ main = do
           Left _ -> return ((Nothing, []), symtbl, tokens)
           Right r' -> return r'
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
-  --putStrLn $ "parse errors: " ++ (show err_par)
-  putStr "parse errors: "
-  forM_ (Prelude.map show err_par) putStrLn
+  putStr "parse errors: " >> forM_ (Prelude.map show err_par) (putStrLn . ((++) "  "))
   putStrLn ""
   
   putStrLn $ "reconstruction: " ++ (case syn_forest of
