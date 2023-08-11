@@ -1786,22 +1786,51 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                              err = [Parse_error "missing closing right parenthesis."]
                          Tk_R_par:ts -> return $ Right ((fun_app, symtbl, tokens), [])
                          _ -> do
-                           r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False)
-                           case r_a of
-                             Left err_exc -> return $ Left err_exc
-                             Right ((Just arg, symtbl', tokens'), err) -> do
-                               case tokens' of
-                                 Tk_comma:ts' -> do
-                                   r_as <- runExceptT $ par_fun_call symtbl' (Syn_expr_call fun_id [] fun_ty) ts'
-                                   return $ case r_as of
-                                              Left err_exc -> Left err_exc
-                                              Right (((Syn_expr_call fun_id' args' fun_ty'), symtbl'', tokens''), err')
-                                                | fun_id' == fun_id -> Right (((Syn_expr_call fun_id' (arg:args') fun_ty'), symtbl'', tokens''), (err ++ err'))
-                                              _ -> Left (Error_Excep Excep_assert_failed loc)
-                                                where
-                                                  loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                 _ -> return $ Right (((Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens'), err)
-                             Right ((Nothing, symtbl', tokens'), err) -> return $ Right ((fun_app, symtbl', tokens'), err)
+                           let (r_lk, err_lok) = sym_lkup_fun_decl symtbl fun_id
+                           case r_lk of
+                             Just ((Sym_attrib {sym_attr_entity = Syn_fun_decl' ident params (Syn_scope (decls, body)) (env, ty)}, h), symtbl')
+                               | ident == fun_id -> (case sym_internalerr err_lok of
+                                                       (e:es, err') -> return $ Left (Error_Excep Excep_assert_failed loc)
+                                                         where
+                                                           loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                       ([], err') -> cat_err err_lok $ par_args symtbl' (Just params) tokens
+                                                    )
+                             Just (_, symtbl') -> return $ Left (Error_Excep Excep_assert_failed loc)
+                               where
+                                 loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                             Nothing -> cat_err err' $ par_args symtbl Nothing tokens
+                               where
+                                 errmsg = "Function " ++ (show fun_id) ++ " is undefined."
+                                 err' = err_lok ++ [Undefined_symbol errmsg]
+                             
+                             where
+                               par_args :: Symtbl -> (Maybe [Syntree_node]) -> [Tk_code] -> IO (Either Error_Excep ((Syntree_node, Symtbl, [Tk_code]), [Error_codes]))
+                               par_args symtbl params tokens = do
+                                 r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False)
+                                 case r_a of
+                                   Left err_exc -> return $ Left err_exc
+                                   Right ((Just arg, symtbl', tokens'), err) -> do
+                                     case tokens' of
+                                       Tk_comma:ts' -> do
+                                         case params of
+                                           Just (p:ps) -> cont symtbl' (Just ps) tokens'
+                                           Just _ -> return $ Right (((Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens'), err')
+                                             where
+                                               err' = err ++ [Parse_error "Too many arguments in function calling."]
+                                           Nothing -> cont symtbl' Nothing tokens'
+                                           where
+                                             cont symtbl params tokens = do
+                                               r_as <- par_args symtbl params tokens
+                                               return $ case r_as of
+                                                          Left err_exc -> Left err_exc
+                                                          Right (((Syn_expr_call fun_id' args' fun_ty'), symtbl'', tokens''), err')
+                                                            | fun_id' == fun_id -> Right (((Syn_expr_call fun_id' (arg:args') fun_ty'), symtbl'', tokens''), (err ++ err'))
+                                                          _ -> Left (Error_Excep Excep_assert_failed loc)
+                                                            where
+                                                              loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                               
+                                       _ -> return $ Right (((Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens'), err)
+                                   Right ((Nothing, symtbl', tokens'), err) -> return $ Right ((fun_app, symtbl', tokens'), err)
                      _ -> return $ Left (Error_Excep Excep_assert_failed loc)
                        where
                          loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -2353,7 +2382,7 @@ recons_src prg =
                     Ty_bool -> "bool"
                     Ty_string -> "string"
                     Ty_int -> "int"
-                    Ty_var tv_id -> "tvar_" ++ tv_id
+                    Ty_var tv_id -> "tvar@" ++ tv_id
                     Ty_pair (ty1, ty2) -> "(" ++ (prn_ty ty1) ++ ", " ++ (prn_ty ty2) ++ ")"
                     Ty_fun args ty -> let str_args = Prelude.foldl (\s -> \a -> (s ++ (prn_ty a) ++ " -> ")) "" args
                                       in
@@ -4104,7 +4133,9 @@ main = do
           Left _ -> return ((Nothing, []), symtbl, tokens)
           Right r' -> return r'
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
-  putStrLn $ "parse errors: " ++ (show err_par)
+  --putStrLn $ "parse errors: " ++ (show err_par)
+  putStr "parse errors: "
+  forM_ (Prelude.map show err_par) putStrLn
   putStrLn ""
   
   putStrLn $ "reconstruction: " ++ (case syn_forest of
@@ -4215,7 +4246,7 @@ main = do
             [] -> do
               let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_var_decl "delta" Ty_bool)
               --let (symtbl31, err31) = sym_regist False symtbl3 Sym_cat_decl ("delta", Syn_val (Val_bool False) Ty_bool)
-              
+`              
               putStrLn "original: "
               print_symtbl symtbl31 Sym_cat_decl
               
