@@ -1781,7 +1781,9 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
         r <- lift (case fun_app of
                      Syn_expr_call fun_id app_args fun_ty -> do
                        case tokens of
-                         [] -> return $ Right ((fun_app, symtbl, []), [])
+                         [] -> return $ Right ((fun_app, symtbl, []), err)
+                           where
+                             err = [Parse_error "missing closing right parenthesis."]
                          Tk_R_par:ts -> return $ Right ((fun_app, symtbl, tokens), [])
                          _ -> do
                            r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False)
