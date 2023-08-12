@@ -4137,7 +4137,7 @@ main = do
   putStrLn $ "tokens:  " ++ (show (tokens, src_remains))
   putStrLn ""
   
-  let (symtbl, err0) = sym_enter_scope Nothing Sym_cat_decl
+  {- let (symtbl, err0) = sym_enter_scope Nothing Sym_cat_decl
   ((syn_forest, err_par), symtbl', tokens') <- do
     case sym_internalerr err0 of
       (e:es, err0') -> do
@@ -4184,11 +4184,11 @@ main = do
              )
         case r of
           Left _ -> return ((Nothing, []), symtbl, tokens)
-          Right r' -> return r'
+          Right r' -> return r' -}
+  ((syn_forest, err_par), symtbl', tokens') <- compile tokens
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
   putStr "parse errors: " >> forM_ (Prelude.map show err_par) (putStrLn . ((++) "  "))
   putStrLn ""
-  
   putStrLn $ "reconstruction: " ++ (case syn_forest of
                                       Nothing -> ""
                                       Just ss -> Prelude.foldl (\str -> \s -> (str ++ (recons_src s) ++ " ")) "" ss
@@ -4253,7 +4253,7 @@ main = do
           str' <- read_src h
           return $ str ++ str'
       
-      show_internalerr :: [Error_codes] -> IO ()
+      {- show_internalerr :: [Error_codes] -> IO ()
       show_internalerr err =
         mapM_ putStrLn $ Prelude.foldl (\s -> \e -> (case e of
                                                        Internal_error msg -> s ++ [msg]
@@ -4267,7 +4267,8 @@ main = do
                        Error_Excep Excep_assert_failed assert_msg -> assert_msg
                        Error_Excep _ errmsg -> errmsg
         putStrLn errmsg
-        return ()
+        return () -}
+
 
 {- main :: IO ()  -- test code for symbol table management
 main = do
