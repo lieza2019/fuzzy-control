@@ -369,7 +369,7 @@ sym_lkup_fun_decl :: Symtbl -> String -> (Maybe ((Sym_attrib, (Sym_category, (Sy
 sym_lkup_fun_decl symtbl ident =
   ras_trace "in sym_lkup_fun_decl" (
   let declp a = case a of
-                  Syn_fun_decl _ _ _ _ -> True
+                  Syn_fun_decl' _ _ _ _ -> True
                   _ -> False
       
   in
@@ -1356,7 +1356,7 @@ par_fun_decl symtbl fun tokens =
                                              Right ((fun_ty', symtbl'', tokens'), ty_errs) ->
                                                Right ((Syn_fun_decl' fun_id (args ++ args') fun_body (Ty_env binds, fun_ty'), symtbl'', tokens'), errs)
                                                where
-                                                 errmsg = "Missing closing R paren. in parameter declarator of function declaration."
+                                                 errmsg = "missing closing R paren. in parameter declarator of function declaration."
                                                  errs = (arg_errs ++ [Imcomplete_function_declaration errmsg]) ++ ty_errs
                                           )
                               )
@@ -1814,9 +1814,28 @@ cons_ptree symtbl tokens (fun_declp, var_declp, par_contp) =
                                        Tk_comma:ts' -> do
                                          case params of
                                            Just (p:ps) -> cont symtbl' (Just ps) tokens'
-                                           Just _ -> return $ Right (((Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens'), err')
+                                           {- Just _ -> return $ Right (((Syn_expr_call fun_id [] fun_ty), symtbl', tokens'), err')
                                              where
-                                               err' = err ++ [Parse_error "Too many arguments in function calling."]
+                                               err' = err ++ [Parse_error "too many arguments in function calling"] -}
+                                           Just _ -> do
+                                             r_as <- omits_args symtbl' tokens'
+                                             case r_as of
+                                               Left err_exc -> return $ Left err_exc
+                                               Right (symtbl'', tokens'') -> return $ Right (((Syn_expr_call fun_id [] fun_ty), symtbl'', tokens''), err')
+                                               where
+                                                 err' = err ++ [Parse_error "too many arguments in function calling. excessive ones are omitted."]
+                                                 omits_args :: Symtbl -> [Tk_code] -> IO (Either Error_Excep (Symtbl, [Tk_code]))
+                                                 omits_args symtbl tokens =
+                                                   case tokens of
+                                                     [] -> return $ Right (symtbl, [])
+                                                     _ -> do
+                                                       r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False)
+                                                       case r_a of
+                                                         Left err_exc -> return $ Left err_exc
+                                                         Right ((Nothing, symtbl', tokens'), _) -> return $ Right (symtbl', tokens')
+                                                         Right ((Just _, symtbl', Tk_comma:ts'), _) -> omits_args symtbl' ts'
+                                                         Right ((Just _, symtbl', tokens'), _) -> return $ Right (symtbl', tokens')
+                                           
                                            Nothing -> cont symtbl' Nothing tokens'
                                            where
                                              cont symtbl params tokens = do
@@ -4187,12 +4206,12 @@ main = do
           Right r' -> return r' -}
   ((syn_forest, err_par), symtbl', tokens') <- compile tokens
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
-  putStr "parse errors: " >> forM_ (Prelude.map show err_par) (putStrLn . ((++) "  "))
+  putStr "parse errors:" >> forM_ (Prelude.map show err_par) (putStrLn . ((++) "  "))
   putStrLn ""
-  putStrLn $ "reconstruction: " ++ (case syn_forest of
-                                      Nothing -> ""
-                                      Just ss -> Prelude.foldl (\str -> \s -> (str ++ (recons_src s) ++ " ")) "" ss
-                                   )
+  putStr "reconstruction:" >> mapM_ (putStrLn . (++) "  ") (case syn_forest of
+                                                              Nothing -> []
+                                                              Just ss -> Prelude.foldl (\str -> \s -> (str ++ [recons_src s])) [] ss
+                                                           )
   putStrLn ""
   
   {- putStr "ty-raw:  "
