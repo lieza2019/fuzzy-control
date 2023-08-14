@@ -1482,7 +1482,7 @@ parse_fun_body :: Symtbl -> ([Syntree_node], Redef_omits) -> [Tk_code] -> Except
 parse_fun_body symtbl (decls, omits) tokens@(Tk_R_bra:_) = return (((Ty_env [], (decls, omits)), []), symtbl, tokens, [])
 parse_fun_body symtbl (decls, omits) tokens = do
   r <- lift (do
-                r_body <- runExceptT $ cons_ptree symtbl tokens (True, True, True, False)
+                r_body <- runExceptT $ cons_ptree symtbl tokens (True, True, True, True)
                 case r_body of
                   Left err_exc -> return $ Left err_exc
                   Right body -> do
@@ -1806,7 +1806,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                              where
                                par_args :: Symtbl -> (Maybe [Syntree_node]) -> [Tk_code] -> IO (Either Error_Excep ((Syntree_node, Symtbl, [Tk_code]), [Error_codes]))
                                par_args symtbl params tokens = do
-                                 r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False, False)
+                                 r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False, True)
                                  case r_a of
                                    Left err_exc -> return $ Left err_exc
                                    Right ((Just arg, symtbl', tokens'), err) ->
@@ -1829,7 +1829,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                    case tokens of
                                                      [] -> return $ Right (symtbl, [])
                                                      _ -> do
-                                                       r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False, False)
+                                                       r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False, True)
                                                        case r_a of
                                                          Left err_exc -> return $ Left err_exc
                                                          Right ((Nothing, symtbl', tokens'), _) -> return $ Right (symtbl', tokens')
@@ -1863,7 +1863,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
           [] -> return ((Nothing, symtbl, tokens), errs)
           t:ts -> do
             r <- lift (do
-                          r' <- runExceptT $ cons_ptree symtbl ts (True, True, True, False)
+                          r' <- runExceptT $ cons_ptree symtbl ts (True, True, True, True)
                           case r' of
                             Left err_exc -> return $ Left err_exc
                             Right ((Just _, symtbl', ts'), err) -> cat_err errs (return r')
@@ -1913,7 +1913,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
               Tk_R_bra:ts' -> return ((Just (Syn_scope ([], Syn_none)), symtbl, ts'), [])
               _ -> do
                 r <- lift (do
-                              r_comp <- runExceptT $ cons_ptree symtbl ts (True, True, True, False)
+                              r_comp <- runExceptT $ cons_ptree symtbl ts (True, True, True, True)
                               case r_comp of
                                 Left err_exc -> return $ Left err_exc
                                 Right ((Nothing, symtbl', ts'), err) -> return (case ts of
@@ -2006,7 +2006,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                                             Tk_smcl:ts -> (ts, [])
                                                                             _ -> (tokens, if delim_omits then [] else [Parse_error errmsg])
                                                                          )
-                                          r_stmt <- runExceptT $ cons_ptree symtbl tokens' (True, True, True, False)
+                                          r_stmt <- runExceptT $ cons_ptree symtbl tokens' (True, True, True, True)
                                           case r_stmt of
                                             Left err_exc -> return $ Left err_exc
                                             Right ((Nothing, symtbl', ts'), err) -> cat_err err_delim (return $ Right (((decls, stmts), symtbl', ts'), err))
@@ -4095,7 +4095,7 @@ compile tokens =
           [] -> return $ Right (([], errs), symtbl, [])
           --(Tk_smcl:ts) -> comp_main symtbl (ts, errs)
           ts -> do
-            r <- runExceptT $ cons_ptree symtbl ts (True, True, True, False)
+            r <- runExceptT $ cons_ptree symtbl ts (True, True, True, True)
             case r of
               Left err_exc -> (do
                                   print_excepts [err_exc]
