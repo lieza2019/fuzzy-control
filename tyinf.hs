@@ -1529,18 +1529,19 @@ parse_fun_body symtbl (decls, omits) tokens = do
                               errmsg = "missing semicolon at the end of declaration."
                       
                       ((Just stmt, symtbl', tokens'), err) -> do
-                        r_stmt <- return (case stmt of
-                                            Syn_scope _ -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', err)
-                                            Syn_cond_expr (_, (Syn_scope _, Nothing)) _ -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', err)
-                                            Syn_cond_expr (_, (_, Just (Syn_scope _))) _ -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', err)
-                                            _ -> (case tokens' of
-                                                    [] -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', [], (err ++ [Parse_error errmsg]))
-                                                    Tk_smcl:ts' -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', ts', err)
-                                                    _ -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', (err ++ [Parse_error errmsg]))
-                                                 )
-                                              where
-                                                errmsg = "missing semicolon at end of sentence."
-                                         )
+                        r_stmt <- case stmt of
+                                    Syn_scope _ -> return $ Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', err)
+                                    Syn_cond_expr (_, (Syn_scope _, Nothing)) _ -> return $ Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', err)
+                                    Syn_cond_expr (_, (_, Just (Syn_scope _))) _ -> return $ Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', err)
+                                    _ -> do
+                                      return (case tokens' of
+                                                [] -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', [], (err ++ [Parse_error errmsg]))
+                                                Tk_smcl:ts' -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', ts', err)
+                                                _ -> Right (((Ty_env [], (decls, omits)), stmt), symtbl', tokens', (err ++ [Parse_error errmsg]))
+                                             )
+                                        where
+                                          errmsg = "Missing semicolon at end of sentence."
+                        
                         case r_stmt of
                           Right (((env1, (decls', omits')), stmt1), symtbl1, tokens1, err1) -> do
                            r_cur <- runExceptT $ ty_curve symtbl stmt1
@@ -1806,11 +1807,68 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                              where
                                par_args :: Symtbl -> (Maybe [Syntree_node]) -> [Tk_code] -> IO (Either Error_Excep ((Syntree_node, Symtbl, [Tk_code]), [Error_codes]))
                                par_args symtbl params tokens = do
+                                 let err_args = [Parse_error "too many arguments in function calling. excessive ones are omitted."]
                                  r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False, True)
                                  case r_a of
                                    Left err_exc -> return $ Left err_exc
+                                   Right ((Nothing, symtbl', tokens'), err) -> return $ Right (((Syn_expr_call fun_id [] fun_ty), symtbl', tokens'), err)
+                                   
                                    Right ((Just arg, symtbl', tokens'), err) ->
-                                     case tokens' of
+                                     case params of
+                                       Just [] -> do
+                                         r_as <- omits_args symtbl' tokens'
+                                         case r_as of
+                                           Left err_exc -> return $ Left err_exc
+                                           Right (symtbl'', tokens'') -> return $ Right (((Syn_expr_call fun_id [] fun_ty), symtbl'', tokens''), err ++ err_args)
+                                       Just (p:ps) -> (case ps of
+                                                         [] -> (case tokens' of
+                                                                  Tk_comma:ts' -> do
+                                                                    r_as <- omits_args symtbl' tokens'
+                                                                    case r_as of
+                                                                      Left err_exc -> return $ Left err_exc
+                                                                      Right (symtbl'', tokens'') -> return $ Right (((Syn_expr_call fun_id [arg] fun_ty), symtbl'', tokens''), err')
+                                                                        where
+                                                                          err' = err ++ err_args
+                                                                  _ -> return $ Right (((Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens'), err)
+                                                               )
+                                                         _ -> (case tokens' of
+                                                                 Tk_comma:ts' -> cont symtbl' (Just ps) tokens'
+                                                                 _ -> do
+                                                                   r_as <- omits_args symtbl' tokens'
+                                                                   case r_as of
+                                                                     Left err_exc -> return $ Left err_exc
+                                                                     Right (symtbl'', tokens'') -> return $ Right (((Syn_expr_call fun_id [arg] fun_ty), symtbl'', tokens''), err')
+                                                                       where
+                                                                         err' = err ++ err_args
+                                                              )
+                                                      )
+                                       
+                                       Nothing -> cont symtbl' Nothing tokens'
+                                       
+                                     where
+                                       omits_args :: Symtbl -> [Tk_code] -> IO (Either Error_Excep (Symtbl, [Tk_code]))
+                                       omits_args symtbl tokens =
+                                         case tokens of
+                                           [] -> return $ Right (symtbl, [])
+                                           _ -> do
+                                             r_a <- runExceptT $ cons_ptree symtbl tokens (False, False, False, True)
+                                             case r_a of
+                                               Left err_exc -> return $ Left err_exc
+                                               Right ((Nothing, symtbl', tokens'), _) -> return $ Right (symtbl', tokens')
+                                               Right ((Just _, symtbl', Tk_comma:ts'), _) -> omits_args symtbl' ts'
+                                               Right ((Just _, symtbl', tokens'), _) -> return $ Right (symtbl', tokens')
+                                       
+                                       cont symtbl params tokens = do
+                                         r_as <- par_args symtbl params tokens
+                                         return $ case r_as of
+                                           Left err_exc -> Left err_exc
+                                           Right (((Syn_expr_call fun_id' args' fun_ty'), symtbl'', tokens''), err')
+                                             | fun_id' == fun_id -> Right (((Syn_expr_call fun_id' (arg:args') fun_ty'), symtbl'', tokens''), (err ++ err'))
+                                           _ -> Left (Error_Excep Excep_assert_failed loc)
+                                             where
+                                               loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                   
+                                     {- case tokens' of
                                        Tk_comma:ts' -> do
                                          case params of
                                            Just (p:ps) -> cont symtbl' (Just ps) tokens'
@@ -1824,6 +1882,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                Right (symtbl'', tokens'') -> return $ Right (((Syn_expr_call fun_id [] fun_ty), symtbl'', tokens''), err')
                                                where
                                                  err' = err ++ [Parse_error "too many arguments in function calling. excessive ones are omitted."]
+                                                 
                                                  omits_args :: Symtbl -> [Tk_code] -> IO (Either Error_Excep (Symtbl, [Tk_code]))
                                                  omits_args symtbl tokens =
                                                    case tokens of
@@ -1848,7 +1907,8 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                             where
                                                               loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                
-                                       _ -> return $ Right (((Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens'), err)
+                                       _ -> return $ Right (((Syn_expr_call fun_id [arg] fun_ty), symtbl', tokens'), err) -}
+                                   
                                    Right ((Nothing, symtbl', tokens'), err) -> return $ Right ((fun_app, symtbl', tokens'), err)
                      _ -> return $ Left (Error_Excep Excep_assert_failed loc)
                        where
@@ -2028,7 +2088,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                                          cat_err (err_delim ++ err ++ err_redef) $ par_comp ((decls'', (decl_omits', smclp)), stmts) symtbl' ts'
                                                      _ -> cat_err (err_delim ++ err) $ par_comp ((decls, (decl_omits, smclp)), (stmts ++ [stmt])) symtbl' ts'
                                                   )
-                                    errmsg = "Missing semicolon at the end of statement."
+                                    errmsg = "missing semicolon at the end of statement."
                           )
                 case r of
                   Left err_exc -> throwE err_exc
@@ -2266,10 +2326,20 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                               Right (((fun_app'@(Syn_expr_call fun_id app_args app_ty)), symtbl', tokens'), err) -> do
                                 case tokens' of
                                   Tk_R_par:ts'' -> cat_err err (runExceptT $ cont_par symtbl' fun_app' ts'')
-                                  _ -> cat_err err' (runExceptT $ cont_par symtbl' fun_app' tokens')
+                                  _ -> cat_err err' (runExceptT $ cont_par symtbl' fun_app' (skip tokens'))
                                     where
                                       errmsg = "Missing closing R paren in function calling."
                                       err' = err ++ [Ill_formed_expression errmsg]
+                                      skip tokens =
+                                        case tokens of
+                                          [] -> []
+                                          t:ts -> if cmp follows t then ts else skip ts
+                                            where
+                                              follows = [Tk_R_par]
+                                              cmp cands t =
+                                                case cands of
+                                                  c:cs | c == t -> True
+                                                  _ -> False
                               
                               _ -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                 where
@@ -2383,7 +2453,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
             errmsg = "Encounted unknown token."
             err = Parse_error errmsg -}
         _ -> insane symtbl tokens []
-
+  
 
 recons_src :: Syntree_node -> String
 recons_src prg =
