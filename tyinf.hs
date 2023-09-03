@@ -1328,7 +1328,7 @@ par_fun_decl symtbl fun tokens =
                           r_ty <- par_fun_type symtbl ts
                           return (case r_ty of
                                     Left err -> Left err
-                                    Right ((fun_ty', symtbl', tokens'), errs) -> Right ((Syn_fun_decl' fun_id args fun_body (Ty_env binds, fun_ty'), symtbl', tokens'), errs)
+                                    Right ((fun_ty', symtbl', tokens'), errs) -> Right ((Syn_fun_decl' fun_id [] fun_body (Ty_env binds, fun_ty'), symtbl', tokens'), errs)
                                  )
                       )
             case r of
@@ -1356,7 +1356,7 @@ par_fun_decl symtbl fun tokens =
                                              Right ((fun_ty', symtbl'', tokens'), ty_errs) ->
                                                Right ((Syn_fun_decl' fun_id (args ++ args') fun_body (Ty_env binds, fun_ty'), symtbl'', tokens'), errs)
                                                where
-                                                 errmsg = "missing closing R paren. in parameter declarator of function declaration."
+                                                 errmsg = "missing closing R paren in parameter declarator of function declaration."
                                                  errs = (arg_errs ++ [Imcomplete_function_declaration errmsg]) ++ ty_errs
                                           )
                               )
@@ -1522,7 +1522,8 @@ parse_fun_body symtbl (decls, omits) tokens = do
                                                                      return (case r_body' of
                                                                                Left err_exc -> Left err_exc
                                                                                Right (((env1, (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) ->
-                                                                                 Right (((env1, (decls'', omits'')), stmts), symtbl'', tokens'', (err ++ err_decl ++ ((Parse_error errmsg):err_cont)))
+                                                                                 Right (((env1, (decls'', omits'')), stmts), symtbl'', tokens'', err')
+                                                                                 where err' = err ++ err_decl ++ ((Parse_error errmsg):err_cont)
                                                                             )
                                                                 )
                             where
@@ -1544,20 +1545,26 @@ parse_fun_body symtbl (decls, omits) tokens = do
                         
                         case r_stmt of
                           Right (((env1, (decls', omits')), stmt1), symtbl1, tokens1, err1) -> do
-                           r_cur <- runExceptT $ ty_curve symtbl stmt1
+                           {- r_cur <- runExceptT $ ty_curve symtbl stmt1
                            case r_cur of
                              --Left err_exc -> return $ Left err_exc
                              Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                              --Right (stmt1'', prev_tv') -> do
                              Right (stmt1', symtbl') -> do
-                               --symtbl1' <- return $ sym_adjust_tvar symtbl1 prev_tv' -}
+                               --symtbl1' <- return $ sym_adjust_tvar symtbl1 prev_tv'
                                
                                --r_body' <- runExceptT $ parse_fun_body symtbl1' (decls', omits') tokens1
                                r_body' <- runExceptT $ parse_fun_body symtbl' (decls', omits') tokens1
                                case r_body' of
                                  Left err_exc -> return $ Left err_exc
                                  Right (((env', (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) -> do
-                                   return $ Right (((env', (decls'', omits'')), (stmt1':stmts)), symtbl'', tokens'', (err1 ++ err_cont))
+                                   return $ Right (((env', (decls'', omits'')), (stmt1':stmts)), symtbl'', tokens'', (err1 ++ err_cont)) -}
+                            --symtbl1' <- return $ sym_adjust_tvar symtbl1 fresh_tvar_initial
+                            r_body' <- runExceptT $ parse_fun_body symtbl1 (decls', omits') tokens1
+                            case r_body' of
+                              Left err_exc -> return $ Left err_exc
+                              Right (((env', (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) ->
+                                return $ Right (((env', (decls'', omits'')), (stmt1:stmts)), symtbl'', tokens'', (err1 ++ err_cont))
                           _ -> return $ Left (Error_Excep Excep_assert_failed loc)
                             where
                               loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -1583,7 +1590,7 @@ cons_fun_tree symtbl fun tokens =
                             case tokens' of
                               [] -> return $ Right ((Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty'), symtbl', []), errs'')
                                 where
-                                  errmsg = "Function declaration has no body at top level declarator."
+                                  errmsg = "function has no body at its top level declaration."
                                   errs'' = errs ++ [Imcomplete_function_declaration errmsg]
                               _ -> (do
                                        r_args <- runExceptT $ exam_redef ((fun:args'), [])
@@ -1599,12 +1606,12 @@ cons_fun_tree symtbl fun tokens =
                                                                      Tk_L_bra:ts'' -> (ts'', [])
                                                                      _ -> (tokens', [Imcomplete_function_declaration errmsg])
                                                                        where
-                                                                         errmsg = "Missing beginning L brace for declaration of function body."
+                                                                         errmsg = "missing beginning L brace in the declaration of function body."
                                            let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', (Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')))
                                            let lv_before = sym_crnt_level $ sym_scope_right (sym_decl symtbl'')
                                            let (new_scope, errs_argreg) =
-                                                 Prelude.foldl (\(stbl, es) -> \arg@(Syn_arg_decl id _) -> case sym_regist False stbl Sym_cat_decl (id, arg) of
-                                                                                                             (stbl', err_reg) -> (stbl', (es ++ err_reg))
+                                                 Prelude.foldl (\(stbl, errs) -> \arg@(Syn_arg_decl id _) -> case sym_regist False stbl Sym_cat_decl (id, arg) of
+                                                                                                               (stbl', err_reg) -> (stbl', (errs ++ err_reg))
                                                                ) (sym_enter_scope (Just symtbl'') Sym_cat_decl) args''
                                            
                                            let errs0 = errs ++ errs_args ++ errs_parse ++ err_funreg ++ errs_argreg
@@ -1662,7 +1669,7 @@ cons_fun_tree symtbl fun tokens =
                                                                _ -> do
                                                                  return $ Right ((fun'', prev_scope', ts''), (errs1 ++ [Imcomplete_function_declaration errmsg]))
                                                                    where
-                                                                     errmsg = "Missing R brace to end up declaration of function body."
+                                                                     errmsg = "Missing R brace to close up declaration of function body."
                                                              
                                              _ -> return $ Left (Error_Excep Excep_assert_failed loc)
                                                where
@@ -2263,10 +2270,11 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
               (Tk_ident fun_id):ts' -> do
                 r <- lift (do
                               let fun = Syn_fun_decl' fun_id [] (Syn_scope ([], Syn_none)) (Ty_env [], Ty_abs)
-                              r_fdecl <- runExceptT $ cons_fun_tree symtbl fun ts'
-                              case r_fdecl of
+                              r_decl <- runExceptT $ cons_fun_tree symtbl fun ts'
+                              case r_decl of
                                 Left err -> return $ Left err
-                                Right ((fun'@(Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty')), symtbl', tokens'), errs) -> return $ Right ((Just fun', symtbl', tokens'), errs)
+                                Right ((fun'@(Syn_fun_decl' fun_id' args' fun_body' (env', fun_ty')), symtbl', tokens'), errs)
+                                  | fun_id' == fun_id -> return $ Right ((Just fun', symtbl', tokens'), errs)
                                 Right ((_, symtbl', tokens'), errs) -> return $ Left (Error_Excep Excep_assert_failed loc)
                                   where
                                     loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
