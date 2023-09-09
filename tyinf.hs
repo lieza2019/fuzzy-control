@@ -4288,7 +4288,9 @@ main = do
           Right r' -> return r' -}
   ((syn_forest, err_par), symtbl', tokens') <- compile tokens
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
-  putStr "parse errors:" >> forM_ (Prelude.map show err_par) (putStrLn . ((++) "  "))
+  case err_par of
+    [] -> return ()
+    _ -> putStr "parse errors:" >> forM_ (Prelude.map show err_par) (putStrLn . ((++) "  "))
   putStrLn ""
   putStr "reconstruction:" >> mapM_ (putStrLn . (++) "  ") (case syn_forest of
                                                               Nothing -> []
