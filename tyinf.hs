@@ -2995,7 +2995,8 @@ ty_chk_var_decl symtbl (v_id, v_ty) =
                                                                                    in
                                                                                      throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err_lok)
                                                                else do
-                                                                 let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl v_id (Ty_prom v_ty_decl lcs)}
+                                                                 --let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl v_id (Ty_prom v_ty_decl lcs)}
+                                                                 let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = syn_node_promote (Syn_var_decl v_id v_ty_decl) lcs}
                                                                  let (r_mod, err_mod) = sym_modify (symtbl', h) v_id v_attr_new
                                                                  case r_mod of
                                                                    Just ((a, _), symtbl'') ->
