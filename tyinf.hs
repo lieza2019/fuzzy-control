@@ -1734,7 +1734,12 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                       rhs <- runExceptT $ cons_ptree symtbl tokens' (False, False, False, True)
                                       case rhs of
                                         Left err_exc -> return $ Left err_exc
-                                        Right ((Just expr_r, symtbl', tokens''), err) -> return $ Right ((Just (Syn_expr_asgn subexpr1 expr_r Ty_abs), symtbl', tokens''), err)
+                                        --Right ((Just expr_r, symtbl', tokens''), err) -> return $ Right ((Just (Syn_expr_asgn subexpr1 expr_r Ty_abs), symtbl', tokens''), err)
+                                        Right ((Just expr_r, symtbl', tokens''), err) -> do
+                                          r_inf <- runExceptT $ ty_inf symtbl' (Syn_expr_asgn subexpr1 expr_r Ty_abs)
+                                          case r_inf of
+                                            Left ((env, expr_asgn), symtbl'', err_inf) -> return $ Right ((Just expr_asgn, symtbl'', tokens''), err ++ err_inf)
+                                            Right ((env, expr_asgn), symtbl'', err_inf) -> return $ Right ((Just expr_asgn, symtbl'', tokens''), err ++ err_inf)
                                         Right ((Nothing, symtbl', tokens''), err) -> return $ Right ((Just subexpr1, symtbl', tokens''), err)
                                   )
                         case r of
@@ -2210,7 +2215,12 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                case r_cur of
                                  --Left err_cur -> return $ Right ((Just expr, symtbl, ts'), err_cur)
                                  Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                 Right (expr', symtbl') -> runExceptT $ cont_par symtbl' expr' ts'
+                                 --Right (expr', symtbl') -> runExceptT $ cont_par symtbl' expr' ts'
+                                 Right (expr', symtbl') -> do
+                                   r_inf <- runExceptT $ ty_inf symtbl' expr'
+                                   case r_inf of
+                                     Left ((env, expr''), symtbl'', err_inf) -> cat_err err_inf (runExceptT $ cont_par symtbl'' expr'' ts')
+                                     Right ((env, expr''), symtbl'', err_inf) -> cat_err err_inf (runExceptT $ cont_par symtbl'' expr'' ts')
                              case r of
                                Left r' -> throwE r'
                                Right r' -> return r'
@@ -2229,7 +2239,13 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                               case r_cur of
                                 --Left err_cur -> return $ Right ((Just expr, symtbl, ts), err_cur)
                                 Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                Right (expr', symtbl') -> runExceptT $ cont_par symtbl' expr' ts'
+                                --Right (expr', symtbl') -> runExceptT $ cont_par symtbl' expr' ts'
+                                Right (expr', symtbl') -> do
+                                  r_inf <- runExceptT $ ty_inf symtbl' expr'
+                                  case r_inf of
+                                    Left ((env, expr''), symtbl'', err_inf) -> cat_err err_inf (runExceptT $ cont_par symtbl'' expr'' ts')
+                                    Right ((env, expr''), symtbl'', err_inf) -> cat_err err_inf (runExceptT $ cont_par symtbl'' expr'' ts')
+                                  
                             case r of
                               Left r' -> throwE r'
                               Right r' -> return r'
@@ -2249,11 +2265,16 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                             r_cur <- runExceptT $ ty_curve symtbl0 expr0
                             case r_cur of
                               Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                              Right (expr0', symtbl0') -> do
+                              {- Right (expr0', symtbl0') -> do
                                 r1 <- cat_err err0 (runExceptT $ cont_par symtbl0' (Syn_expr_una Ope_neg expr0' Ty_abs) ts')
                                 case r1 of
                                   Left err_exc -> return r1
-                                  Right ((expr1, symtbl'', ts''), err) -> return r1
+                                  Right ((expr1, symtbl'', ts''), err) -> return r1 -}
+                              Right (expr0', symtbl0') -> do
+                                r_inf <- runExceptT $ ty_inf symtbl0' (Syn_expr_una Ope_neg expr0' Ty_abs)
+                                case r_inf of
+                                  Left ((env, expr1), symtbl'', err_inf) -> cat_err (err0 ++ err_inf) (runExceptT $ cont_par symtbl'' expr1 ts')
+                                  Right ((env, expr1), symtbl'', err_inf) -> cat_err (err0 ++ err_inf) (runExceptT $ cont_par symtbl'' expr1 ts')
                     )
           case r of
             Left err -> throwE err
@@ -2979,16 +3000,15 @@ ty_chk_var_decl symtbl (v_id, v_ty) =
                                                                  case r_mod of
                                                                    Just ((a, _), symtbl'') ->
                                                                      (case sym_internalerr err_mod of
-                                                                        ([], err_mod') | (a == v_attr_new) -> return ((((v_id, lcs), (Just lcs, Just v_ty_decl'))), symtbl'',
-                                                                                                                      err' ++ [Type_constraint_mismatched errmsg])
+                                                                        ([], err_mod') | (a == v_attr_new) -> return ((((v_id, lcs), (Just lcs, Just v_ty_decl'))), symtbl'', err')
                                                                           where
-                                                                            errmsg = "Variable " ++ v_id ++ " has insufficient type in expression, implicitly promoted to " ++
+                                                                            errmsg = "Variable " ++ v_id ++ " has insufficient type in declaration, implicitly promoted to " ++
                                                                                      (show lcs) ++ " from " ++ (show v_ty_decl') ++ "."
-                                                                            err' = err_lok ++ err_mod'
+                                                                            err' = err_lok ++ err_mod' ++ [Type_constraint_mismatched errmsg]
                                                                         (es, err_mod') -> throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl'', (Internal_error errmsg):err')
                                                                           where
                                                                             errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                            err' = err_lok ++ es
+                                                                            err' = err_lok ++ es ++ err_mod'
                                                                      )
                                                                    Nothing -> throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err')
                                                                      where
@@ -3176,7 +3196,7 @@ ty_inf_expr symtbl expr =
                                           else
                                             return $ Right (Ty_env l_env_bs, symtbl', (err ++ err_mod) ++ [Type_constraint_mismatched errmsg_decl])
                                   where
-                                    errmsg_decl = "Valriable " ++ l_v_id ++ " should be declared with the type of " ++ (show l_v_id) ++ "."
+                                    errmsg_decl = "Valriable " ++ l_v_id ++ " should be declared with the type of " ++ (show $ syn_node_typeof expr_l_inf'') ++ "."
                       case l_mod_decl of
                         Left r' -> throwE r'
                         Right (env_l_inf', symtbl', err') ->
@@ -4290,7 +4310,7 @@ main = do
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
   case err_par of
     [] -> return ()
-    _ -> putStr "parse errors:" >> forM_ (Prelude.map show err_par) (putStrLn . ((++) "  "))
+    _ -> putStr "Errors:" >> forM_ (Prelude.map show err_par) (putStrLn . ((++) "  "))
   putStrLn ""
   putStr "reconstruction:" >> mapM_ (putStrLn . (++) "  ") (case syn_forest of
                                                               Nothing -> []
@@ -4324,7 +4344,7 @@ main = do
   
   --putStr "simtbl_before:  "
   --print_symtbl symtbl' Sym_cat_decl
-  --putStrLn "" -}
+  --putStrLn ""
   
   {- putStr "ty-inf:  "
   (judges_inf, symtbl'', errs) <- do
