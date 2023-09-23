@@ -2983,47 +2983,45 @@ ty_chk_var_decl symtbl (v_id, v_ty) =
     (Just ((Sym_attrib {sym_attr_entity = v_attr}, h), symtbl'), err_lok) ->
       (case v_attr of
           Syn_var_decl v_id' v_ty_decl | v_id' == v_id ->
-                                         let v_ty_decl' = ty_reveal v_ty_decl
-                                         in
-                                           if v_ty_decl' == v_ty then return (((v_id, v_ty), (Nothing, Just v_ty_decl')), symtbl', err_lok)
-                                           else do
-                                             case ty_lcs v_ty v_ty_decl' of
-                                               Just _ -> return (((v_id, v_ty), (Nothing, Just v_ty_decl')), symtbl', err_lok)
-                                               Nothing -> (case ty_lcs v_ty_decl' v_ty of
-                                                             Just lcs ->
-                                                               if lcs /= v_ty then let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                   in
-                                                                                     throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err_lok)
-                                                               else do
-                                                                 --let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl v_id (Ty_prom v_ty_decl lcs)}
-                                                                 let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = syn_node_promote (Syn_var_decl v_id v_ty_decl) lcs}
-                                                                 let (r_mod, err_mod) = sym_modify (symtbl', h) v_id v_attr_new
-                                                                 case r_mod of
-                                                                   Just ((a, _), symtbl'') ->
-                                                                     (case sym_internalerr err_mod of
-                                                                        ([], err_mod') | (a == v_attr_new) -> return ((((v_id, lcs), (Just lcs, Just v_ty_decl'))), symtbl'', err')
-                                                                          where
-                                                                            errmsg = "Variable " ++ v_id ++ " has insufficient type in declaration, implicitly promoted to " ++
-                                                                                     (show lcs) ++ " from " ++ (show v_ty_decl') ++ "."
-                                                                            err' = err_lok ++ err_mod' ++ [Type_constraint_mismatched errmsg]
-                                                                        (es, err_mod') -> throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl'', (Internal_error errmsg):err')
-                                                                          where
-                                                                            errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                            err' = err_lok ++ es ++ err_mod'
-                                                                     )
-                                                                   Nothing -> throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err')
-                                                                     where
-                                                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                       err' = case sym_internalerr err_mod of
-                                                                         (e:es, err_mod') -> e:es
-                                                                         ([], err_mod') -> []
-                                                             
-                                                             Nothing -> if v_ty_decl' /= v_ty then return (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', err_lok)
-                                                                        else
-                                                                          let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                          in
-                                                                            throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err_lok)
-                                                          )
+                                         if (ty_reveal v_ty_decl) == v_ty then return (((v_id, v_ty), (Nothing, Just v_ty)), symtbl', err_lok)
+                                         else do
+                                           let v_ty_decl' = ty_reveal v_ty_decl
+                                           case ty_lcs v_ty v_ty_decl' of
+                                             Just _ -> return (((v_id, v_ty), (Nothing, Just v_ty_decl')), symtbl', err_lok)
+                                             Nothing -> (case ty_lcs v_ty_decl' v_ty of
+                                                            Just lcs ->
+                                                              if lcs /= v_ty then let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                  in
+                                                                                    throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err_lok)
+                                                              else do
+                                                                let v_attr_new = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = syn_node_promote v_attr lcs}
+                                                                let (r_mod, err_mod) = sym_modify (symtbl', h) v_id v_attr_new
+                                                                case r_mod of
+                                                                  Just ((a, _), symtbl'') ->
+                                                                    (case sym_internalerr err_mod of
+                                                                       ([], err_mod') | (a == v_attr_new) -> return ((((v_id, lcs), (Just lcs, Just v_ty_decl'))), symtbl'', err')
+                                                                         where
+                                                                           errmsg = "Variable " ++ v_id ++ " has insufficient type in declaration, implicitly promoted to " ++
+                                                                                    (show lcs) ++ " from " ++ (show v_ty_decl') ++ "."
+                                                                           err' = err_lok ++ err_mod' ++ [Type_constraint_mismatched errmsg]
+                                                                       (es, err_mod') -> throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl'', (Internal_error errmsg):err')
+                                                                         where
+                                                                           errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                           err' = err_lok ++ es ++ err_mod'
+                                                                    )
+                                                                  Nothing -> throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err')
+                                                                    where
+                                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                      err' = case sym_internalerr err_mod of
+                                                                        (e:es, err_mod') -> e:es
+                                                                        ([], err_mod') -> []
+                                                            
+                                                            Nothing -> if v_ty_decl' /= v_ty then return (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', err_lok)
+                                                                       else
+                                                                         let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                         in
+                                                                           throwE (((v_id, v_ty_decl'), (Nothing, Just v_ty_decl')), symtbl', (Internal_error errmsg):err_lok)
+                                                        )
           
           _ -> throwE (((v_id, v_ty), (Nothing, Nothing)), symtbl', (Internal_error errmsg):err_lok)
             where
