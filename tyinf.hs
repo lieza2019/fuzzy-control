@@ -3076,7 +3076,7 @@ ty_inf_var symtbl ((v_id, v_ty), expr) =
           in
             throwE ((Ty_env [([(v_id, v_ty)], ([],[]))], expr), symtbl', (Internal_error errmsg):err)
         else do
-          let errmsg_decl = "Valriable " ++ v_id ++ " should be declared with the type of " ++ (show v_ty) ++ "."
+          let errmsg_decl = "Variable " ++ v_id ++ " is expected to have the type of " ++ (show v_ty) ++ "."
           let e_bin = env_decl decl
           let env = Ty_env e_bin
           let equ = (v_ty, v_ty')
@@ -3085,7 +3085,7 @@ ty_inf_var symtbl ((v_id, v_ty), expr) =
             Just u_var -> do
               let v_ty'' = ty_subst u_var v_ty'
               let expr' = Syn_var v_id v_ty''
-              let e_bin' = (([(v_id, v_ty'')], ([], u_var)):e_bin)
+              let e_bin' = ([(v_id, v_ty'')], ([], u_var)):e_bin
               let env' = Ty_env e_bin'
               r_mod <- lift $ runExceptT $ ty_chk_var_decl symtbl' (v_id, v_ty'')
               case r_mod of
@@ -4309,7 +4309,7 @@ main = do
   putStrLn $ "p-trees: " ++ (show (syn_forest, tokens'))
   case err_par of
     [] -> return ()
-    _ -> putStr "Errors:" >> forM_ (Prelude.map show err_par) (putStrLn . ((++) "  "))
+    _ -> putStr "\n" >> putStr "Errors:" >> forM_ (Prelude.map show err_par) (putStrLn . ((++) "  "))
   putStrLn ""
   putStr "reconstruction:" >> mapM_ (putStrLn . (++) "  ") (case syn_forest of
                                                               Nothing -> []
