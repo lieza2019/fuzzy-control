@@ -1213,7 +1213,7 @@ syn_node_promote expr ty_prom =
       Syn_expr_una ope body ty -> Syn_expr_una ope body (Ty_prom ty ty_prom)
       Syn_expr_bin ope body ty -> Syn_expr_bin ope body (Ty_prom ty ty_prom)
       Syn_expr_seq body ty -> Syn_expr_seq body (Ty_prom ty ty_prom)
-      _ -> expr -- Syn_none -}
+      _ -> expr -- Syn_none
 
 syn_node_subst :: [Subst] -> Syntree_node -> Syntree_node
 syn_node_subst subst expr =
@@ -3155,9 +3155,10 @@ ty_inf_expr symtbl expr =
                                                                )
           case lcs of
             Just _ | (syn_node_typeof expr_l_inf') /= (syn_node_typeof expr_r_inf') ->
-                     let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                     in
-                       throwE ((ty_ovwt_env env_r env_l, Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')), symtbl_rl, (Internal_error errmsg):err)
+                     throwE ((ty_ovwt_env env_r' env_l', Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')), symtbl_rl, (Internal_error errmsg):err)
+              where
+                errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+            
             _ -> do
               let equ_asgn = ((syn_node_typeof expr_l_inf'), (syn_node_typeof expr_r_inf'))
               case ty_unif (equ_env ++ [equ_asgn]) of
