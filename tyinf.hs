@@ -3193,66 +3193,62 @@ ty_inf_expr symtbl expr =
     Syn_expr_asgn expr_l expr_r ty -> do
       ((env_r, expr_r_inf), symtbl_r, err_r) <- ty_inf symtbl expr_r
       ((env_l@(Ty_env l_bs), expr_l_inf), symtbl_rl, err_l) <- ty_inf symtbl_r expr_l
+      let err = err_r ++ err_l
       
       lift $ (do
                  putStrLn $ "(l-ty, r-ty): " ++ "(" ++ (show $ syn_node_typeof expr_l_inf) ++ ", " ++ (show $ syn_node_typeof expr_r_inf) ++ ")"
                  return $ Left ((env_l, expr_l_inf), symtbl_rl, err_l)
              )
       
-      let err = err_r ++ err_l
       case expr_l_inf of
         Syn_var l_v_id l_v_ty -> do
           l_env_bs <- case l_bs of
-                        ([b], _):_ -> return l_bs
+                        (bs, _):_ | bs /= [] -> return l_bs
                         _ -> throwE ((ty_ovwt_env env_r env_l, Syn_expr_asgn expr_l_inf expr_r_inf (syn_node_typeof expr_l_inf)), symtbl_rl, err)
           
           r_ty_asgn <- lift $ case ty_lcs (syn_node_typeof expr_r_inf) (syn_node_typeof expr_l_inf) of
-                                Just lcs' -> do
-                                  {- putStrLn $ "((l-ty, r-ty), lcs): (" ++ "(" ++ (show $ syn_node_typeof expr_l_inf) ++ ", " ++ (show $ syn_node_typeof expr_r_inf) ++ ")" ++ ", " ++
-                                    (show lcs') ++ ")" -}
-                                  return $ Right (((env_l, expr_l_inf), (env_r, syn_node_promote expr_r_inf lcs'), Just lcs'), symtbl_rl, [])
+                                Just lcs' ->return $ Right (((env_l, expr_l_inf), (env_r, syn_node_promote expr_r_inf lcs')), symtbl_rl, [])
                                 Nothing -> (case ty_lcs (syn_node_typeof expr_l_inf) (syn_node_typeof expr_r_inf) of
                                               Just lcs' -> do
-                                                {- putStrLn $ "((l-ty, r-ty), lcs): (" ++ "(" ++ (show $ syn_node_typeof expr_l_inf) ++ ", " ++ (show $ syn_node_typeof expr_r_inf) ++ ")" ++
-                                                  ", " ++ (show lcs') ++ ")" -}
                                                 l_mod <- runExceptT $ ty_chk_var_decl symtbl_rl (l_v_id, (syn_node_typeof expr_r_inf))
                                                 case l_mod of
                                                   Left (((l_v_id', l_v_ty'), (v_ty_prom, v_ty_decl)), symtbl_rl', err_mod) ->
                                                     if l_v_id' /= l_v_id then
                                                       let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                       in
-                                                        return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf), Just lcs'), symtbl_rl', err_mod ++ [Internal_error errmsg])
+                                                        return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl', err_mod ++ [Internal_error errmsg])
                                                     else
-                                                      return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf), Just lcs'), symtbl_rl', err_mod)
+                                                      return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl', err_mod)
                                                   Right (((l_v_id', l_v_ty'), (v_ty_prom, v_ty_decl)), symtbl_rl', err_mod) ->
                                                     if (l_v_id' /= l_v_id) || not (isJust $ ty_lcs (syn_node_typeof expr_r_inf) l_v_ty') then
                                                       let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                       in
-                                                        return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf), Just lcs'), symtbl_rl', err_mod ++ [Internal_error errmsg])
+                                                        return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl', err_mod ++ [Internal_error errmsg])
                                                     else
                                                       case v_ty_prom of
-                                                        Nothing -> return $ Right (((env_l, expr_l_inf), (env_r, expr_r_inf), Just lcs'), symtbl_rl', err_mod)
+                                                        Nothing -> return $ Right (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl', err')
+                                                          where
+                                                            err' = [Type_constraint_mismatched errmsg_decl] ++ err_mod
                                                         Just ty_prom -> do
                                                           r_l' <- runExceptT $ ty_inf symtbl_rl' expr_l
                                                           case r_l' of
-                                                            Left ((env_l', expr_l_inf'), symtbl_rl', err_l') ->
-                                                              return $ Left (((env_l', expr_l_inf'), (env_r, expr_r_inf), Just lcs'), symtbl_rl', err_mod ++ err_l')
-                                                            Right ((env_l', expr_l_inf'), symtbl_rl', err_l') ->
-                                                              return $ Right (((env_l', expr_l_inf'), (env_r, expr_r_inf), Just lcs'), symtbl_rl', err_mod ++ err_l'')
+                                                            Left ((env_l', expr_l_inf'), symtbl_rl'', err_l') ->
+                                                              return $ Left (((env_l', expr_l_inf'), (env_r, expr_r_inf)), symtbl_rl'', err')
                                                               where
-                                                                errmsg_decl = "Valriable " ++ l_v_id ++ " should be declared with the type of " ++ (show $ syn_node_typeof expr_r_inf) ++ "."
-                                                                err_l'' = err_l' ++ (if (isJust $ ty_lcs (syn_node_typeof expr_r_inf) (syn_node_typeof expr_l_inf')) then
-                                                                                       []
-                                                                                     else
-                                                                                       [Type_constraint_mismatched errmsg_decl]
-                                                                                    )
+                                                                err' = [Type_constraint_mismatched errmsg_decl] ++ err_mod ++ err_l'
+                                                            Right ((env_l', expr_l_inf'), symtbl_rl'', err_l') ->
+                                                              return $ Right (((env_l', expr_l_inf'), (env_r, expr_r_inf)), symtbl_rl'', err')
+                                                              where
+                                                                err' = [Type_constraint_mismatched errmsg_decl] ++ err_mod ++ err_l'
+                                                    where
+                                                      errmsg_decl = "Valriable " ++ l_v_id ++ " should be declared with the type of " ++ (show $ syn_node_typeof expr_r_inf) ++ "."
                                               
-                                              Nothing -> return $ Right (((env_l, expr_l_inf), (env_r, expr_r_inf), Nothing), symtbl_rl, [])
+                                              Nothing -> return $ Right (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl, [])
                                            )
           case r_ty_asgn of
-            Left (((env_l', expr_l_inf'), (env_r', expr_r_inf'), lcs),  symtbl_rl', err_ty_asgn) ->
+            Left (((env_l', expr_l_inf'), (env_r', expr_r_inf')), symtbl_rl', err_ty_asgn) ->
               throwE ((ty_ovwt_env env_r' env_l', Syn_expr_asgn expr_l_inf' expr_r_inf' (syn_node_typeof expr_l_inf')), symtbl_rl', err ++ err_ty_asgn)
-            Right (((env_l', expr_l_inf'), (env_r', expr_r_inf'), lcs),  symtbl', err_ty_asgn) -> do
+            Right (((env_l', expr_l_inf'), (env_r', expr_r_inf')), symtbl', err_ty_asgn) -> do
               let err' = err ++ err_ty_asgn
               let ((env_l'', env_r''), equ_env) = ty_equ_envs env_l' env_r'
               let equ_asgn = (syn_node_typeof expr_l_inf', syn_node_typeof expr_r_inf')
