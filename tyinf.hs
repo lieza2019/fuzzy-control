@@ -87,7 +87,7 @@ sym_scope_right :: Syms_stack -> Sym_tbl
 sym_scope_right (left, right) = right
 
 data Symtbl =
-  Symtbl {sym_typedef :: Syms_stack, sym_record :: Syms_stack, sym_func :: Syms_stack, sym_decl :: Syms_stack, fresh_tvar :: Fresh_tvar}
+  Symtbl {sym_typedef :: (Syms_stack, Integer), sym_record :: (Syms_stack, Integer), sym_func :: (Syms_stack, Integer), sym_decl :: (Syms_stack, Integer), fresh_tvar :: Fresh_tvar}
   deriving (Eq, Ord, Show)
 
 {- sym_internalerr :: [Error_codes] -> [Error_codes]
@@ -110,11 +110,11 @@ sym_internalerr err =
 sym_categorize :: Symtbl -> Sym_category -> Syms_stack
 sym_categorize symtbl cat =
   ras_trace "in sym_categorize" (
-  case cat of
-    Sym_cat_typedef -> sym_typedef symtbl
-    Sym_cat_record -> sym_record symtbl
-    Sym_cat_func -> sym_func symtbl
-    Sym_cat_decl -> sym_decl symtbl
+  fst $ case cat of
+          Sym_cat_typedef -> sym_typedef symtbl
+          Sym_cat_record -> sym_record symtbl
+          Sym_cat_func -> sym_func symtbl
+          Sym_cat_decl -> sym_decl symtbl
   )
 
 sym_adjust_tvar :: Symtbl -> Fresh_tvar -> Symtbl
@@ -127,10 +127,10 @@ sym_update :: Symtbl -> Sym_category -> Syms_stack -> Symtbl
 sym_update symtbl cat tbl =
   ras_trace "in sym_update" (
   case cat of
-    Sym_cat_typedef -> symtbl{sym_typedef = tbl}
-    Sym_cat_func -> symtbl{sym_func = tbl}
-    Sym_cat_record -> symtbl{sym_record = tbl}
-    Sym_cat_decl -> symtbl{sym_decl = tbl}
+    Sym_cat_typedef -> symtbl{sym_typedef = (tbl, -1) }
+    Sym_cat_func -> symtbl{sym_func = (tbl, -1)}
+    Sym_cat_record -> symtbl{sym_record = (tbl, -1)}
+    Sym_cat_decl -> symtbl{sym_decl = (tbl, -1)}
   )
 
 sym_leave_scope :: Symtbl -> Sym_category -> (Symtbl, [Error_codes])
@@ -175,10 +175,10 @@ sym_enter_scope symtbl cat =
                in
                  sym_enter_scope (Just symtbl0) cat
       where
-        sym_typdef0 = (Nothing, Scope_empty)
-        sym_record0 = (Nothing, Scope_empty)
-        sym_func0 = (Nothing, Scope_empty)
-        sym_decl = (Nothing, Scope_empty)
+        sym_typdef0 = ((Nothing, Scope_empty), 0)
+        sym_record0 = ((Nothing, Scope_empty), 0)
+        sym_func0 = ((Nothing, Scope_empty), 0)
+        sym_decl = ((Nothing, Scope_empty), 0)
   )
 
 sym_new_anonid_var :: Symtbl -> Sym_category -> (String, String, String) -> ((String, Symtbl), [Error_codes])
@@ -1640,7 +1640,7 @@ cons_fun_tree symtbl fun tokens =
                                                                        where
                                                                          errmsg = "missing beginning L brace in the declaration of function body."
                                            let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', (Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')))
-                                           let lv_before = sym_crnt_level $ sym_scope_right (sym_decl symtbl'')
+                                           let lv_before = sym_crnt_level $ sym_scope_right (sym_categorize symtbl'' Sym_cat_decl)
                                            let (new_scope, errs_argreg) =
                                                  Prelude.foldl (\(stbl, errs) -> \arg@(Syn_arg_decl id _) -> case sym_regist False stbl Sym_cat_decl (id, arg) of
                                                                                                                (stbl', err_reg) -> (stbl', (errs ++ err_reg))
@@ -1682,9 +1682,10 @@ cons_fun_tree symtbl fun tokens =
                                                           ) of
                                                        Left err -> return $ Left err
                                                        Right (prev_scope, err_leave) ->
-                                                         if sym_crnt_level (sym_scope_right $ sym_decl prev_scope) /= lv_before then let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                                                                     in
-                                                                                                                                       return $ Left (Error_Excep Excep_assert_failed loc)
+                                                         if sym_crnt_level (sym_scope_right $ sym_categorize prev_scope Sym_cat_decl) /= lv_before then
+                                                           let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                           in
+                                                             return $ Left (Error_Excep Excep_assert_failed loc)
                                                          else
                                                            do
                                                              let (prev_scope', err_funreg') = sym_regist (Prelude.foldl (\cont -> \e -> (if cont then
@@ -3078,7 +3079,6 @@ ty_prom_var_decl symtbl binds =
                     (env'@(bs, (ps, ss)), stbl, es) <- env
                     r_p <- lift $ runExceptT $ ty_chk_var_decl stbl (v_id, v_ty)
                     case r_p of
-                      --Left (_, stbl', e) -> throwE (env', stbl', es ++ e)
                       Left e -> throwE (env', stbl, es ++ e)
                       Right (((v_id', v_ty'), (ty_prom, ty_decl)), stbl', e) ->
                         if (v_id' /= v_id) then
@@ -3110,11 +3110,6 @@ ty_inf_var symtbl ((v_id, v_ty), expr) =
                                                            )]
     r_decl <- lift $ runExceptT $ ty_chk_var_decl symtbl (v_id, v_ty)
     case r_decl of
-      {- Left ((decl@((v_id', v_ty'), _)), symtbl', err) -> throwE $ if v_id' == v_id then ((Ty_env (env_decl decl), expr), symtbl', err)
-                                                                  else
-                                                                    let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                    in
-                                                                      ((Ty_env [([(v_id, v_ty)], ([],[]))], expr), symtbl', (Internal_error errmsg):err) -}
       Left err -> throwE ((Ty_env [([(v_id, v_ty)], ([],[]))], expr), symtbl, (Internal_error errmsg):err)
         where
           errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -3137,7 +3132,6 @@ ty_inf_var symtbl ((v_id, v_ty), expr) =
               let env' = Ty_env e_bin'
               r_mod <- lift $ runExceptT $ ty_chk_var_decl symtbl' (v_id, v_ty'')
               case r_mod of
-                --Left (_, symtbl'', err_mod) -> throwE ((env', expr'), symtbl'', err ++ err_mod)
                 Left err_mod -> throwE ((env', expr'), symtbl', (Internal_error errmsg):(err ++ err_mod))
                   where
                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -3210,14 +3204,6 @@ ty_inf_expr symtbl expr =
                                               Just lcs' -> do
                                                 l_mod <- runExceptT $ ty_chk_var_decl symtbl_rl (l_v_id, (syn_node_typeof expr_r_inf))
                                                 case l_mod of
-                                                  {- Left (((l_v_id', l_v_ty'), (v_ty_prom, v_ty_decl)), symtbl_rl', err_mod) ->
-                                                    if l_v_id' /= l_v_id then
-                                                      let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                      in
-                                                        return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl', err_mod ++ [Internal_error errmsg])
-                                                    else
-                                                      return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl', err_mod) -}
-                                                  
                                                   Left err_mod -> return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl, err_mod ++ [Internal_error errmsg])
                                                     where
                                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
