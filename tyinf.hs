@@ -3018,7 +3018,7 @@ ty_merge_env env_1 env_2 =
                                                                 return $ e1_bs'' ++ [(v_id, ty)]
                                                             ) (Just env1_binds) env2_binds
 
-ty_chk_var_decl :: Symtbl -> (String, Type) -> ExceptT (((String, Type), (Maybe Type, Maybe Type)), Symtbl, [Error_codes]) IO (((String, Type), (Maybe Type, Maybe Type)), Symtbl, [Error_codes])
+{- ty_chk_var_decl :: Symtbl -> (String, Type) -> ExceptT (((String, Type), (Maybe Type, Maybe Type)), Symtbl, [Error_codes]) IO (((String, Type), (Maybe Type, Maybe Type)), Symtbl, [Error_codes])
 ty_chk_var_decl symtbl (v_id, v_ty) =
   case sym_lkup_var_decl symtbl v_id of
     (_, err_lok) | (fst . sym_internalerr) err_lok /= [] -> throwE (((v_id, v_ty), (Nothing, Nothing)), symtbl, (Internal_error errmsg):err')
@@ -3079,7 +3079,7 @@ ty_chk_var_decl symtbl (v_id, v_ty) =
           _ -> throwE (((v_id, v_ty), (Nothing, Nothing)), symtbl', (Internal_error errmsg):err_lok)
             where
               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-      )
+      ) -}
 
 ty_chk_var_decl' :: Symtbl -> (String, Type) -> ExceptT [Error_codes] IO (((String, Type), (Maybe Type, Maybe Type)), Symtbl, [Error_codes])
 ty_chk_var_decl' symtbl (v_id, v_ty) =
@@ -3139,9 +3139,10 @@ ty_prom_var_decl :: Symtbl -> [Ty_env_bind] -> ExceptT (([Ty_env_bind], ([Prom],
 ty_prom_var_decl symtbl binds =
   Prelude.foldl (\env -> \(v_id, v_ty) -> do
                     (env'@(bs, (ps, ss)), stbl, es) <- env
-                    r_p <- lift $ runExceptT $ ty_chk_var_decl stbl (v_id, v_ty)
+                    r_p <- lift $ runExceptT $ ty_chk_var_decl' stbl (v_id, v_ty)
                     case r_p of
-                      Left (_, stbl', e) -> throwE (env', stbl', es ++ e)
+                      --Left (_, stbl', e) -> throwE (env', stbl', es ++ e)
+                      Left e -> throwE (env', stbl, es ++ e)
                       Right (((v_id', v_ty'), (ty_prom, ty_decl)), stbl', e) ->
                         if (v_id' /= v_id) then
                           let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -3165,18 +3166,21 @@ ty_prom_var_decl symtbl binds =
 ty_inf_var :: Symtbl -> ((String, Type), Syntree_node) -> ExceptT ((Ty_env, Syntree_node), Symtbl, [Error_codes]) IO ((Ty_env, Syntree_node), Symtbl, [Error_codes])
 ty_inf_var symtbl ((v_id, v_ty), expr) =
   do
-    r_decl <- lift $ runExceptT $ ty_chk_var_decl symtbl (v_id, v_ty)
     let env_decl ((v_id, v_ty), (v_ty_prom, v_ty_decl)) = [([(v_id, v_ty)], (case v_ty_prom of
                                                                                 Nothing -> ([], [])
                                                                                 Just ty_prom -> ([(v_id, (v_ty_decl, ty_prom))], [])
                                                                             )
                                                            )]
+    r_decl <- lift $ runExceptT $ ty_chk_var_decl' symtbl (v_id, v_ty)
     case r_decl of
-      Left ((decl@((v_id', v_ty'), _)), symtbl', err) -> throwE $ if v_id' == v_id then ((Ty_env (env_decl decl), expr), symtbl', err)
+      {- Left ((decl@((v_id', v_ty'), _)), symtbl', err) -> throwE $ if v_id' == v_id then ((Ty_env (env_decl decl), expr), symtbl', err)
                                                                   else
                                                                     let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                     in
-                                                                      ((Ty_env [([(v_id, v_ty)], ([],[]))], expr), symtbl', (Internal_error errmsg):err)
+                                                                      ((Ty_env [([(v_id, v_ty)], ([],[]))], expr), symtbl', (Internal_error errmsg):err) -}
+      Left err -> throwE ((Ty_env [([(v_id, v_ty)], ([],[]))], expr), symtbl, (Internal_error errmsg):err)
+        where
+          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
       Right ((decl@((v_id', v_ty'), (v_ty_prom, v_ty_decl))), symtbl', err) ->
         if v_id' /= v_id then
           let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -3194,9 +3198,12 @@ ty_inf_var symtbl ((v_id, v_ty), expr) =
               let expr' = Syn_var v_id v_ty''
               let e_bin' = ([(v_id, v_ty'')], ([], u_var)):e_bin
               let env' = Ty_env e_bin'
-              r_mod <- lift $ runExceptT $ ty_chk_var_decl symtbl' (v_id, v_ty'')
+              r_mod <- lift $ runExceptT $ ty_chk_var_decl' symtbl' (v_id, v_ty'')
               case r_mod of
-                Left (_, symtbl'', err_mod) -> throwE ((env', expr'), symtbl'', err ++ err_mod)
+                --Left (_, symtbl'', err_mod) -> throwE ((env', expr'), symtbl'', err ++ err_mod)
+                Left err_mod -> throwE ((env', expr'), symtbl', (Internal_error errmsg):(err ++ err_mod))
+                  where
+                    errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                 Right (((v_id'', mod_ty), (mod_ty_prom, mod_ty_decl)), symtbl'', err_mod) ->
                   if v_id'' /= v_id then let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                          in
@@ -3264,15 +3271,20 @@ ty_inf_expr symtbl expr =
                                 Just lcs' ->return $ Right (((env_l, expr_l_inf), (env_r, syn_node_promote expr_r_inf lcs')), symtbl_rl, [])
                                 Nothing -> (case ty_lcs (syn_node_typeof expr_l_inf) (syn_node_typeof expr_r_inf) of
                                               Just lcs' -> do
-                                                l_mod <- runExceptT $ ty_chk_var_decl symtbl_rl (l_v_id, (syn_node_typeof expr_r_inf))
+                                                l_mod <- runExceptT $ ty_chk_var_decl' symtbl_rl (l_v_id, (syn_node_typeof expr_r_inf))
                                                 case l_mod of
-                                                  Left (((l_v_id', l_v_ty'), (v_ty_prom, v_ty_decl)), symtbl_rl', err_mod) ->
+                                                  {- Left (((l_v_id', l_v_ty'), (v_ty_prom, v_ty_decl)), symtbl_rl', err_mod) ->
                                                     if l_v_id' /= l_v_id then
                                                       let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                       in
                                                         return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl', err_mod ++ [Internal_error errmsg])
                                                     else
-                                                      return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl', err_mod)
+                                                      return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl', err_mod) -}
+                                                  
+                                                  Left err_mod -> return $ Left (((env_l, expr_l_inf), (env_r, expr_r_inf)), symtbl_rl, err_mod ++ [Internal_error errmsg])
+                                                    where
+                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                  
                                                   Right (((l_v_id', l_v_ty'), (v_ty_prom, v_ty_decl)), symtbl_rl', err_mod) ->
                                                     if (l_v_id' /= l_v_id) || not (isJust $ ty_lcs (syn_node_typeof expr_r_inf) l_v_ty') then
                                                       let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -4461,9 +4473,9 @@ main = do
   mapM_ putStrLn $ Prelude.map show ty_curved
   putStrLn "" -}
   
-  --putStr "simtbl_before:  "
-  --print_symtbl symtbl' Sym_cat_decl
-  --putStrLn ""
+  putStr "simtbl_before:  "
+  print_symtbl symtbl' Sym_cat_decl
+  putStrLn ""
   
   {- putStr "ty-inf:  "
   (judges_inf, symtbl'', errs) <- do
