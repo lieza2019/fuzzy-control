@@ -59,7 +59,7 @@ data Sym_attrib =
   deriving (Eq, Ord, Show)
 
 data Symtbl_node =
-  Sym_entry {sym_id :: Integer, sym_ident :: String, sym_attr :: Sym_attrib}
+  Sym_entry {sym_id :: Integer, sym_name :: String, sym_attr :: Sym_attrib}
   deriving (Eq, Ord, Show)
 
 data Symtbl_cluster =
@@ -329,7 +329,7 @@ sym_search symtbl cat ident =
   let walk syms ident =
         case syms of
           Sym_empty -> Nothing
-          Sym_add sym syms' -> if ((sym_ident sym) == ident) then Just (sym, ((Sym_add sym Sym_empty), syms'))
+          Sym_add sym syms' -> if ((sym_name sym) == ident) then Just (sym, ((Sym_add sym Sym_empty), syms'))
                                else case (walk syms' ident) of
                                       Nothing -> Nothing
                                       Just (found, (pasts, remainders)) -> Just (found, ((Sym_add sym pasts), remainders))
@@ -350,7 +350,7 @@ sym_search sym_tbl ident =
   let walk syms ident =
         case syms of
           Sym_empty -> Nothing
-          Sym_add sym syms' -> if ((sym_ident sym) == ident) then Just (sym, (Sym_empty, syms))
+          Sym_add sym syms' -> if ((sym_name sym) == ident) then Just (sym, (Sym_empty, syms))
                                else case (walk syms' ident) of
                                       Nothing -> Nothing
                                       Just (cand, (pasts, remains)) -> Just (cand, (Sym_add sym pasts, remains))
@@ -685,7 +685,7 @@ sym_modify (symtbl, (cat, (top, btm))) ident attr_new =
             modify :: Symtbl_node -> Sym_attrib -> Either [Error_codes] Symtbl_node
             modify sym attr_new =
               case sym of
-                Sym_entry{sym_ident = id, sym_attr = attr} | id == ident ->
+                Sym_entry{sym_name = id, sym_attr = attr} | id == ident ->
                                                              (case attr_new of
                                                                 Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = new_entity} -> let attr' = attr{sym_attr_entity = new_entity}
                                                                                                                                            in
@@ -726,7 +726,7 @@ sym_modify' (symtbl, (cat, (top, btm))) ident attr_new =
             modify :: Symtbl_node -> Sym_attrib -> Either [Error_codes] Symtbl_node
             modify sym attr_new =
               case sym of
-                Sym_entry{sym_ident = id, sym_attr = attr} | id == ident ->
+                Sym_entry{sym_name = id, sym_attr = attr} | id == ident ->
                                                                (case attr_new of
                                                                   Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = new_entity} -> Right sym{sym_attr = attr'}
                                                                     where
@@ -786,7 +786,7 @@ sym_regist ovwt symtbl cat (ident, entity) =
                                                            walk_on_scope sym_cluster (ident, entity) =
                                                              ras_trace "in walk_on_scope" (
                                                              case sym_cluster of
-                                                               Sym_add sym syms -> if (((sym_ident sym) == ident) && (cmp_entity sym entity)) then Just sym
+                                                               Sym_add sym syms -> if (((sym_name sym) == ident) && (cmp_entity sym entity)) then Just sym
                                                                                    else walk_on_scope syms (ident, entity)
                                                                Sym_empty -> Nothing
                                                              )
@@ -794,7 +794,7 @@ sym_regist ovwt symtbl cat (ident, entity) =
                                                     )
       (left, sym_tbl) = sym_categorize symtbl cat
   in
-    let (sym_tbl', err) = reg_sym sym_tbl (ident, Sym_entry {sym_id = -1, sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
+    let (sym_tbl', err) = reg_sym sym_tbl (ident, Sym_entry {sym_id = -1, sym_name = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
     in
       ((sym_update symtbl cat (left, sym_tbl')), err)
   )
@@ -819,7 +819,7 @@ sym_regist' ovwt symtbl cat (ident, entity) =
                                                            walk_on_scope sym_cluster (ident, entity) =
                                                              ras_trace "in walk_on_scope" (
                                                              case sym_cluster of
-                                                               Sym_add sym syms -> if (((sym_ident sym) == ident) && (cmp_entity sym entity)) then Just sym
+                                                               Sym_add sym syms -> if (((sym_name sym) == ident) && (cmp_entity sym entity)) then Just sym
                                                                                    else walk_on_scope syms (ident, entity)
                                                                Sym_empty -> Nothing
                                                              )
@@ -827,7 +827,7 @@ sym_regist' ovwt symtbl cat (ident, entity) =
                                                     )
       ((left, stbl), last_id) = sym_categorize' symtbl cat
   in
-    let (stbl', err) = reg_sym stbl (ident, Sym_entry {sym_id = last_id, sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
+    let (stbl', err) = reg_sym stbl (ident, Sym_entry {sym_id = last_id, sym_name = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
     in
       ((sym_update' symtbl cat ((left, stbl'), last_id + 1)), err)
   )
@@ -882,7 +882,7 @@ sym_dump symtbl cat =
       walk syms =
         case syms of
           Sym_empty -> []
-          Sym_add (Sym_entry {sym_ident = id, sym_attr = a}) syms' -> ("<" ++ id ++ ", " ++ (show_attr a) ++ ">") : (walk syms')
+          Sym_add (Sym_entry {sym_name = id, sym_attr = a}) syms' -> ("<" ++ id ++ ", " ++ (show_attr a) ++ ">") : (walk syms')
       show_attr (Sym_attrib {sym_attr_geometry = (row, col), sym_attr_entity = entity}) = show entity
   in
     let ldump = let ltbl = sym_scope_left $ sym_categorize symtbl cat
@@ -902,7 +902,7 @@ sym_dump' symtbl cat =
       walk syms =
         case syms of
           Sym_empty -> []
-          Sym_add (Sym_entry {sym_ident = id, sym_attr = a}) syms' -> ("<" ++ id ++ ", " ++ (show_attr a) ++ ">") : (walk syms')
+          Sym_add (Sym_entry {sym_id = id, sym_name = name, sym_attr = a}) syms' -> ("<" ++ "(" ++ (show id) ++ ", " ++ name ++ ")" ++ ", " ++ (show_attr a) ++ ">") : (walk syms')
       show_attr (Sym_attrib {sym_attr_geometry = (row, col), sym_attr_entity = entity}) = show entity
   in
     let ldump = let ltbl = (sym_scope_left . fst) $ sym_categorize' symtbl cat
@@ -916,7 +916,7 @@ sym_dump' symtbl cat =
 
 print_symtbl :: Symtbl -> Sym_category -> IO ()
 print_symtbl symtbl cat =
-  let (ldump, rdump) = sym_dump symtbl cat
+  let (ldump, rdump) = sym_dump' symtbl cat
   in
     do
       putStr "syms_left: "
