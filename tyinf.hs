@@ -59,7 +59,7 @@ data Sym_attrib =
   deriving (Eq, Ord, Show)
 
 data Symtbl_node =
-  Sym_entry {sym_ident :: String, sym_attr :: Sym_attrib}
+  Sym_entry {sym_id :: Integer, sym_ident :: String, sym_attr :: Sym_attrib}
   deriving (Eq, Ord, Show)
 
 data Symtbl_cluster =
@@ -794,7 +794,7 @@ sym_regist ovwt symtbl cat (ident, entity) =
                                                     )
       (left, sym_tbl) = sym_categorize symtbl cat
   in
-    let (sym_tbl', err) = reg_sym sym_tbl (ident, Sym_entry {sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
+    let (sym_tbl', err) = reg_sym sym_tbl (ident, Sym_entry {sym_id = -1, sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
     in
       ((sym_update symtbl cat (left, sym_tbl')), err)
   )
@@ -827,7 +827,7 @@ sym_regist' ovwt symtbl cat (ident, entity) =
                                                     )
       ((left, stbl), last_id) = sym_categorize' symtbl cat
   in
-    let (stbl', err) = reg_sym stbl (ident, Sym_entry {sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
+    let (stbl', err) = reg_sym stbl (ident, Sym_entry {sym_id = last_id, sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
     in
       ((sym_update' symtbl cat ((left, stbl'), last_id + 1)), err)
   )
