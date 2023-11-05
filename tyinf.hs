@@ -70,14 +70,15 @@ data Symtbl_anon_ident =
   Symtbl_anon_ident {sym_anon_var :: Integer, sym_anon_record :: Integer}
   deriving (Eq, Ord, Show)
 
-type Scope_Lvl = Integer
+type Scope_id = Integer
+type Scope_Lv = Integer
 data Sym_tbl =
   Scope_empty
-  | Scope_add (Scope_Lvl, Symtbl_anon_ident, Symtbl_cluster) Sym_tbl
+  | Scope_add (Scope_id, Scope_Lv, Symtbl_anon_ident, Symtbl_cluster) Sym_tbl
   deriving (Eq, Ord, Show)
-sym_crnt_level :: Sym_tbl -> Scope_Lvl
+sym_crnt_level :: Sym_tbl -> Scope_Lv
 sym_crnt_level Scope_empty = 0
-sym_crnt_level (Scope_add ( lv, _, _ ) _) = lv
+sym_crnt_level (Scope_add (_, lv, _, _ ) _) = lv
 
 type Syms_stack = (Maybe Sym_tbl, Sym_tbl)
 sym_scope_left :: Syms_stack -> Maybe Sym_tbl
@@ -159,16 +160,16 @@ sym_enter_scope symtbl cat =
     Just sym_tbl -> let (stbl, last_id) = sym_categorize' sym_tbl cat
                     in
                       let (stbl', err) = case stbl of
-                                           (left, Scope_empty) -> ((left, Scope_add (1, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, Sym_empty) Scope_empty), err')
+                                           (left, Scope_empty) -> ((left, Scope_add (last_id + 1, 1, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, Sym_empty) Scope_empty), err')
                                              where
                                                err' = case left of
                                                  Nothing -> []
                                                  _ -> [Internal_error errmsg]
                                                    where
                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                           (left, r@(Scope_add (lv, sym_anon_ident, _) _)) -> ((left, Scope_add (lv + 1, sym_anon_ident, Sym_empty) r), [])
+                                           (left, r@(Scope_add (_, lv, sym_anon_ident, _) _)) -> ((left, Scope_add (last_id + 1, lv + 1, sym_anon_ident, Sym_empty) r), [])
                       in
-                        (sym_update sym_tbl cat (stbl', last_id), err)
+                        (sym_update sym_tbl cat (stbl', last_id + 1), err)
     Nothing -> let symtbl0 = Symtbl {sym_typedef = sym_typdef0, sym_record = sym_record0, sym_func = sym_func0, sym_decl = sym_decl, fresh_tvar = fresh_tvar_initial}
                in
                  sym_enter_scope (Just symtbl0) cat
@@ -193,8 +194,8 @@ sym_new_anonid_var symtbl cat (prefx, sufix, sep) =
                                    )
     in
       let (anonid, stbl'') = case stbl' of
-                                  (left, Scope_add (lv, anon_crnt@(Symtbl_anon_ident {sym_anon_var = top}), syms) stbls') ->
-                                    ((d2s_var top), (left, Scope_add (lv, anon_crnt {sym_anon_var = top + 1}, syms) stbls'))
+                               (left, Scope_add (id, lv, anon_crnt@(Symtbl_anon_ident {sym_anon_var = top}), syms) stbls') ->
+                                 ((d2s_var top), (left, Scope_add (id, lv, anon_crnt {sym_anon_var = top + 1}, syms) stbls'))
       in
         ((anonid, sym_update symtbl cat (stbl'', last_id')), err)
   )
@@ -213,10 +214,35 @@ sym_new_anonid_rec symtbl cat (prefx, sufix, sep) =
                                    )
     in
       let (anonid, stbl'') = case stbl' of
-                                  (left, Scope_add (lv, anon_crnt@(Symtbl_anon_ident {sym_anon_record = top}), syms) stbls') ->
-                                    ((d2s_rec top), (left, Scope_add (lv, anon_crnt {sym_anon_record = top + 1}, syms) stbls'))
+                               (left, Scope_add (id, lv, anon_crnt@(Symtbl_anon_ident {sym_anon_record = top}), syms) stbls') ->
+                                 ((d2s_rec top), (left, Scope_add (id, lv, anon_crnt {sym_anon_record = top + 1}, syms) stbls'))
       in
         ((anonid, sym_update symtbl cat (stbl'', last_id')), err)
+  )
+
+sym_combine :: Sym_tbl -> Sym_tbl -> Sym_tbl
+sym_combine tbl1@(Scope_add (id_1, lv_1, anon_idents_1, syms_1) tbl1') tbl2@(Scope_add (id_2, lv_2, anon_idents_2, syms_2) tbl2') =
+  ras_trace "in sym_combine" (
+  case tbl1' of
+    Scope_empty ->
+      (case syms_1 of
+         Sym_empty -> (case syms_2 of
+                         Sym_empty -> tbl2'
+                         _ -> tbl2
+                      )
+         _ -> (case syms_2 of
+                 Sym_empty -> Scope_add (id_1, lv_1, anon_idents_1, syms_1) tbl2'
+                 _ -> Scope_add (id_1, lv_1, anon_idents_1, (cat syms_1 syms_2)) tbl2'
+              )
+      )
+      where
+        cat :: Symtbl_cluster -> Symtbl_cluster -> Symtbl_cluster
+        cat (Sym_add sym syms1') syms2 =
+          case syms1' of
+            Sym_empty -> Sym_add sym syms2
+            _ -> Sym_add sym (cat syms1' syms2)
+            
+    _ -> Scope_add (id_1, lv_1, anon_idents_1, syms_1) (sym_combine tbl1' tbl2)
   )
 
 sym_search :: Sym_tbl -> String -> (Maybe (Sym_attrib, (Sym_tbl, Sym_tbl)), [Error_codes])
@@ -232,41 +258,67 @@ sym_search sym_tbl ident =
   in
     case sym_tbl of
       Scope_empty -> (Nothing, [])
-      Scope_add (lv, anon_idents, syms) sym_tbl' -> (case (walk syms ident) of
-                                                       Just (cand, (pasts, remains)) -> (Just ((sym_attr cand), (pasts', remains')), [])
-                                                         where
-                                                           pasts' = Scope_add (lv, anon_idents, pasts) Scope_empty
-                                                           remains' = Scope_add (lv, anon_idents, remains) sym_tbl'
-                                                       Nothing -> (case sym_search sym_tbl' ident of
-                                                                     (Just (cand, (pasts, remains)), err) -> (Just (cand, (Scope_add (lv, anon_idents, syms) pasts, remains)), err)
-                                                                     (Nothing, err) -> (Nothing, err)
-                                                                  )
-                                                    )
+      Scope_add (id, lv, anon_idents, syms) sym_tbl' -> (case (walk syms ident) of
+                                                           Just (cand, (pasts, remains)) -> (Just ((sym_attr cand), (pasts', remains')), [])
+                                                             where
+                                                               pasts' = Scope_add (id, lv, anon_idents, pasts) Scope_empty
+                                                               remains' = Scope_add (id, lv, anon_idents, remains) sym_tbl'
+                                                           Nothing -> (case sym_search sym_tbl' ident of
+                                                                         (Just (cand, (pasts, remains)), err) -> (Just (cand, (Scope_add (id, lv, anon_idents, syms) pasts, remains)), err)
+                                                                         (Nothing, err) -> (Nothing, err)
+                                                                      )
+                                                        )
   )
 
-sym_combine :: Sym_tbl -> Sym_tbl -> Sym_tbl
-sym_combine tbl1@(Scope_add (lv_1, anon_idents_1, syms_1) tbl1') tbl2@(Scope_add (lv_2, anon_idents_2, syms_2) tbl2') =
-  ras_trace "in sym_combine" (
-  case tbl1' of
-    Scope_empty ->
-      (case syms_1 of
-         Sym_empty -> (case syms_2 of
-                         Sym_empty -> tbl2'
-                         _ -> tbl2
-                      )
-         _ -> (case syms_2 of
-                 Sym_empty -> Scope_add (lv_1, anon_idents_1, syms_1) tbl2'
-                 _ -> Scope_add (lv_1, anon_idents_1, (cat syms_1 syms_2)) tbl2'
-              )
-      )
-      where
-        cat :: Symtbl_cluster -> Symtbl_cluster -> Symtbl_cluster
-        cat (Sym_add sym syms1') syms2 =
-          case syms1' of
-            Sym_empty -> Sym_add sym syms2
-            _ -> Sym_add sym (cat syms1' syms2)
-            
-    _ -> Scope_add (lv_1, anon_idents_1, syms_1) (sym_combine tbl1' tbl2)
+sym_find :: Symtbl -> Sym_category -> (Maybe Integer, Integer) -> ((Maybe (String, Sym_attrib), Symtbl), [Error_codes])
+sym_find symtbl cat (scope_id, entry_id) =
+  ras_trace "in sym_find" (
+  let ((sym_tbl_l, sym_tbl_r), last_id) = sym_categorize' symtbl cat
+  in
+    case sym_tbl_l of
+      Nothing -> ((Nothing, symtbl), [])
+      Just stbl_l -> (case stbl_l of
+                        Scope_empty -> ((Nothing, symtbl), [])
+                        Scope_add (id, lv, anon_idents, syms) sym_tbl_l' ->
+                          (case scope_id of
+                             Just scp_id -> if id /= scp_id then (case sym_find symtbl' cat (scope_id, entry_id) of
+                                                                    ((r, _), err) | err == [] -> ((r, symtbl), [])
+                                                                    ((r, _), err) -> ((r, symtbl), err ++ [Internal_error errmsg])
+                                                                      where
+                                                                        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                 )
+                                            else
+                                              case search syms entry_id of
+                                                ((r, _), err) -> if err == [] then ((r, symtbl), [])
+                                                                 else ((r, symtbl), err ++ [Internal_error errmsg])
+                                                  where
+                                                    errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                             Nothing -> (case search syms entry_id of
+                                           ((r, _), err) -> if err == [] then ((r, symtbl), [])
+                                                            else
+                                                              ((r, symtbl), err ++ [Internal_error errmsg])
+                                             where
+                                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                        )
+                          )
+                          where
+                            symtbl' = sym_update symtbl cat (((case sym_tbl_l' of
+                                                                 Scope_empty -> Nothing
+                                                                 _ -> Just sym_tbl_l'), sym_tbl_r), last_id)
+                            search :: Symtbl_cluster -> Integer -> ((Maybe (String, Sym_attrib), Symtbl), [Error_codes])
+                            search syms entry_id = case walk syms entry_id of
+                                                     Nothing -> sym_find symtbl' cat (scope_id, entry_id)
+                                                     Just (Sym_entry {sym_key = key, sym_ident = ident, sym_attr = attr}) | key == entry_id -> ((Just (ident, attr), symtbl), [])
+                                                     _ -> ((Nothing, symtbl), [Internal_error errmsg])
+                                                       where
+                                                         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                     )
+        where
+          walk :: Symtbl_cluster -> Integer -> Maybe Symtbl_node
+          walk syms id  = case syms of
+                            Sym_empty -> Nothing
+                            Sym_add sym @(Sym_entry {sym_key = key}) syms' -> if key == id then Just sym
+                                                                              else walk syms' id
   )
 
 type Sym_handle = (Sym_category, (Sym_tbl, Sym_tbl))
@@ -280,9 +332,9 @@ sym_lookup symtbl (cat, declp) ident =
       (Just (attr, h@(past, remains)), err) -> if declp (sym_attr_entity attr) then (Just ((attr, (cat, h)), symtbl), err)
                                                else
                                                  let remains' = case remains of
-                                                                  Scope_add (_, _, Sym_empty) ps -> ps
-                                                                  Scope_add (_, _, Sym_add s Sym_empty) ps -> ps
-                                                                  Scope_add (lv, anon_idents, Sym_add s ss) ps -> Scope_add (lv, anon_idents, ss) ps
+                                                                  Scope_add (_, _, _, Sym_empty) ps -> ps
+                                                                  Scope_add (_, _, _, Sym_add s Sym_empty) ps -> ps
+                                                                  Scope_add (id, lv, anon_idents, Sym_add s ss) ps -> Scope_add (id, lv, anon_idents, ss) ps
                                                  in
                                                    case sym_lookup (sym_update symtbl cat ((left, remains'), last_id)) (cat, declp) ident of
                                                      (Just ((attr, (cat', (past', remains''))), _), err) | cat' == cat -> (Just ((attr, (cat', (past'', remains''))), symtbl'), err)
@@ -395,18 +447,18 @@ sym_modify (symtbl, (cat, (top, btm))) ident attr_new =
         Scope_empty -> (Nothing, [Internal_error errmsg])
           where
             errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-        Scope_add (_, _, Sym_empty) ps -> (Nothing, [Internal_error errmsg])
+        Scope_add (_, _, _, Sym_empty) ps -> (Nothing, [Internal_error errmsg])
           where
             errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-        Scope_add (lv, anon_idents, Sym_add s ss) ps -> (case modify s attr_new of
-                                                           Right s' -> (Just ((sym_attr s', (cat, (top, btm'))), symtbl'), [])
-                                                             where
-                                                               btm' = Scope_add (lv, anon_idents, Sym_add s' ss) ps
-                                                               symtbl' = sym_update symtbl cat ((left, sym_combine top btm'), last_id)
-                                                           Left err -> (Nothing, err ++ [Internal_error errmsg])
-                                                             where
-                                                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                        )
+        Scope_add (id, lv, anon_idents, Sym_add s ss) ps -> (case modify s attr_new of
+                                                               Right s' -> (Just ((sym_attr s', (cat, (top, btm'))), symtbl'), [])
+                                                                 where
+                                                                   btm' = Scope_add (id, lv, anon_idents, Sym_add s' ss) ps
+                                                                   symtbl' = sym_update symtbl cat ((left, sym_combine top btm'), last_id)
+                                                               Left err -> (Nothing, err ++ [Internal_error errmsg])
+                                                                 where
+                                                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                            )
           where
             modify :: Symtbl_node -> Sym_attrib -> Either [Error_codes] Symtbl_node
             modify sym attr_new =
@@ -453,35 +505,36 @@ cmp_entity (Sym_entry {sym_attr = attr}) entity =
 sym_regist :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> (Symtbl, [Error_codes])
 sym_regist ovwt symtbl cat (ident, entity) =
   ras_trace "in sym_regist" (
-  let reg_sym sym_tbl (ident, sym) =
+  let reg_sym (sym_tbl, last_id) (ident, sym) =
         case sym_tbl of
-          Scope_empty -> ((Scope_add (0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, (Sym_add sym Sym_empty)) Scope_empty), [])
-          Scope_add (lv, anon_idents, syms) scps -> (case syms of
-                                                       Sym_empty -> ((Scope_add (lv, anon_idents, (Sym_add sym Sym_empty)) scps), [])
-                                                       Sym_add _ _ -> (case walk_on_scope syms (ident, (sym_attr_entity . sym_attr) sym) of
-                                                                         Just e -> if (not ovwt) then (sym_tbl, [Symbol_redefinition errmsg])
-                                                                                   else ((Scope_add (lv, anon_idents, (Sym_add sym syms)) scps), [])
-                                                                           where
-                                                                             errmsg = "symbol table error, failed to register, " ++
-                                                                                      "for detection of pre registered object with same identifier as " ++ ident
-                                                                         Nothing -> ((Scope_add (lv, anon_idents, (Sym_add sym syms)) scps), [])
-                                                                      )
-                                                         where
-                                                           walk_on_scope :: Symtbl_cluster -> (String, Syntree_node) -> Maybe Symtbl_node
-                                                           walk_on_scope sym_cluster (ident, entity) =
-                                                             ras_trace "in walk_on_scope" (
-                                                             case sym_cluster of
-                                                               Sym_add sym syms -> if (((sym_ident sym) == ident) && (cmp_entity sym entity)) then Just sym
-                                                                                   else walk_on_scope syms (ident, entity)
-                                                               Sym_empty -> Nothing
-                                                             )
-                                                           
-                                                    )
-      ((left, stbl), last_id) = sym_categorize' symtbl cat
+          Scope_empty -> ((Scope_add (last_id + 1, 0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, (Sym_add sym Sym_empty)) Scope_empty), last_id + 1, [])
+          Scope_add (id, lv, anon_idents, syms) scps -> (case syms of
+                                                           Sym_empty -> ((Scope_add (id, lv, anon_idents, (Sym_add sym Sym_empty)) scps), last_id, [])
+                                                           Sym_add _ _ -> (case walk_on_scope syms (ident, (sym_attr_entity . sym_attr) sym) of
+                                                                             Just e -> if (not ovwt) then (sym_tbl, last_id, [Symbol_redefinition errmsg])
+                                                                                       else ((Scope_add (id, lv, anon_idents, (Sym_add sym syms)) scps), last_id, [])
+                                                                               where
+                                                                                 errmsg = "symbol table error, failed to register, " ++
+                                                                                          "for detection of pre registered object with same identifier as " ++ ident
+                                                                             Nothing -> ((Scope_add (id, lv, anon_idents, (Sym_add sym syms)) scps), last_id, [])
+                                                                          )
+                                                             where
+                                                               walk_on_scope :: Symtbl_cluster -> (String, Syntree_node) -> Maybe Symtbl_node
+                                                               walk_on_scope sym_cluster (ident, entity) =
+                                                                 ras_trace "in walk_on_scope" (
+                                                                 case sym_cluster of
+                                                                   Sym_add sym syms -> if (((sym_ident sym) == ident) && (cmp_entity sym entity)) then Just sym
+                                                                                       else walk_on_scope syms (ident, entity)
+                                                                   Sym_empty -> Nothing
+                                                                 )
+                                                        )
   in
-    let (stbl', err) = reg_sym stbl (ident, Sym_entry {sym_key = last_id, sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
+    let ((left, stbl), last_id) = sym_categorize' symtbl cat
     in
-      ((sym_update symtbl cat ((left, stbl'), last_id + 1)), err)
+      let (stbl', last_id', err) =
+            reg_sym (stbl, last_id + 1) (ident, Sym_entry {sym_key = last_id + 1, sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
+      in
+        ((sym_update symtbl cat ((left, stbl'), last_id')), err)
   )
 
 sym_subst :: [Subst] -> Symtbl -> Symtbl
@@ -491,9 +544,9 @@ sym_subst subst symtbl =
   in
     case (sym_scope_right stbl_decl) of
       Scope_empty -> symtbl
-      Scope_add (lv, anon_id, syms) ss -> let stbl_decl_r' = Scope_add (lv, anon_id , subst_on_scope subst syms) ((sym_scope_right . fst) $ sym_categorize' symtbl' Sym_cat_decl)
-                                          in
-                                            sym_update symtbl Sym_cat_decl ((sym_scope_left stbl_decl, stbl_decl_r'), last_id)
+      Scope_add (id, lv, anon_id, syms) ss -> let stbl_decl_r' = Scope_add (id, lv, anon_id , subst_on_scope subst syms) ((sym_scope_right . fst) $ sym_categorize' symtbl' Sym_cat_decl)
+                                              in
+                                                sym_update symtbl Sym_cat_decl ((sym_scope_left stbl_decl, stbl_decl_r'), last_id)
         where
           symtbl' = sym_subst subst $ sym_update symtbl Sym_cat_decl ((sym_scope_left stbl_decl, ss), last_id)
           subst_on_scope :: [Subst] -> Symtbl_cluster -> Symtbl_cluster
@@ -510,7 +563,7 @@ sym_dump symtbl cat =
   let traverse sym_tbl =
         case sym_tbl of
           Scope_empty -> []
-          Scope_add (lv, anon_ident, syms) sym_tbl' -> (("lv " ++ (show lv) ++ ": ") ,(walk syms)) : (traverse sym_tbl')
+          Scope_add (id, lv, anon_ident, syms) sym_tbl' -> ("(id, Lv)=(" ++ (show id) ++ " ," ++ (show lv) ++ ") : ", (walk syms)) : (traverse sym_tbl')
       walk syms =
         case syms of
           Sym_empty -> []
