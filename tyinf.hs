@@ -2519,7 +2519,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
         _ -> insane symtbl tokens []
   
 
-recons_src :: Syntree_node -> String
+{- recons_src :: Syntree_node -> String
 recons_src prg =
   let prn_val v = case v of
                     Val_str s -> s
@@ -2594,6 +2594,105 @@ recons_src prg =
       Syn_expr_bin op_bin (expr1, expr2) ty -> "(" ++ (recons_src expr1) ++ (" " ++ (prn_op op_bin) ++ " ") ++ (recons_src expr2) ++ ")"
       --Syn_expr_seq [Syntree_node] Type
       Syn_expr_seq stmts ty -> Prelude.foldl (\str -> \s -> (str ++ (recons_src s) ++ "; ")) "" stmts
+      --Syn_none
+      Syn_none -> "" -}
+recons_src' :: Symtbl -> Syntree_node -> String
+recons_src' symtbl prg =
+  let prn_val v = case v of
+                    Val_str s -> s
+                    Val_bool b -> show b
+                    Val_int i -> show i
+      prn_op op = case op of
+                    Ope_asgn -> ":="
+                    Ope_decre -> "--"
+                    Ope_incre -> "++"
+                    Ope_neg -> "-"
+                    Ope_add -> "+"
+                    Ope_sub -> "-"
+                    Ope_mul -> "*"
+                    Ope_div -> "/"
+      prn_ty ty = case ty of
+                    Ty_top -> "TOP"
+                    Ty_bool -> "bool"
+                    Ty_string -> "string"
+                    Ty_int -> "int"
+                    Ty_var tv_id -> "tvar@" ++ tv_id
+                    Ty_pair (ty1, ty2) -> "(" ++ (prn_ty ty1) ++ ", " ++ (prn_ty ty2) ++ ")"
+                    Ty_fun args ty -> let str_args = Prelude.foldl (\s -> \a -> (s ++ (prn_ty a) ++ " -> ")) "" args
+                                      in
+                                        case str_args of
+                                          "" -> prn_ty ty
+                                          _ -> "(" ++ (prn_ty ty) ++ ")"
+                    Ty_abs -> "ABS"
+                    Ty_btm -> "BTM"
+                    Ty_prom ty_prev ty_prom -> prn_ty ty_prom
+                    Ty_ovride ty_prev ty_ovrd -> prn_ty ty_ovrd
+                    Ty_unknown -> "UNKNWN"
+  in
+    case prg of
+      --Syn_scope ([Syntree_node], Syntree_node)
+      Syn_scope (decls, body) -> "{" ++ (Prelude.foldl (\s -> \d -> (s ++ (recons_src' symtbl d) ++ "; ")) "" decls) ++ (recons_src' symtbl body) ++ "}"
+      --Syn_tydef_decl String Type
+      Syn_tydef_decl def_id ty -> ""
+      --Syn_fun_decl' String [Syntree_node] Syntree_node (Ty_env, Type)
+      Syn_fun_decl' fun_id fun_args fun_body (_, fun_ty) -> "fun " ++ fun_id ++
+        " (" ++ (Prelude.foldl (\s -> \a -> (s ++ (recons_src' symtbl a) ++ "; ")) "" fun_args) ++ ")" ++ " as " ++ (prn_ty fun_ty) ++ " " ++ (recons_src' symtbl fun_body)
+      --Syn_arg_decl String Type
+      Syn_arg_decl (arg_id, key) ty -> arg_id ++ " as " ++ (prn_ty ty')
+        where
+          ty' = case sym_find symtbl Sym_cat_decl (Nothing, key) of
+                  ((Nothing, symbol'), err) -> ty
+                    where
+                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                      err' = err ++ [Internal_error errmsg]
+                  ((Just (ident_reg, Sym_attrib {sym_attr_entity = Syn_var_decl (arg_id', key') ty_reg}), symtbl'), err) -> ty_reg
+                    where
+                      err' = if (ident_reg == arg_id) && (arg_id' == arg_id) && (key == key') then err
+                             else let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                  in err ++ [Internal_error errmsg]
+      --Syn_rec_decl String Type
+      Syn_rec_decl rec_id ty -> ""
+      --Syn_var_decl String Type
+      Syn_var_decl (var_id, key) ty -> "var " ++ var_id ++ " as " ++ (prn_ty ty')
+        where
+          ty' = case sym_find symtbl Sym_cat_decl (Nothing, key) of
+                  ((Nothing, symbol'), err) -> ty
+                    where
+                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                      err' = err ++ [Internal_error errmsg]
+                  ((Just (ident_reg, Sym_attrib {sym_attr_entity = Syn_var_decl (var_id', key') ty_reg}), symtbl'), err) -> ty_reg
+                    where
+                      err' = if (ident_reg == var_id) && (var_id' == var_id) && (key == key') then err
+                             else let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                  in err ++ [Internal_error errmsg]
+      --Syn_cond_expr (Syntree_node, (Syntree_node, Maybe Syntree_node)) Type
+      Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> "if " ++ "(" ++ (recons_src' symtbl cond_expr) ++ ")" ++ " then " ++  (recons_src' symtbl true_expr) ++
+        (case false_expr of
+           Nothing -> ""
+           Just f_clause -> " else " ++ (recons_src' symtbl f_clause)
+        )
+      --Syn_val Val Type
+      Syn_val val ty -> prn_val val
+      --Syn_var String Type
+      Syn_var v_id ty -> v_id
+      --Syn_expr_asgn Syntree_node Syntree_node Type
+      Syn_expr_asgn l_expr r_expr ty -> (recons_src' symtbl l_expr) ++ (" " ++ (prn_op Ope_asgn) ++ " ") ++ (recons_src' symtbl r_expr)
+      --Syn_expr_par Syntree_node Type
+      Syn_expr_par expr ty -> "(" ++ (recons_src' symtbl expr) ++ ")"
+      --Syn_expr_call String [Syntree_node] Type
+      Syn_expr_call fun_id app_args ty -> fun_id ++ "(" ++
+        Prelude.foldl (\s -> \a -> (case s of
+                                      "" -> recons_src' symtbl a
+                                      _ -> s ++ ", " ++ (recons_src' symtbl a)
+                                   )
+                      ) "" app_args
+        ++ ")"
+      --Syn_expr_una Operation Syntree_node Type
+      Syn_expr_una op_una expr0 ty -> (prn_op op_una) ++ (recons_src' symtbl expr0)
+      --Syn_expr_bin Operation (Syntree_node, Syntree_node) Type
+      Syn_expr_bin op_bin (expr1, expr2) ty -> "(" ++ (recons_src' symtbl expr1) ++ (" " ++ (prn_op op_bin) ++ " ") ++ (recons_src' symtbl expr2) ++ ")"
+      --Syn_expr_seq [Syntree_node] Type
+      Syn_expr_seq stmts ty -> Prelude.foldl (\str -> \s -> (str ++ (recons_src' symtbl s) ++ "; ")) "" stmts
       --Syn_none
       Syn_none -> ""
 
@@ -4366,7 +4465,7 @@ main = do
   putStrLn ""
   putStr "reconstruction:" >> mapM_ (putStrLn . (++) "  ") (case syn_forest of
                                                               Nothing -> []
-                                                              Just ss -> Prelude.foldl (\str -> \s -> (str ++ [recons_src s])) [] ss
+                                                              Just ss -> Prelude.foldl (\str -> \s -> (str ++ [recons_src' symtbl' s])) [] ss
                                                            )
   putStrLn ""
   
