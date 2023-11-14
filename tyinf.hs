@@ -537,6 +537,43 @@ sym_regist ovwt symtbl cat (ident, entity) =
       in
         ((sym_update symtbl cat ((left, stbl'), last_id')), err)
   )
+sym_regist' :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> ((Symtbl, (Integer, Integer)), [Error_codes])
+sym_regist' ovwt symtbl cat (ident, entity) =
+  ras_trace "in sym_regist" (
+  let reg_sym (sym_tbl, last_id) (ident, sym) =
+        case sym_tbl of
+          Scope_empty -> ((last_id + 1, ((Scope_add ((0, last_id + 1), 0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, (Sym_add sym Sym_empty)) Scope_empty), last_id + 1)), [])
+          Scope_add (id_scp@(id_prev, id_crnt), lv, anon_idents, syms) scps ->
+            (case syms of
+                Sym_empty -> ((id_crnt, ((Scope_add (id_scp, lv, anon_idents, (Sym_add sym Sym_empty)) scps), last_id)), [])
+                Sym_add _ _ -> (case walk_on_scope syms (ident, (sym_attr_entity . sym_attr) sym) of
+                                  Just e -> if (not ovwt) then
+                                              ((id_crnt, (sym_tbl, last_id)), [Symbol_redefinition errmsg])
+                                            else 
+                                              ((id_crnt, ((Scope_add (id_scp, lv, anon_idents, (Sym_add sym syms)) scps), last_id)), [])
+                                    where
+                                      errmsg = "symbol table error, failed to register, " ++ "for detection of pre registered object with same identifier as " ++ ident
+                                  Nothing -> ((id_crnt, ((Scope_add (id_scp, lv, anon_idents, (Sym_add sym syms)) scps), last_id)), [])
+                               )
+                  where
+                    walk_on_scope :: Symtbl_cluster -> (String, Syntree_node) -> Maybe Symtbl_node
+                    walk_on_scope sym_cluster (ident, entity) =
+                      ras_trace "in walk_on_scope" (
+                      case sym_cluster of
+                        Sym_add sym syms -> if (((sym_ident sym) == ident) && (cmp_entity sym entity)) then Just sym
+                                            else walk_on_scope syms (ident, entity)
+                        Sym_empty -> Nothing
+                      )
+            )
+  in
+    let ((left, stbl), last_id) = sym_categorize' symtbl cat
+        new_key = last_id + 1
+    in
+      let ((id_scp, (stbl', last_id')), err) =
+            reg_sym (stbl, new_key) (ident, Sym_entry {sym_key = new_key, sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
+      in
+        ((sym_update symtbl cat ((left, stbl'), last_id'), (id_scp, new_key)), err)
+  )
 
 sym_subst :: [Subst] -> Symtbl -> Symtbl
 sym_subst subst symtbl =
@@ -2517,10 +2554,10 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
             errmsg = "Encounted unknown token."
             err = Parse_error errmsg -}
         _ -> insane symtbl tokens []
-  
 
-{- recons_src :: Syntree_node -> String
-recons_src prg =
+
+recons_src :: Symtbl -> Syntree_node -> String
+recons_src symtbl prg =
   let prn_val v = case v of
                     Val_str s -> s
                     Val_bool b -> show b
@@ -2554,89 +2591,12 @@ recons_src prg =
   in
     case prg of
       --Syn_scope ([Syntree_node], Syntree_node)
-      Syn_scope (decls, body) -> "{" ++ (Prelude.foldl (\s -> \d -> (s ++ (recons_src d) ++ "; ")) "" decls) ++ (recons_src body) ++ "}"
+      Syn_scope (decls, body) -> "{" ++ (Prelude.foldl (\s -> \d -> (s ++ (recons_src symtbl d) ++ "; ")) "" decls) ++ (recons_src symtbl body) ++ "}"
       --Syn_tydef_decl String Type
       Syn_tydef_decl def_id ty -> ""
       --Syn_fun_decl' String [Syntree_node] Syntree_node (Ty_env, Type)
       Syn_fun_decl' fun_id fun_args fun_body (_, fun_ty) -> "fun " ++ fun_id ++
-        " (" ++ (Prelude.foldl (\s -> \a -> (s ++ (recons_src a) ++ "; ")) "" fun_args) ++ ")" ++ " as " ++ (prn_ty fun_ty) ++ " " ++ (recons_src fun_body)
-      --Syn_arg_decl String Type
-      Syn_arg_decl (arg_id, _) arg_ty -> arg_id ++ " as " ++ (prn_ty arg_ty)
-      --Syn_rec_decl String Type
-      Syn_rec_decl rec_id ty -> ""
-      --Syn_var_decl String Type
-      Syn_var_decl (var_id, _) ty -> "var " ++ var_id ++ " as " ++ (prn_ty ty)
-      --Syn_cond_expr (Syntree_node, (Syntree_node, Maybe Syntree_node)) Type
-      Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> "if " ++ "(" ++ (recons_src cond_expr) ++ ")" ++ " then " ++  (recons_src true_expr) ++
-        (case false_expr of
-           Nothing -> ""
-           Just f_clause -> " else " ++ (recons_src f_clause)
-        )
-      --Syn_val Val Type
-      Syn_val val ty -> prn_val val
-      --Syn_var String Type
-      Syn_var v_id ty -> v_id
-      --Syn_expr_asgn Syntree_node Syntree_node Type
-      Syn_expr_asgn l_expr r_expr ty -> (recons_src l_expr) ++ (" " ++ (prn_op Ope_asgn) ++ " ") ++ (recons_src r_expr)
-      --Syn_expr_par Syntree_node Type
-      Syn_expr_par expr ty -> "(" ++ (recons_src expr) ++ ")"
-      --Syn_expr_call String [Syntree_node] Type
-      Syn_expr_call fun_id app_args ty -> fun_id ++ "(" ++
-        Prelude.foldl (\s -> \a -> (case s of
-                                      "" -> recons_src a
-                                      _ -> s ++ ", " ++ (recons_src a)
-                                   )
-                      ) "" app_args
-        ++ ")"
-      --Syn_expr_una Operation Syntree_node Type
-      Syn_expr_una op_una expr0 ty -> (prn_op op_una) ++ (recons_src expr0)
-      --Syn_expr_bin Operation (Syntree_node, Syntree_node) Type
-      Syn_expr_bin op_bin (expr1, expr2) ty -> "(" ++ (recons_src expr1) ++ (" " ++ (prn_op op_bin) ++ " ") ++ (recons_src expr2) ++ ")"
-      --Syn_expr_seq [Syntree_node] Type
-      Syn_expr_seq stmts ty -> Prelude.foldl (\str -> \s -> (str ++ (recons_src s) ++ "; ")) "" stmts
-      --Syn_none
-      Syn_none -> "" -}
-recons_src' :: Symtbl -> Syntree_node -> String
-recons_src' symtbl prg =
-  let prn_val v = case v of
-                    Val_str s -> s
-                    Val_bool b -> show b
-                    Val_int i -> show i
-      prn_op op = case op of
-                    Ope_asgn -> ":="
-                    Ope_decre -> "--"
-                    Ope_incre -> "++"
-                    Ope_neg -> "-"
-                    Ope_add -> "+"
-                    Ope_sub -> "-"
-                    Ope_mul -> "*"
-                    Ope_div -> "/"
-      prn_ty ty = case ty of
-                    Ty_top -> "TOP"
-                    Ty_bool -> "bool"
-                    Ty_string -> "string"
-                    Ty_int -> "int"
-                    Ty_var tv_id -> "tvar@" ++ tv_id
-                    Ty_pair (ty1, ty2) -> "(" ++ (prn_ty ty1) ++ ", " ++ (prn_ty ty2) ++ ")"
-                    Ty_fun args ty -> let str_args = Prelude.foldl (\s -> \a -> (s ++ (prn_ty a) ++ " -> ")) "" args
-                                      in
-                                        case str_args of
-                                          "" -> prn_ty ty
-                                          _ -> "(" ++ (prn_ty ty) ++ ")"
-                    Ty_abs -> "ABS"
-                    Ty_btm -> "BTM"
-                    Ty_prom ty_prev ty_prom -> prn_ty ty_prom
-                    Ty_ovride ty_prev ty_ovrd -> prn_ty ty_ovrd
-                    Ty_unknown -> "UNKNWN"
-  in
-    case prg of
-      --Syn_scope ([Syntree_node], Syntree_node)
-      Syn_scope (decls, body) -> "{" ++ (Prelude.foldl (\s -> \d -> (s ++ (recons_src' symtbl d) ++ "; ")) "" decls) ++ (recons_src' symtbl body) ++ "}"
-      --Syn_tydef_decl String Type
-      Syn_tydef_decl def_id ty -> ""
-      --Syn_fun_decl' String [Syntree_node] Syntree_node (Ty_env, Type)
-      Syn_fun_decl' fun_id fun_args fun_body (_, fun_ty) -> "fun " ++ fun_id ++
-        " (" ++ (Prelude.foldl (\s -> \a -> (s ++ (recons_src' symtbl a) ++ "; ")) "" fun_args) ++ ")" ++ " as " ++ (prn_ty fun_ty) ++ " " ++ (recons_src' symtbl fun_body)
+        " (" ++ (Prelude.foldl (\s -> \a -> (s ++ (recons_src symtbl a) ++ "; ")) "" fun_args) ++ ")" ++ " as " ++ (prn_ty fun_ty) ++ " " ++ (recons_src symtbl fun_body)
       --Syn_arg_decl String Type
       Syn_arg_decl (arg_id, key) ty -> arg_id ++ " as " ++ (prn_ty ty')
         where
@@ -2666,33 +2626,33 @@ recons_src' symtbl prg =
                              else let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                   in err ++ [Internal_error errmsg]
       --Syn_cond_expr (Syntree_node, (Syntree_node, Maybe Syntree_node)) Type
-      Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> "if " ++ "(" ++ (recons_src' symtbl cond_expr) ++ ")" ++ " then " ++  (recons_src' symtbl true_expr) ++
+      Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> "if " ++ "(" ++ (recons_src symtbl cond_expr) ++ ")" ++ " then " ++  (recons_src symtbl true_expr) ++
         (case false_expr of
            Nothing -> ""
-           Just f_clause -> " else " ++ (recons_src' symtbl f_clause)
+           Just f_clause -> " else " ++ (recons_src symtbl f_clause)
         )
       --Syn_val Val Type
       Syn_val val ty -> prn_val val
       --Syn_var String Type
       Syn_var v_id ty -> v_id
       --Syn_expr_asgn Syntree_node Syntree_node Type
-      Syn_expr_asgn l_expr r_expr ty -> (recons_src' symtbl l_expr) ++ (" " ++ (prn_op Ope_asgn) ++ " ") ++ (recons_src' symtbl r_expr)
+      Syn_expr_asgn l_expr r_expr ty -> (recons_src symtbl l_expr) ++ (" " ++ (prn_op Ope_asgn) ++ " ") ++ (recons_src symtbl r_expr)
       --Syn_expr_par Syntree_node Type
-      Syn_expr_par expr ty -> "(" ++ (recons_src' symtbl expr) ++ ")"
+      Syn_expr_par expr ty -> "(" ++ (recons_src symtbl expr) ++ ")"
       --Syn_expr_call String [Syntree_node] Type
       Syn_expr_call fun_id app_args ty -> fun_id ++ "(" ++
         Prelude.foldl (\s -> \a -> (case s of
-                                      "" -> recons_src' symtbl a
-                                      _ -> s ++ ", " ++ (recons_src' symtbl a)
+                                      "" -> recons_src symtbl a
+                                      _ -> s ++ ", " ++ (recons_src symtbl a)
                                    )
                       ) "" app_args
         ++ ")"
       --Syn_expr_una Operation Syntree_node Type
-      Syn_expr_una op_una expr0 ty -> (prn_op op_una) ++ (recons_src' symtbl expr0)
+      Syn_expr_una op_una expr0 ty -> (prn_op op_una) ++ (recons_src symtbl expr0)
       --Syn_expr_bin Operation (Syntree_node, Syntree_node) Type
-      Syn_expr_bin op_bin (expr1, expr2) ty -> "(" ++ (recons_src' symtbl expr1) ++ (" " ++ (prn_op op_bin) ++ " ") ++ (recons_src' symtbl expr2) ++ ")"
+      Syn_expr_bin op_bin (expr1, expr2) ty -> "(" ++ (recons_src symtbl expr1) ++ (" " ++ (prn_op op_bin) ++ " ") ++ (recons_src symtbl expr2) ++ ")"
       --Syn_expr_seq [Syntree_node] Type
-      Syn_expr_seq stmts ty -> Prelude.foldl (\str -> \s -> (str ++ (recons_src' symtbl s) ++ "; ")) "" stmts
+      Syn_expr_seq stmts ty -> Prelude.foldl (\str -> \s -> (str ++ (recons_src symtbl s) ++ "; ")) "" stmts
       --Syn_none
       Syn_none -> ""
 
@@ -4465,7 +4425,7 @@ main = do
   putStrLn ""
   putStr "reconstruction:" >> mapM_ (putStrLn . (++) "  ") (case syn_forest of
                                                               Nothing -> []
-                                                              Just ss -> Prelude.foldl (\str -> \s -> (str ++ [recons_src' symtbl' s])) [] ss
+                                                              Just ss -> Prelude.foldl (\str -> \s -> (str ++ [recons_src symtbl' s])) [] ss
                                                            )
   putStrLn ""
   
