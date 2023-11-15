@@ -538,7 +538,7 @@ sym_regist ovwt symtbl cat (ident, entity) =
         ((sym_update symtbl cat ((left, stbl'), last_id')), err)
   )
 sym_regist' :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> ((Symtbl, (Integer, Integer)), [Error_codes])
-sym_regist' ovwt symtbl cat (ident, entity) =
+sym_regist' ovrid symtbl cat (ident, entity) =
   ras_trace "in sym_regist" (
   let reg_sym (sym_tbl, last_id) (ident, sym) =
         case sym_tbl of
@@ -547,7 +547,7 @@ sym_regist' ovwt symtbl cat (ident, entity) =
             (case syms of
                 Sym_empty -> ((id_crnt, ((Scope_add (id_scp, lv, anon_idents, (Sym_add sym Sym_empty)) scps), last_id)), [])
                 Sym_add _ _ -> (case walk_on_scope syms (ident, (sym_attr_entity . sym_attr) sym) of
-                                  Just e -> if (not ovwt) then
+                                  Just e -> if (not ovrid) then
                                               ((id_crnt, (sym_tbl, last_id)), [Symbol_redefinition errmsg])
                                             else 
                                               ((id_crnt, ((Scope_add (id_scp, lv, anon_idents, (Sym_add sym syms)) scps), last_id)), [])
