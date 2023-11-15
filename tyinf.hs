@@ -503,7 +503,7 @@ cmp_entity (Sym_entry {sym_attr = attr}) entity =
                         )
     _ -> False
 
-sym_regist :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> (Symtbl, [Error_codes])
+{- sym_regist :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> (Symtbl, [Error_codes])
 sym_regist ovwt symtbl cat (ident, entity) =
   ras_trace "in sym_regist" (
   let reg_sym (sym_tbl, last_id) (ident, sym) =
@@ -536,7 +536,7 @@ sym_regist ovwt symtbl cat (ident, entity) =
             reg_sym (stbl, last_id + 1) (ident, Sym_entry {sym_key = last_id + 1, sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
       in
         ((sym_update symtbl cat ((left, stbl'), last_id')), err)
-  )
+  ) -}
 sym_regist' :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> ((Symtbl, (Integer, Integer)), [Error_codes])
 sym_regist' ovrid symtbl cat (ident, entity) =
   ras_trace "in sym_regist" (
@@ -1669,11 +1669,11 @@ cons_fun_tree symtbl fun tokens =
                                                                      _ -> (tokens', [Imcomplete_function_declaration errmsg])
                                                                        where
                                                                          errmsg = "missing beginning L brace in the declaration of function body."
-                                           let (symtbl'', err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id', (Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')))
+                                           let ((symtbl'', reg_id), err_funreg) = sym_regist' False symtbl' Sym_cat_decl (fun_id', (Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')))
                                            let lv_before = sym_crnt_level $ sym_scope_right (sym_categorize symtbl'' Sym_cat_decl)
                                            let (new_scope, errs_argreg) =
-                                                 Prelude.foldl (\(stbl, errs) -> \arg@(Syn_arg_decl (id, _) _) -> case sym_regist False stbl Sym_cat_decl (id, arg) of
-                                                                                                               (stbl', err_reg) -> (stbl', (errs ++ err_reg))
+                                                 Prelude.foldl (\(stbl, errs) -> \arg@(Syn_arg_decl (id, _) _) -> case sym_regist' False stbl Sym_cat_decl (id, arg) of
+                                                                                                                    ((stbl', reg_id), err_reg) -> (stbl', (errs ++ err_reg))
                                                                ) (sym_enter_scope (Just symtbl'') Sym_cat_decl) args''
                                            
                                            let errs0 = errs ++ errs_args ++ errs_parse ++ err_funreg ++ errs_argreg
@@ -1718,14 +1718,14 @@ cons_fun_tree symtbl fun tokens =
                                                              return $ Left (Error_Excep Excep_assert_failed loc)
                                                          else
                                                            do
-                                                             let (prev_scope', err_funreg') = sym_regist (Prelude.foldl (\cont -> \e -> (if cont then
-                                                                                                                                           case e of
-                                                                                                                                             Symbol_redefinition _ -> False
-                                                                                                                                             _ -> True
-                                                                                                                                         else False
-                                                                                                                                        )
-                                                                                                                        ) True err_funreg
-                                                                                                         ) prev_scope Sym_cat_func (fun_id', fun'')
+                                                             let ((prev_scope', reg_id), err_funreg') = sym_regist' (Prelude.foldl (\cont -> \e -> (if cont then
+                                                                                                                                                      case e of
+                                                                                                                                                        Symbol_redefinition _ -> False
+                                                                                                                                                        _ -> True
+                                                                                                                                                    else False
+                                                                                                                                                   )
+                                                                                                                                   ) True err_funreg
+                                                                                                                    ) prev_scope Sym_cat_func (fun_id', fun'')
                                                              let errs1 = errs0 ++ errs_body ++ err_leave ++ err_funreg'
                                                              case ts'' of
                                                                Tk_R_bra:tokens'' -> return $ Right ((fun'', prev_scope', tokens''), errs1)
@@ -2391,7 +2391,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                               Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                               Right (var_decl', symtbl'_cur) -> return $ Right ((Just var_decl', symtbl'', tokens'), (errs ++ err_symreg))
                                                 where
-                                                  (symtbl'', err_symreg) = sym_regist False symtbl'_cur Sym_cat_decl (var_id, var_decl')
+                                                  ((symtbl'', reg_id), err_symreg) = sym_regist' False symtbl'_cur Sym_cat_decl (var_id, var_decl')
                                           
                                           Right ((_, symtbl', tokens'), errs) -> return $ Right ((Nothing, symtbl', tokens'), errs)
                                       _ -> return $ Right ((Nothing, symtbl, ts), [err])
@@ -2502,7 +2502,8 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                                                                             errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                                      )
                                                                           else do
-                                                                            (symtbl'', err_reg) <- return $ sym_regist False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, -1) v_ty')
+                                                                            ((symtbl'', reg_id), err_reg) <-
+                                                                              return $ sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, -1) v_ty')
                                                                             case sym_internalerr err_reg of
                                                                               (e:es, err_reg') -> return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                                                 where
@@ -2533,7 +2534,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                       Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                       Right (var'@(Syn_var ident' v_ty'), symtbl')
                                         | ident' == ident -> do
-                                            (symtbl'', err_reg) <- return $ sym_regist False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, -1) v_ty')
+                                            ((symtbl'', reg_id), err_reg) <- return $ sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, -1) v_ty')
                                             case sym_internalerr err_reg of
                                               (e:es, err_reg') -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                 where
@@ -3086,7 +3087,7 @@ ty_chk_var_decl symtbl (v_id, v_ty) =
     (_, err_lok) | (fst . sym_internalerr) err_lok /= [] -> throwE ((Internal_error errmsg):err_lok)
       where
         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-    (Nothing, err_lok) -> let (symtbl', err_reg) = sym_regist False symtbl Sym_cat_decl (v_id, Syn_var_decl (v_id, -1) v_ty)
+    (Nothing, err_lok) -> let ((symtbl', reg_id), err_reg) = sym_regist' False symtbl Sym_cat_decl (v_id, Syn_var_decl (v_id, -1) v_ty)
                           in
                             case (fst . sym_internalerr) err_reg of
                               [] -> return (((v_id, v_ty), (Nothing, Nothing)), symtbl', (err_reg ++ err_lok))
