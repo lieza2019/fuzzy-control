@@ -1659,18 +1659,21 @@ cons_fun_tree symtbl fun tokens =
                                              (e:es, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                where
                                                  errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                             ([], _) -> do
+                                             _ -> do
                                                let lv_before = sym_crnt_level $ sym_scope_right (sym_categorize symtbl'' Sym_cat_decl)
                                                let (new_scope, errs_argreg) =
                                                      Prelude.foldl (\(stbl, errs) -> \arg@(Syn_arg_decl (id, _) _) ->
-                                                                       case sym_regist' False stbl Sym_cat_decl (id, arg) of
-                                                                         ((stbl', reg_id), err_reg) -> (stbl', (errs ++ err_reg))
+                                                                       case sym_internalerr errs of
+                                                                         (e:es, _) -> (stbl, errs)
+                                                                         _ -> (case sym_regist' False stbl Sym_cat_decl (id, arg) of
+                                                                                 ((stbl', reg_id), err_reg) -> (stbl', (errs ++ err_reg))
+                                                                              )
                                                                    ) (sym_enter_scope (Just symtbl'') Sym_cat_decl) args''
                                                case sym_internalerr errs_argreg of
                                                  (e:es, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                    where
                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                 ([], _) -> do
+                                                 _ -> do
                                                    let errs0 = errs ++ errs_args ++ errs_parse ++ err_funreg ++ errs_argreg
                                                    case fun_body' of
                                                      (Syn_scope ([], Syn_none)) -> do
