@@ -1655,74 +1655,83 @@ cons_fun_tree symtbl fun tokens =
                                                                          errmsg = "missing beginning L brace in the declaration of function body."
                                                                          
                                            let ((symtbl'', reg_id), err_funreg) = sym_regist' False symtbl' Sym_cat_decl (fun_id', (Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')))
-                                           
-                                           let lv_before = sym_crnt_level $ sym_scope_right (sym_categorize symtbl'' Sym_cat_decl)
-                                           let (new_scope, errs_argreg) =
-                                                 Prelude.foldl (\(stbl, errs) -> \arg@(Syn_arg_decl (id, _) _) -> case sym_regist' False stbl Sym_cat_decl (id, arg) of
-                                                                                                                    ((stbl', reg_id), err_reg) -> (stbl', (errs ++ err_reg))
-                                                               ) (sym_enter_scope (Just symtbl'') Sym_cat_decl) args''
-                                           
-                                           let errs0 = errs ++ errs_args ++ errs_parse ++ err_funreg ++ errs_argreg
-                                           case fun_body' of
-                                             (Syn_scope ([], Syn_none)) -> do
-                                               r_body <- runExceptT $ parse_fun_body new_scope (args'', omits) ts'
-                                               case r_body of
-                                                 Left err -> return $ Left err
-                                                 Right (((Ty_env binds', (decls, _)), stmts), new_scope', ts'', errs_body) ->
-                                                   do
-                                                     {- let binds'' = Prelude.map snd (Prelude.foldl (\bs -> \(a_id, _) -> case Prelude.lookup a_id bs of
+                                           case sym_internalerr err_funreg of
+                                             (e:es, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                               where
+                                                 errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                             ([], _) -> do
+                                               let lv_before = sym_crnt_level $ sym_scope_right (sym_categorize symtbl'' Sym_cat_decl)
+                                               let (new_scope, errs_argreg) =
+                                                     Prelude.foldl (\(stbl, errs) -> \arg@(Syn_arg_decl (id, _) _) ->
+                                                                       case sym_regist' False stbl Sym_cat_decl (id, arg) of
+                                                                         ((stbl', reg_id), err_reg) -> (stbl', (errs ++ err_reg))
+                                                                   ) (sym_enter_scope (Just symtbl'') Sym_cat_decl) args''
+                                               case sym_internalerr errs_argreg of
+                                                 (e:es, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                   where
+                                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                 ([], _) -> do
+                                                   let errs0 = errs ++ errs_args ++ errs_parse ++ err_funreg ++ errs_argreg
+                                                   case fun_body' of
+                                                     (Syn_scope ([], Syn_none)) -> do
+                                                       r_body <- runExceptT $ parse_fun_body new_scope (args'', omits) ts'
+                                                       case r_body of
+                                                         Left err -> return $ Left err
+                                                         Right (((Ty_env binds', (decls, _)), stmts), new_scope', ts'', errs_body) ->
+                                                           do
+                                                             {- let binds'' = Prelude.map snd (Prelude.foldl (\bs -> \(a_id, _) -> case Prelude.lookup a_id bs of
                                                                                                       Just b -> Set.toList $ Set.difference (Set.fromList bs) (Set.fromList [(a_id, b)])
                                                                                                       Nothing -> bs
                                                                                                   )
                                                                                      (Prelude.map (\(id, ty) -> (id, (id, ty))) binds') (Prelude.map (\(Syn_arg_decl a_id a_ty) -> (a_id, a_ty)) args'')
                                                                                    ) -}
-                                                     let decls' = Prelude.foldl (\ds -> \d -> (case d of
-                                                                                                 Syn_arg_decl _ _ -> ds
-                                                                                                 _ -> ds ++ [d]
-                                                                                              )
-                                                                                ) [] decls
-                                                     let fun_body'' = Syn_scope (decls', (case stmts of
-                                                                                           [] -> Syn_none
-                                                                                           [e] -> e
-                                                                                           es -> Syn_expr_seq es Ty_abs
+                                                             let decls' = Prelude.foldl (\ds -> \d -> (case d of
+                                                                                                         Syn_arg_decl _ _ -> ds
+                                                                                                         _ -> ds ++ [d]
+                                                                                                      )
+                                                                                        ) [] decls
+                                                             let fun_body'' = Syn_scope (decls', (case stmts of
+                                                                                                    [] -> Syn_none
+                                                                                                    [e] -> e
+                                                                                                    es -> Syn_expr_seq es Ty_abs
+                                                                                                 )
                                                                                         )
-                                                                                )
-                                                     let fun'' = Syn_fun_decl' fun_id' args'' fun_body'' (Ty_env binds', fun_ty')
-                                                     case (case sym_leave_scope new_scope' Sym_cat_decl of
-                                                             (scp, err) -> (case sym_internalerr err of
-                                                                               ([], err') -> Right (scp, err')
-                                                                               (es_i, err') -> Left (Error_Excep Excep_assert_failed errmsg)
-                                                                                 where
-                                                                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                           )
-                                                          ) of
-                                                       Left err -> return $ Left err
-                                                       Right (prev_scope, err_leave) ->
-                                                         if sym_crnt_level (sym_scope_right $ sym_categorize prev_scope Sym_cat_decl) /= lv_before then
-                                                           let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                           in
-                                                             return $ Left (Error_Excep Excep_assert_failed loc)
-                                                         else
-                                                           do
-                                                             let ((prev_scope', reg_id), err_funreg') = sym_regist' (Prelude.foldl (\cont -> \e -> (if cont then
-                                                                                                                                                      case e of
-                                                                                                                                                        Symbol_redefinition _ -> False
-                                                                                                                                                        _ -> True
-                                                                                                                                                    else False
-                                                                                                                                                   )
-                                                                                                                                   ) True err_funreg
-                                                                                                                    ) prev_scope Sym_cat_func (fun_id', fun'')
-                                                             let errs1 = errs0 ++ errs_body ++ err_leave ++ err_funreg'
-                                                             case ts'' of
-                                                               Tk_R_bra:tokens'' -> return $ Right ((fun'', prev_scope', tokens''), errs1)
-                                                               _ -> do
-                                                                 return $ Right ((fun'', prev_scope', ts''), (errs1 ++ [Imcomplete_function_declaration errmsg]))
-                                                                   where
-                                                                     errmsg = "Missing R brace to close up declaration of function body."
-                                                             
-                                             _ -> return $ Left (Error_Excep Excep_assert_failed loc)
-                                               where
-                                                 loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                             let fun'' = Syn_fun_decl' fun_id' args'' fun_body'' (Ty_env binds', fun_ty')
+                                                             case (case sym_leave_scope new_scope' Sym_cat_decl of
+                                                                     (scp, err) -> (case sym_internalerr err of
+                                                                                      ([], err') -> Right (scp, err')
+                                                                                      (es_i, err') -> Left (Error_Excep Excep_assert_failed errmsg)
+                                                                                        where
+                                                                                          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                   )
+                                                                  ) of
+                                                               Left err -> return $ Left err
+                                                               Right (prev_scope, err_leave) ->
+                                                                 if sym_crnt_level (sym_scope_right $ sym_categorize prev_scope Sym_cat_decl) /= lv_before then
+                                                                   let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                   in
+                                                                     return $ Left (Error_Excep Excep_assert_failed loc)
+                                                                 else
+                                                                   do
+                                                                     let ((prev_scope', reg_id), err_funreg') = sym_regist' (Prelude.foldl (\cont -> \e -> (if cont then
+                                                                                                                                                              case e of
+                                                                                                                                                                Symbol_redefinition _ -> False
+                                                                                                                                                                _ -> True
+                                                                                                                                                            else False
+                                                                                                                                                           )
+                                                                                                                                           ) True err_funreg
+                                                                                                                            ) prev_scope Sym_cat_func (fun_id', fun'')
+                                                                     let errs1 = errs0 ++ errs_body ++ err_leave ++ err_funreg'
+                                                                     case ts'' of
+                                                                       Tk_R_bra:tokens'' -> return $ Right ((fun'', prev_scope', tokens''), errs1)
+                                                                       _ -> do
+                                                                         return $ Right ((fun'', prev_scope', ts''), (errs1 ++ [Imcomplete_function_declaration errmsg]))
+                                                                           where
+                                                                             errmsg = "Missing R brace to close up declaration of function body."
+                                                     
+                                                     _ -> return $ Left (Error_Excep Excep_assert_failed loc)
+                                                       where
+                                                         loc  = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                    )
                       
                       _ -> return $ Left (Error_Excep Excep_assert_failed loc)
