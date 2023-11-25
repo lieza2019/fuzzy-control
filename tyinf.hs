@@ -1702,35 +1702,44 @@ cons_fun_tree symtbl fun tokens =
                                                              let fun'' = Syn_fun_decl' fun_id' args'' fun_body'' (Ty_env binds', fun_ty')
                                                              case (case sym_leave_scope new_scope' Sym_cat_decl of
                                                                      (scp, err) -> (case sym_internalerr err of
-                                                                                      ([], err') -> Right (scp, err')
-                                                                                      (es_i, err') -> Left (Error_Excep Excep_assert_failed errmsg)
+                                                                                      (e:es, _) -> Left (Error_Excep Excep_assert_failed errmsg)
                                                                                         where
                                                                                           errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                      _ -> Right (scp, err)
                                                                                    )
                                                                   ) of
                                                                Left err -> return $ Left err
                                                                Right (prev_scope, err_leave) ->
-                                                                 if sym_crnt_level (sym_scope_right $ sym_categorize prev_scope Sym_cat_decl) /= lv_before then
+                                                                 if (sym_crnt_level (sym_scope_right $ sym_categorize prev_scope Sym_cat_decl)) /= lv_before then
                                                                    let loc = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                    in
                                                                      return $ Left (Error_Excep Excep_assert_failed loc)
                                                                  else
                                                                    do
-                                                                     let ((prev_scope', reg_id), err_funreg') = sym_regist' (Prelude.foldl (\cont -> \e -> (if cont then
+                                                                     let ((prev_scope', _), err_funreg') =
+                                                                           if (sym_crnt_level (sym_scope_right $ sym_categorize prev_scope Sym_cat_decl)) == 1 then
+                                                                       {- let ((prev_scope', reg_id), err_funreg') = sym_regist' (Prelude.foldl (\cont -> \e -> (if cont then
                                                                                                                                                               case e of
                                                                                                                                                                 Symbol_redefinition _ -> False
                                                                                                                                                                 _ -> True
                                                                                                                                                             else False
                                                                                                                                                            )
                                                                                                                                            ) True err_funreg
-                                                                                                                            ) prev_scope Sym_cat_func (fun_id', fun'')
-                                                                     let errs1 = errs0 ++ errs_body ++ err_leave ++ err_funreg'
-                                                                     case ts'' of
-                                                                       Tk_R_bra:tokens'' -> return $ Right ((fun'', prev_scope', tokens''), errs1)
+                                                                                                                            ) prev_scope Sym_cat_func (fun_id', fun'') -}
+                                                                             sym_regist' False prev_scope Sym_cat_func (fun_id', fun'')
+                                                                           else
+                                                                             ((prev_scope, (-1, -1)), [])
+                                                                     case sym_internalerr err_funreg' of
+                                                                       (e:es, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                                         where
+                                                                           errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                        _ -> do
-                                                                         return $ Right ((fun'', prev_scope', ts''), (errs1 ++ [Imcomplete_function_declaration errmsg]))
-                                                                           where
-                                                                             errmsg = "Missing R brace to close up declaration of function body."
+                                                                         let errs1 = errs0 ++ errs_body ++ err_leave ++ err_funreg'  
+                                                                         case ts'' of
+                                                                           Tk_R_bra:tokens'' -> return $ Right ((fun'', prev_scope', tokens''), errs1)
+                                                                           _ -> return $ Right ((fun'', prev_scope', ts''), (errs1 ++ [Imcomplete_function_declaration errmsg]))
+                                                                             where
+                                                                               errmsg = "Missing R brace to close up declaration of function body."
                                                      
                                                      _ -> return $ Left (Error_Excep Excep_assert_failed loc)
                                                        where
