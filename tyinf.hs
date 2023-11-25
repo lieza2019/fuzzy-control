@@ -1712,14 +1712,6 @@ cons_fun_tree symtbl fun tokens =
                                                                    do
                                                                      let ((prev_scope', _), err_funreg') =
                                                                            if (sym_crnt_level (sym_scope_right $ sym_categorize prev_scope Sym_cat_decl)) == 1 then
-                                                                       {- let ((prev_scope', reg_id), err_funreg') = sym_regist' (Prelude.foldl (\cont -> \e -> (if cont then
-                                                                                                                                                              case e of
-                                                                                                                                                                Symbol_redefinition _ -> False
-                                                                                                                                                                _ -> True
-                                                                                                                                                            else False
-                                                                                                                                                           )
-                                                                                                                                           ) True err_funreg
-                                                                                                                            ) prev_scope Sym_cat_func (fun_id', fun'') -}
                                                                              sym_regist' False prev_scope Sym_cat_func (fun_id', fun'')
                                                                            else
                                                                              ((prev_scope, (-1, -1)), [])
@@ -4326,17 +4318,17 @@ compile tokens =
                                                                      let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                      in
                                                                        show_internalerr (errs ++ err ++ err0 ++ [Internal_error errmsg]) >> (return $ Left ())
-                                                                   else (do
-                                                                            let (stbl1, err1) = sym_enter_scope (Just stbl0) Sym_cat_decl
-                                                                            case sym_internalerr err1 of
-                                                                              (e:_, _) -> show_internalerr err1 >> (return $ Left ())
-                                                                              _ -> do
-                                                                                let errs' = errs ++ err ++ err0 ++ err1
-                                                                                rs <- comp_main stbl1 (ts', errs')
-                                                                                return $ case rs of
-                                                                                           Right ((s_ts, errs''), symtbl'', ts'') -> Right ((s_tree:s_ts, errs''), symtbl'', ts'')
-                                                                                           _ -> Left ()
-                                                                        )
+                                                                   else
+                                                                     do
+                                                                       let (stbl1, err1) = sym_enter_scope (Just stbl0) Sym_cat_decl
+                                                                       case sym_internalerr err1 of
+                                                                         (e:_, _) -> show_internalerr err1 >> (return $ Left ())
+                                                                         _ -> do
+                                                                           let errs' = errs ++ err ++ err0 ++ err1
+                                                                           rs <- comp_main stbl1 (ts', errs')
+                                                                           return $ case rs of
+                                                                                      Right ((s_ts, errs''), symtbl'', ts'') -> Right ((s_tree:s_ts, errs''), symtbl'', ts'')
+                                                                                      _ -> Left ()
                                                           _ -> return $ Right (([], (errs ++ err)), symtbl', ts')
                                                        )
                 where
