@@ -161,13 +161,7 @@ sym_enter_scope symtbl cat =
                     in
                       let (stbl', err) =
                             case stbl of
-                              (left, Scope_empty) -> ((left, Scope_add ((0, last_id + 1), 1, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, Sym_empty) Scope_empty), err')
-                                where
-                                  err' = case left of
-                                           Nothing -> []
-                                           _ -> [Internal_error errmsg]
-                                             where
-                                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                              (left, Scope_empty) -> ((left, Scope_add ((0, last_id + 1), 1, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, Sym_empty) Scope_empty), [])
                               (left, r@(Scope_add ((_, id), lv, sym_anon_ident, _) _)) -> ((left, Scope_add ((id, last_id + 1), lv + 1, sym_anon_ident, Sym_empty) r), [])
                       in
                         (sym_update sym_tbl cat (stbl', last_id + 1), err)
@@ -4306,6 +4300,14 @@ ty_inf symtbl expr =
     _ -> return ((Ty_env [], expr), symtbl, []) -- Syn_none
 
 
+show_internalerr :: [Error_codes] -> IO ()
+show_internalerr errs =
+  mapM_ putStrLn $ Prelude.foldl (\s -> \e -> (case e of
+                                                 Internal_error msg -> s ++ [msg]
+                                                 _ -> s
+                                              )
+                                 ) [] errs
+
 compile :: [Tk_code] -> IO ((Maybe [Syntree_node], [Error_codes]), Symtbl, [Tk_code])
 compile tokens =
   let comp_main symtbl (tokens, errs) =
@@ -4315,44 +4317,57 @@ compile tokens =
           ts -> do
             r <- runExceptT $ cons_ptree symtbl ts (True, True, True, True)
             case r of
-              Left err_exc -> (do
-                                  print_excepts [err_exc]
-                                  return $ Left ()
-                              )
-                where
-                  print_excepts :: [Error_Excep] -> IO ()
-                  print_excepts errs = do
-                    let errmsgs = Prelude.foldl (\s -> \e -> (s ++ (case e of
-                                                                      Error_Excep Excep_assert_failed assert_msg -> [assert_msg]
-                                                                      Error_Excep _ errmsg -> [errmsg]
-                                                                   )
-                                                             )
-                                                ) [] errs
-                    forM_ errmsgs putStrLn
-              
               Right ((syn_tree, symtbl', ts'), err) -> (case syn_tree of
                                                           Just s_tree -> do
-                                                            r_ts <- comp_main symtbl' (ts', (errs ++ err))
-                                                            return $ case r_ts of
-                                                                       Right ((s_ts, errs'), symtbl'', ts'') -> Right ((s_tree:s_ts, errs'), symtbl'', ts'')
-                                                                       _ -> Left ()
+                                                            let (stbl0, err0) = adjust_scope (sym_leave_scope symtbl' Sym_cat_decl) (Sym_cat_decl, 1)
+                                                            case sym_internalerr err0 of
+                                                              (e:_, _) -> show_internalerr err0 >> (return $ Left ())
+                                                              _ -> if (sym_crnt_level $ sym_scope_right (sym_categorize stbl0 Sym_cat_decl)) /= 0 then
+                                                                     let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                     in
+                                                                       show_internalerr (errs ++ err ++ err0 ++ [Internal_error errmsg]) >> (return $ Left ())
+                                                                   else (do
+                                                                            let (stbl1, err1) = sym_enter_scope (Just stbl0) Sym_cat_decl
+                                                                            case sym_internalerr err1 of
+                                                                              (e:_, _) -> show_internalerr err1 >> (return $ Left ())
+                                                                              _ -> do
+                                                                                let errs' = errs ++ err ++ err0 ++ err1
+                                                                                rs <- comp_main stbl1 (ts', errs')
+                                                                                return $ case rs of
+                                                                                           Right ((s_ts, errs''), symtbl'', ts'') -> Right ((s_tree:s_ts, errs''), symtbl'', ts'')
+                                                                                           _ -> Left ()
+                                                                        )
                                                           _ -> return $ Right (([], (errs ++ err)), symtbl', ts')
                                                        )
+                where
+                  adjust_scope :: (Symtbl, [Error_codes]) -> (Sym_category, Scope_Lv) -> (Symtbl, [Error_codes])
+                  adjust_scope (symtbl, errs) (cat, lv) =
+                    if (sym_crnt_level $ sym_scope_right (sym_categorize symtbl cat)) <= lv then (symtbl, errs)
+                    else
+                      case sym_leave_scope symtbl cat of
+                        (symtbl', es) -> (case sym_internalerr es of
+                                            (e:_, _) -> (symtbl', errs ++ es)
+                                            _ -> adjust_scope (symtbl', errs ++ es) (cat, lv - 1)
+                                         )
+              Left err_exc -> do
+                print_excepts [err_exc]
+                return $ Left ()
+              where
+                print_excepts :: [Error_Excep] -> IO ()
+                print_excepts errs = forM_ (Prelude.foldl (\s -> \e -> (s ++ (case e of
+                                                                                Error_Excep Excep_assert_failed assert_msg -> [assert_msg]
+                                                                                Error_Excep _ errmsg -> [errmsg]
+                                                                             )
+                                                                       )
+                                                          ) [] errs
+                                           ) putStrLn
   in
     do
-      let (symtbl, err0) = sym_enter_scope Nothing Sym_cat_decl
-      case sym_internalerr err0 of
-        (e:es, err0') -> show_internalerr (e:es) >> return ((Nothing, []), symtbl, tokens)
-          where
-            show_internalerr :: [Error_codes] -> IO ()
-            show_internalerr errs =
-              mapM_ putStrLn $ Prelude.foldl (\s -> \e -> (case e of
-                                                             Internal_error msg -> s ++ [msg]
-                                                             _ -> s
-                                                          )
-                                             ) [] errs
-        ([], err0') -> do
-          r <- comp_main symtbl (tokens, err0')
+      let (symtbl, err1) = sym_enter_scope Nothing Sym_cat_decl
+      case sym_internalerr err1 of
+        (e:_, _) -> show_internalerr err1 >> return ((Nothing, err1), symtbl, tokens)
+        _ -> do
+          r <- comp_main symtbl (tokens, err1)
           case r of
             Left _ -> return ((Nothing, []), symtbl, tokens)
             Right ((syn_trees, errs), symtbl', tokens') -> return ((Just syn_trees, errs), symtbl', tokens')
@@ -4462,7 +4477,8 @@ main = do
   putStrLn "" -}
   
   putStr "simtbl_before:  "
-  print_symtbl symtbl' Sym_cat_decl
+  --print_symtbl symtbl' Sym_cat_decl
+  print_symtbl symtbl' Sym_cat_func
   putStrLn ""
   
   {- putStr "ty-inf:  "
@@ -4483,8 +4499,9 @@ main = do
   putStrLn "" -}
   
   --putStr "simtbl_after:  "
-  --print_symtbl symtbl' Sym_cat_decl
-  
+  -- --print_symtbl symtbl' Sym_cat_decl
+  --print_symtbl symtbl' Sym_cat_func
+    
     where
       read_src :: Handle -> IO String
       read_src h = do
