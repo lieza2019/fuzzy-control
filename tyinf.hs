@@ -1352,10 +1352,10 @@ cons_var_decl symtbl var tokens =
                      r_ty <- runExceptT $ par_type_decl symtbl tokens
                      return (case r_ty of
                                Left err -> Left err
-                               Right (Right var_ty', symtbl', ts') -> Right ((Just (Syn_var_decl (var_id, -1) var_ty'), symtbl', ts'), [])
-                               Right (Left err, symtbl', ts') -> Right ((Just (Syn_var_decl (var_id, -1) var_ty), symtbl', ts'), err)
+                               Right (Right var_ty', symtbl', ts') -> Right ((Just (Syn_var_decl (var_id, (-1, -1)) var_ty'), symtbl', ts'), [])
+                               Right (Left err, symtbl', ts') -> Right ((Just (Syn_var_decl (var_id, (-1, -1)) var_ty), symtbl', ts'), err)
                             )
-                   _ -> return $ Right ((Just (Syn_var_decl (var_id, -1) var_ty), symtbl, tokens), [])
+                   _ -> return $ Right ((Just (Syn_var_decl (var_id, (-1, -1)) var_ty), symtbl, tokens), [])
                 )
       case r of
         Left err -> throwE err
@@ -2457,7 +2457,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                               where
                                                                 err'' = err' ++ err_cur
                                                     _ -> do
-                                                      r_cur <- cur_tv var ((ident, -1), (symtbl', h))
+                                                      r_cur <- cur_tv var ((ident, Nothing), (symtbl', h))
                                                       case r_cur of
                                                         Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                           where
@@ -2509,7 +2509,8 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                                                   return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                                             
                                                                             Nothing -> do
-                                                                              ((symtbl'', reg_id), err_reg) <- return $ sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, -1) v_ty')
+                                                                              ((symtbl'', reg_id), err_reg) <-
+                                                                                return $ sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
                                                                               case sym_internalerr err_reg of
                                                                                 (e:es, err_reg') -> return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                                                   where
@@ -2540,7 +2541,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                       Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                       Right (var'@(Syn_var ident' v_ty'), symtbl')
                                         | ident' == ident -> do
-                                            ((symtbl'', reg_id), err_reg) <- return $ sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, -1) v_ty')
+                                            ((symtbl'', reg_id), err_reg) <- return $ sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
                                             case sym_internalerr err_reg of
                                               (e:es, err_reg') -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                 where
@@ -2605,9 +2606,9 @@ recons_src symtbl prg =
       Syn_fun_decl' fun_id fun_args fun_body (_, fun_ty) -> "fun " ++ fun_id ++
         " (" ++ (Prelude.foldl (\s -> \a -> (s ++ (recons_src symtbl a) ++ "; ")) "" fun_args) ++ ")" ++ " as " ++ (prn_ty fun_ty) ++ " " ++ (recons_src symtbl fun_body)
       --Syn_arg_decl String Type
-      Syn_arg_decl (arg_id, key) ty -> arg_id ++ " as " ++ (prn_ty ty')
+      Syn_arg_decl (arg_id, key@(key_scp, key_ent)) ty -> arg_id ++ " as " ++ (prn_ty ty')
         where
-          ty' = case sym_find symtbl Sym_cat_decl (Nothing, key) of
+          ty' = case sym_find symtbl Sym_cat_decl (Just key_scp, key_ent) of
                   ((Nothing, symbol'), err) -> ty
                     where
                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -2620,9 +2621,9 @@ recons_src symtbl prg =
       --Syn_rec_decl String Type
       Syn_rec_decl rec_id ty -> ""
       --Syn_var_decl String Type
-      Syn_var_decl (var_id, key) ty -> "var " ++ var_id ++ " as " ++ (prn_ty ty')
+      Syn_var_decl (var_id, key@(key_scp, key_ent)) ty -> "var " ++ var_id ++ " as " ++ (prn_ty ty')
         where
-          ty' = case sym_find symtbl Sym_cat_decl (Nothing, key) of
+          ty' = case sym_find symtbl Sym_cat_decl (Just key_scp, key_ent) of
                   ((Nothing, symbol'), err) -> ty
                     where
                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -3093,7 +3094,7 @@ ty_chk_var_decl symtbl (v_id, v_ty) =
     (_, err_lok) | (fst . sym_internalerr) err_lok /= [] -> throwE ((Internal_error errmsg):err_lok)
       where
         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-    (Nothing, err_lok) -> let ((symtbl', reg_id), err_reg) = sym_regist' False symtbl Sym_cat_decl (v_id, Syn_var_decl (v_id, -1) v_ty)
+    (Nothing, err_lok) -> let ((symtbl', reg_id), err_reg) = sym_regist' False symtbl Sym_cat_decl (v_id, Syn_var_decl (v_id, (-1, -1)) v_ty)
                           in
                             case (fst . sym_internalerr) err_reg of
                               [] -> return (((v_id, v_ty), (Nothing, Nothing)), symtbl', (err_reg ++ err_lok))
