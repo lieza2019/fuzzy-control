@@ -1566,8 +1566,11 @@ parse_fun_body symtbl (decls, omits) tokens = do
                             )
                       
                       ((Just var_decl@(Syn_var_decl (var_id, key)  var_ty), symtbl', tokens'), err) -> do
-                        let ((symtbl'', reg_id), err_reg) = sym_regist' False symtbl' Sym_cat_decl (var_id, var_decl)
                         --let var_decl' = Syn_var_decl (var_id, (snd reg_id)) var_ty
+                        
+                        --putStrLn $ var_id ++ " >>>>>"
+                        let ((symtbl'', reg_id), err_reg) = sym_regist' False symtbl' Sym_cat_decl (var_id, var_decl)
+                        --putStrLn $ var_id ++ " <<<<<" ++ (show err_reg)
                         let var_decl' = Syn_var_decl (var_id, reg_id) var_ty
                         r_decls <- runExceptT $ exam_redef ((decls ++ [var_decl']), omits)
                         case r_decls of
@@ -2408,6 +2411,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
         
         (Tk_ident ident):ts -> do
           r <- lift (do
+                        --putStrLn $ ident ++ " >>>>>"
                         case ts of
                           Tk_L_par:ts' -> do
                             let fun_app = Syn_expr_call ident [] Ty_abs
@@ -2444,30 +2448,31 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                    (e:es, err') -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                      where
                                        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                   ([], err') -> (case v of
-                                                    Syn_var_decl (ident', key@(key_scp, key_ent)) v_ty
-                                                      | (ident' == ident) && ((key_scp /= -1) && (key_ent /= -1)) -> do
-                                                          let var' = Syn_var ident v_ty
-                                                          r_cur <- cur_tv var' ((ident', Just key), (symtbl', h))
-                                                          case r_cur of
-                                                            Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                                              where
-                                                                errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                            Right (var'', (symtbl'', _), err_cur) -> cat_err err'' (runExceptT $ cont_par symtbl'' var'' ts)
-                                                              where
-                                                                err'' = err' ++ err_cur
-                                                    _ -> do
-                                                      r_cur <- cur_tv var ((ident, Nothing), (symtbl', h))
-                                                      case r_cur of
-                                                        Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                                          where
-                                                            errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                        Right (var', (symtbl'', _), err_cur) -> cat_err err'' (runExceptT $ cont_par symtbl'' var' ts)
-                                                          where
-                                                            errmsg = ident ++ " hasn't been declared as variable"
-                                                            err'' = err' ++ err_cur ++ [Type_constraint_mismatched errmsg]
-                                                            
-                                                 )
+                                   ([], err') -> do
+                                     putStrLn $ ident ++ " >>>>> " ++ (show v)
+                                     (case v of
+                                        Syn_var_decl (ident', key@(key_scp, key_ent)) v_ty
+                                          | (ident' == ident) && ((key_scp /= -1) && (key_ent /= -1)) -> do
+                                              let var' = Syn_var ident v_ty
+                                              r_cur <- cur_tv var' ((ident', Just key), (symtbl', h))
+                                              case r_cur of
+                                                Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                  where
+                                                    errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                Right (var'', (symtbl'', _), err_cur) -> cat_err err'' (runExceptT $ cont_par symtbl'' var'' ts)
+                                                  where
+                                                    err'' = err' ++ err_cur
+                                        _ -> do
+                                          r_cur <- cur_tv var ((ident, Nothing), (symtbl', h))
+                                          case r_cur of
+                                            Left err_cur -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                              where
+                                                errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                            Right (var', (symtbl'', _), err_cur) -> cat_err err'' (runExceptT $ cont_par symtbl'' var' ts)
+                                              where
+                                                errmsg = ident ++ " hasn't been declared as variable"
+                                                err'' = err' ++ err_cur ++ [Type_constraint_mismatched errmsg]
+                                       )
                                      where
                                        cur_tv :: Syntree_node -> ((String, Maybe (Integer, Integer)), (Symtbl, (Sym_category, (Sym_tbl, Sym_tbl)))) ->
                                                  IO (Either [Error_Excep] (Syntree_node, (Symtbl, Sym_handle), [Error_codes]))
@@ -2509,8 +2514,11 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                                                   return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                                             
                                                                             Nothing -> do
-                                                                              ((symtbl'', reg_id), err_reg) <-
-                                                                                return $ sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
+                                                                              ((symtbl'', reg_id), err_reg) <- do
+                                                                                --putStrLn $ ident ++ " >>>>> "
+                                                                                let r0@((_, _), err0) = sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
+                                                                                --putStrLn $ ident ++ " <<<<< " ++ (show err0)
+                                                                                return r0
                                                                               case sym_internalerr err_reg of
                                                                                 (e:es, err_reg') -> return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                                                   where
@@ -4482,10 +4490,9 @@ main = do
   mapM_ putStrLn $ Prelude.map show ty_curved
   putStrLn "" -}
   
-  putStr "simtbl_before:  "
+  --putStr "simtbl_before:  "
   --print_symtbl symtbl' Sym_cat_decl
-  print_symtbl symtbl' Sym_cat_func
-  putStrLn ""
+  --putStrLn ""
   
   {- putStr "ty-inf:  "
   (judges_inf, symtbl'', errs) <- do
@@ -4505,9 +4512,11 @@ main = do
   putStrLn "" -}
   
   --putStr "simtbl_after:  "
-  -- --print_symtbl symtbl' Sym_cat_decl
+  putStr "symbol table:  "
+  print_symtbl symtbl' Sym_cat_decl
   --print_symtbl symtbl' Sym_cat_func
-    
+  putStrLn ""
+
     where
       read_src :: Handle -> IO String
       read_src h = do
