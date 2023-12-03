@@ -569,6 +569,67 @@ sym_regist' ovrid symtbl cat (ident, entity) =
         ((sym_update symtbl cat ((left, stbl'), last_id'), (id_scp, new_key)), err)
   )
 
+sym_regist_var_decl symtbl (ident, entity) =
+  case entity of
+    Syn_var_decl (ident', (-1, -1)) _
+      | ident' == ident ->
+        let ((symtbl', key@(key_scp, key_ent)), errs_reg) = sym_regist' False symtbl Sym_cat_decl (ident, entity)
+        in
+          case sym_internalerr errs_reg of
+            (e:_, _) -> ((symtbl', Nothing), errs_reg)
+            _ -> (case sym_lkup_var_decl symtbl' ident of
+                    (Nothing, errs_vfy) -> ((symtbl', Nothing), errs)
+                      where
+                        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                        errs = errs_reg ++ errs_vfy ++ [Internal_error errmsg]
+                    (Just ((a@(Sym_attrib {sym_attr_entity = Syn_var_decl (ident'', (-1, -1)) var_ty}), (Sym_cat_decl, h)), symtbl''), errs_vfy)
+                      | ident'' == ident ->
+                        (case sym_internalerr errs_vfy of
+                           (e:_, _) -> ((symtbl'', Just entry), errs')
+                             where
+                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                               errs' = errs ++ [Internal_error errmsg]
+                               entry = (((key, ident), a), (Sym_cat_decl, h))
+                           _ -> (case sym_modify (symtbl'', (Sym_cat_decl, h)) ident a' of
+                                   (Nothing, errs_mod) -> ((symtbl'', Just entry), errs')
+                                     where
+                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                       errs' = errs ++ errs_mod ++ [Internal_error errmsg]
+                                       entry = (((key, ident), a), (Sym_cat_decl, h))
+                                   (Just ((a'', (Sym_cat_decl, h')), stbl), errs_mod) -> (case sym_internalerr errs_mod of
+                                                                                                 (e:_, _) -> ((stbl, Just entry), errs'')
+                                                                                                   where
+                                                                                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                     errs'' = errs' ++ [Internal_error errmsg]
+                                                                                                 _ -> ((stbl, Just entry), errs')
+                                                                                              )
+                                     where
+                                       errs' = errs ++ errs_mod
+                                       entry = (((key, ident), a''), (Sym_cat_decl, h'))
+                                   
+                                   (Just ((a'', (cat, h')), stbl), errs_mod) -> ((stbl, Just entry), errs')
+                                     where
+                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                       errs' = errs ++ errs_mod ++ [Internal_error errmsg]
+                                       entry = (((key, ident), a''), (cat, h'))
+                                )
+                             where
+                               a' = a{sym_attr_entity = Syn_var_decl (ident, (key_scp, key_ent)) var_ty}
+                        )
+                      where
+                        errs = errs_reg ++ errs_vfy
+                    
+                    (Just ((a, (cat, h)), symtbl''), errs_vfy) -> ((symtbl'', Just entry), errs)
+                      where
+                        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                        errs = errs_reg ++ errs_vfy ++ [Internal_error errmsg]
+                        entry = (((key, ident), a), (cat, h))
+                 )
+    
+    _ -> ((symtbl, Nothing), [Internal_error errmsg])
+      where
+        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+
 sym_subst :: [Subst] -> Symtbl -> Symtbl
 sym_subst subst symtbl =
   ras_trace "in sym_subst" (
