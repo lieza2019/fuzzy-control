@@ -2452,11 +2452,29 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                             r_cur <- runExceptT $ ty_curve symtbl' var_decl
                                             case r_cur of
                                               Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                              {- Right (var_decl', symtbl'_cur) -> return $ Right ((Just var_decl', symtbl'', tokens'), (errs ++ err_symreg))
-                                                where
-                                                  ((symtbl'', reg_id), err_symreg) = sym_regist' False symtbl'_cur Sym_cat_decl (var_id, var_decl') -}
-                                              Right (var_decl', symtbl'') -> return $ Right ((Just var_decl', symtbl'', tokens'), errs)
-                                          
+                                              Right (var_decl', symtbl'_cur) ->
+                                                (case sym_regist_var_decl symtbl'_cur (var_id, var_decl') of
+                                                   ((symtbl'', Nothing), err_reg) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                     where
+                                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                   ((symtbl'', Just (((key, var_id'), a@(Sym_attrib {sym_attr_entity = var_decl''@(Syn_var_decl (var_id'', key') var_ty')})), h)), err_reg)
+                                                     | ((var_id == var_id) && (var_id'' == var_id')) && (key' == key) ->
+                                                       (case sym_internalerr err_reg of
+                                                          --(e:_, _) -> return $ Left errs'
+                                                          (e:_, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                            where
+                                                              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                          _ -> return $ Right ((Just var_decl'', symtbl'', tokens'), errs')
+                                                       )
+                                                     where
+                                                       errs' = errs ++ err_reg
+                                                   
+                                                   ((symtbl'', Just _), err_reg) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                     where
+                                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                       errs' = errs ++ err_reg
+                                                )
+                                              
                                           Right ((_, symtbl', tokens'), errs) -> return $ Right ((Nothing, symtbl', tokens'), errs)
                                       _ -> return $ Right ((Nothing, symtbl, ts), [err])
                                         where
