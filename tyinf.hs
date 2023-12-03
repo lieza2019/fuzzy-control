@@ -2616,17 +2616,35 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                                                   return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                                             
                                                                             Nothing -> do
-                                                                              ((symtbl'', reg_id), err_reg) <- do
+                                                                              {- ((symtbl'', reg_id), err_reg) <- do
                                                                                 --putStrLn $ ident ++ " >>>>> "
                                                                                 let r0@((_, _), err0) = sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
                                                                                 --putStrLn $ ident ++ " <<<<< " ++ (show err0)
-                                                                                return r0
+                                                                                return r0 -}
+                                                                              let ((symtbl'', r_reg), err_reg) = sym_regist_var_decl symtbl' (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
                                                                               case sym_internalerr err_reg of
-                                                                                (e:es, err_reg') -> return $ Left [Error_Excep Excep_assert_failed errmsg]
+                                                                                (e:_, _) -> return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                                                   where
                                                                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                 --([], err_reg') -> cat_err err'' (runExceptT $ cont_par symtbl'' var' ts)
-                                                                                ([], err_reg') -> return $ Right (var', (symtbl'', h), err_reg')
+                                                                                _ -> (case r_reg of
+                                                                                        Nothing -> return $ Left [Error_Excep Excep_assert_failed errmsg]
+                                                                                          where
+                                                                                            errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                        Just (((key, ident'), (Sym_attrib {sym_attr_entity = a})), h_reg@(Sym_cat_decl, _))
+                                                                                          | ident' == ident -> (case a of
+                                                                                                                  Syn_var_decl (ident'', key') v_ty''
+                                                                                                                    | ((ident'' == ident) && (key' == key)) && (v_ty' == v_ty'') ->
+                                                                                                                      return $ Right (var', (symtbl'', h_reg), err_reg)
+                                                                                                                  _ -> return $ Left [Error_Excep Excep_assert_failed errmsg]
+                                                                                                                    where
+                                                                                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                               )
+                                                                                        Just _  -> return $ Left [Error_Excep Excep_assert_failed errmsg]
+                                                                                          where
+                                                                                            errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                     )
+                                                                    
                                                                     Right _ -> return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                                       where
                                                                         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
