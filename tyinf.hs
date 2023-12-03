@@ -1707,7 +1707,7 @@ cons_fun_tree symtbl fun tokens =
                                        case r_args of
                                          Left err -> return $ Left err
                                          Right ((args0, omits), errs_args) -> do
-                                           let args'' = Prelude.foldl (\as -> \a -> (case a of
+                                           let args0' = Prelude.foldl (\as -> \a -> (case a of
                                                                                        Syn_arg_decl _ _ -> as ++ [a]
                                                                                        _ -> as
                                                                                     )
@@ -1718,42 +1718,43 @@ cons_fun_tree symtbl fun tokens =
                                                                        where
                                                                          errmsg = "missing beginning L brace in the declaration of function body."
                                                                          
-                                           let ((symtbl'', reg_id), err_funreg) = sym_regist' False symtbl' Sym_cat_decl (fun_id', (Syn_fun_decl' fun_id' args'' fun_body' (env', fun_ty')))
+                                           let ((symtbl'', reg_id), err_funreg) = sym_regist' False symtbl' Sym_cat_decl (fun_id', (Syn_fun_decl' fun_id' args0' fun_body' (env', fun_ty')))
                                            case sym_internalerr err_funreg of
                                              (e:es, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                where
                                                  errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                              _ -> do
                                                let lv_before = sym_crnt_level $ sym_scope_right (sym_categorize symtbl'' Sym_cat_decl)
-                                               let (new_scope, errs_argreg) =
-                                                     Prelude.foldl (\(stbl, errs) -> \arg@(Syn_arg_decl (id, _) _) ->
+                                               let ((new_scope , errs_argreg), args'') =
+                                                     Prelude.foldl (\((stbl, errs), as) -> \arg@(Syn_arg_decl (id, _) _) ->
                                                                        case sym_internalerr errs of
-                                                                         (e:_, _) -> (stbl, errs)
+                                                                         (e:_, _) -> ((stbl, errs), as)
                                                                          {- _ -> (case sym_regist' False stbl Sym_cat_decl (id, arg) of
                                                                                  ((stbl', reg_id), err_reg) -> (stbl', (errs ++ err_reg))
                                                                               ) -}
                                                                          _ -> (case sym_regist_var_decl stbl (id, arg) of
-                                                                                 ((stbl', Nothing), err_reg) -> (stbl', (errs ++ err_reg) ++ [Internal_error errmsg])
+                                                                                 ((stbl', Nothing), err_reg) -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as)
                                                                                    where
                                                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                  ((stbl', Just (((key, id'), a@(Sym_attrib {sym_attr_entity = arg'})), (Sym_cat_decl, h))), err_reg)
                                                                                    | id' == id ->
                                                                                      (case sym_internalerr err_reg of
-                                                                                        (e:_, _) -> (stbl', (errs ++ err_reg) ++ [Internal_error errmsg])
+                                                                                        (e:_, _) -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as ++ [arg'])
                                                                                           where
                                                                                             errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                         _ -> (case arg' of
-                                                                                                Syn_arg_decl (id'', key') _ | (id'' == id) && (key' == key) -> (stbl', errs ++ err_reg)
-                                                                                                _ -> (stbl', (errs ++ err_reg) ++ [Internal_error errmsg])
+                                                                                                Syn_arg_decl (id'', key') _ | (id'' == id) && (key' == key) -> ((stbl', errs ++ err_reg), as ++ [arg'])
+                                                                                                _ -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as ++ [arg'])
                                                                                                   where
                                                                                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                              )
                                                                                      )
-                                                                                 ((stbl', Just _), err_reg) -> (stbl', (errs ++ err_reg) ++ [Internal_error errmsg])
+                                                                                 ((stbl', Just ((_, a@(Sym_attrib {sym_attr_entity = arg'})), _)), err_reg) ->
+                                                                                   ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as ++ [arg'])
                                                                                    where
                                                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                               )
-                                                                   ) (sym_enter_scope (Just symtbl'') Sym_cat_decl) args''
+                                                                   ) ((sym_enter_scope (Just symtbl'') Sym_cat_decl), []) args0'
                                                case sym_internalerr errs_argreg of
                                                  (e:es, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                    where
