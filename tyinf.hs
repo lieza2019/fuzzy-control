@@ -569,6 +569,7 @@ sym_regist' ovrid symtbl cat (ident, entity) =
         ((sym_update symtbl cat ((left, stbl'), last_id'), (id_scp, new_key)), err)
   )
 
+sym_regist_var_decl :: Symtbl -> (String, Syntree_node) -> ((Symtbl, Maybe ((((Integer, Integer), String), Sym_attrib), (Sym_category, (Sym_tbl, Sym_tbl)))), [Error_codes])
 sym_regist_var_decl symtbl (ident, entity) =
   case entity of
     Syn_var_decl (ident', (-1, -1)) _
