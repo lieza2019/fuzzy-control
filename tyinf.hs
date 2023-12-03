@@ -1728,9 +1728,30 @@ cons_fun_tree symtbl fun tokens =
                                                let (new_scope, errs_argreg) =
                                                      Prelude.foldl (\(stbl, errs) -> \arg@(Syn_arg_decl (id, _) _) ->
                                                                        case sym_internalerr errs of
-                                                                         (e:es, _) -> (stbl, errs)
-                                                                         _ -> (case sym_regist' False stbl Sym_cat_decl (id, arg) of
+                                                                         (e:_, _) -> (stbl, errs)
+                                                                         {- _ -> (case sym_regist' False stbl Sym_cat_decl (id, arg) of
                                                                                  ((stbl', reg_id), err_reg) -> (stbl', (errs ++ err_reg))
+                                                                              ) -}
+                                                                         _ -> (case sym_regist_var_decl stbl (id, arg) of
+                                                                                 ((stbl', Nothing), err_reg) -> (stbl', (errs ++ err_reg) ++ [Internal_error errmsg])
+                                                                                   where
+                                                                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                 ((stbl', Just (((key, id'), a@(Sym_attrib {sym_attr_entity = arg'})), (Sym_cat_decl, h))), err_reg)
+                                                                                   | id' == id ->
+                                                                                     (case sym_internalerr err_reg of
+                                                                                        (e:_, _) -> (stbl', (errs ++ err_reg) ++ [Internal_error errmsg])
+                                                                                          where
+                                                                                            errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                        _ -> (case arg' of
+                                                                                                Syn_arg_decl (id'', key') _ | (id'' == id) && (key' == key) -> (stbl', errs ++ err_reg)
+                                                                                                _ -> (stbl', (errs ++ err_reg) ++ [Internal_error errmsg])
+                                                                                                  where
+                                                                                                    errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                             )
+                                                                                     )
+                                                                                 ((stbl', Just _), err_reg) -> (stbl', (errs ++ err_reg) ++ [Internal_error errmsg])
+                                                                                   where
+                                                                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                               )
                                                                    ) (sym_enter_scope (Just symtbl'') Sym_cat_decl) args''
                                                case sym_internalerr errs_argreg of
