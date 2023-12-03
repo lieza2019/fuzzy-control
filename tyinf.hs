@@ -2682,11 +2682,12 @@ recons_src symtbl prg =
                     where
                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                       err' = err ++ [Internal_error errmsg]
-                  ((Just (ident_reg, Sym_attrib {sym_attr_entity = Syn_var_decl (arg_id', key') ty_reg}), symtbl'), err) -> ty_reg
+                  ((Just (ident_reg, Sym_attrib {sym_attr_entity = Syn_var_decl (arg_id', key') ty_reg}), symtbl'), err)
+                    | (ident_reg == arg_id) && (arg_id' == arg_id) && (key == key') -> ty_reg
+                  ((Just _, symtbl'), err) -> ty
                     where
-                      err' = if (ident_reg == arg_id) && (arg_id' == arg_id) && (key == key') then err
-                             else let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                  in err ++ [Internal_error errmsg]
+                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                      err' = err ++ [Internal_error errmsg]
       --Syn_rec_decl String Type
       Syn_rec_decl rec_id ty -> ""
       --Syn_var_decl String Type
@@ -2697,11 +2698,12 @@ recons_src symtbl prg =
                     where
                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                       err' = err ++ [Internal_error errmsg]
-                  ((Just (ident_reg, Sym_attrib {sym_attr_entity = Syn_var_decl (var_id', key') ty_reg}), symtbl'), err) -> ty_reg
+                  ((Just (ident_reg, Sym_attrib {sym_attr_entity = Syn_var_decl (var_id', key') ty_reg}), symtbl'), err)
+                    | (ident_reg == var_id) && (var_id' == var_id) && (key == key') -> ty_reg
+                  ((Just _, symtbl'), err) -> ty
                     where
-                      err' = if (ident_reg == var_id) && (var_id' == var_id) && (key == key') then err
-                             else let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                  in err ++ [Internal_error errmsg]
+                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                      err' = err ++ [Internal_error errmsg]
       --Syn_cond_expr (Syntree_node, (Syntree_node, Maybe Syntree_node)) Type
       Syn_cond_expr (cond_expr, (true_expr, false_expr)) ty -> "if " ++ "(" ++ (recons_src symtbl cond_expr) ++ ")" ++ " then " ++  (recons_src symtbl true_expr) ++
         (case false_expr of
