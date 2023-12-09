@@ -2587,13 +2587,11 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                      Left [Internal_error errmsg] -> return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                      Right (var'@(Syn_var ident' v_ty'), symtbl')
                                                        | ident' == ident ->
-                                                         if v_ty' == v_ty then return $ Right (var', (symtbl', h), [])
-                                                         
-                                                         else
                                                            case key of
-                                                             Just (key'@(key_scp, key_ent)) ->
-                                                               if (key_scp > 0) && (key_ent > 0) then
-                                                                 do
+                                                             Just (key'@(key_scp, key_ent))
+                                                               | (key_scp > 0) && (key_ent > 0) ->
+                                                                 if v_ty' == v_ty then return $ Right (var', (symtbl', h), [])
+                                                                 else do
                                                                    let attr_mod = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = Syn_var_decl (ident, key') v_ty'}
                                                                    let r_mod = sym_modify (symtbl', h) ident attr_mod
                                                                    return $ case r_mod of
@@ -2612,10 +2610,10 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                                                                where
                                                                                                  errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                           )
-                                                               else
-                                                                 let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                 in
-                                                                   return $ Left [Error_Excep Excep_assert_failed errmsg]
+                                                                                     
+                                                             Just _ -> return $ Left [Error_Excep Excep_assert_failed errmsg]
+                                                               where
+                                                                 errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                              
                                                              Nothing -> do
                                                                {- ((symtbl'', reg_id), err_reg) <- do
