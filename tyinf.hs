@@ -2631,15 +2631,15 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                                          Nothing -> return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                                            where
                                                                              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                         Just (((key, ident'), Sym_attrib {sym_attr_entity = a}), h_reg@(Sym_cat_decl, _))
-                                                                           | ident' == ident -> (case a of
-                                                                                                   Syn_var_decl (ident'', key') v_ty''
-                                                                                                     | (ident'' == ident) && (v_ty'' == v_ty') ->
-                                                                                                       return $ Right (var', (symtbl'', h_reg), err_reg)
-                                                                                                   _ -> return $ Left [Error_Excep Excep_assert_failed errmsg]
-                                                                                                     where
-                                                                                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                                )
+                                                                         Just (((key'@(key_scp', scp_ent'), ident'), Sym_attrib {sym_attr_entity = a}), h_reg@(Sym_cat_decl, _))
+                                                                           | (ident' == ident) && ((key_scp' /= -1) && (scp_ent' /= -1)) ->
+                                                                             (case a of
+                                                                                 Syn_var_decl (ident'', key'') v_ty''
+                                                                                   | (ident'' == ident) && (v_ty'' == v_ty') && (key'' == key') -> return $ Right (var', (symtbl'', h_reg), err_reg)
+                                                                                 _ -> return $ Left [Error_Excep Excep_assert_failed errmsg]
+                                                                                   where
+                                                                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                             )
                                                                          Just _  -> return $ Left [Error_Excep Excep_assert_failed errmsg]
                                                                            where
                                                                              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -3244,13 +3244,32 @@ ty_chk_var_decl symtbl (v_id, v_ty) =
     (_, err_lok) | (fst . sym_internalerr) err_lok /= [] -> throwE ((Internal_error errmsg):err_lok)
       where
         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-    (Nothing, err_lok) -> let ((symtbl', reg_id), err_reg) = sym_regist' False symtbl Sym_cat_decl (v_id, Syn_var_decl (v_id, (-1, -1)) v_ty)
-                          in
-                            case (fst . sym_internalerr) err_reg of
-                              [] -> return (((v_id, v_ty), (Nothing, Nothing)), symtbl', (err_reg ++ err_lok))
-                              _ -> throwE ((Internal_error errmsg):(err_reg ++ err_lok))
-                                where
-                                  errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+    
+    (Nothing, err_lok) ->
+      --let ((symtbl', reg_id), err_reg) = sym_regist' False symtbl Sym_cat_decl (v_id, Syn_var_decl (v_id, (-1, -1)) v_ty)
+      let ((symtbl', r_reg), err_reg) = sym_regist_var_decl symtbl (v_id, Syn_var_decl (v_id, (-1, -1)) v_ty)
+      in
+        case (fst . sym_internalerr) err_reg of
+          [] -> (case r_reg of
+                   Nothing -> throwE ((Internal_error errmsg):(err_reg ++ err_lok))
+                     where
+                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                   Just (((key@(key_scp, key_ent), v_id'), Sym_attrib {sym_attr_entity = a}), h@(Sym_cat_decl, _))
+                     | (v_id' == v_id) && ((key_scp /= -1) && (key_ent /= -1)) ->
+                       (case a of
+                           Syn_var_decl (v_id'', key') v_ty'
+                             | (v_id'' == v_id) && (v_ty' == v_ty) && (key' == key) -> return (((v_id, v_ty), (Nothing, Nothing)), symtbl', (err_reg ++ err_lok))
+                           _ -> throwE ((Internal_error errmsg):(err_reg ++ err_lok))
+                             where
+                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                       )
+                   _ -> throwE ((Internal_error errmsg):(err_reg ++ err_lok))
+                     where
+                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                )
+          _ -> throwE ((Internal_error errmsg):(err_reg ++ err_lok))
+            where
+              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
     
     (Just ((Sym_attrib {sym_attr_entity = v_attr}, h), symtbl'), err_lok) ->
       (case v_attr of
