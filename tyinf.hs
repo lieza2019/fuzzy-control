@@ -1610,7 +1610,7 @@ parse_fun_body symtbl (decls, omits) tokens = do
                       ((Nothing, symtbl', tokens'), err) -> return $ Right (((Ty_env [], (decls, omits)), []), symtbl', tokens', err)
                       
                       ((Just fun_decl@(Syn_fun_decl' fun_id args fun_body (env0, fun_ty)), symtbl', tokens'), err) -> do
-                        r_decls <- runExceptT $ exam_redef ((decls ++ [fun_decl]), omits)
+                        r_decls <- runExceptT $ exam_redef (decls ++ [fun_decl], omits)
                         case r_decls of
                           Left err_exc -> return $ Left err_exc
                           Right ((decls', omits'), err_decl) ->
@@ -1627,32 +1627,30 @@ parse_fun_body symtbl (decls, omits) tokens = do
                                         )
                             )
                       
-                      ((Just var_decl@(Syn_var_decl (var_id, key)  var_ty), symtbl', tokens'), err) -> do
-                        --let var_decl' = Syn_var_decl (var_id, (snd reg_id)) var_ty
-                        
+                      ((Just var_decl@(Syn_var_decl (var_id, key) var_ty), symtbl', tokens'), err) -> do
                         --putStrLn $ var_id ++ " >>>>>"
-                        let ((symtbl'', reg_id), err_reg) = sym_regist' False symtbl' Sym_cat_decl (var_id, var_decl)
+                        --let ((symtbl'', reg_id), err_reg) = sym_regist' False symtbl' Sym_cat_decl (var_id, var_decl)
                         --putStrLn $ var_id ++ " <<<<<" ++ (show err_reg)
-                        let var_decl' = Syn_var_decl (var_id, reg_id) var_ty
-                        r_decls <- runExceptT $ exam_redef ((decls ++ [var_decl']), omits)
+                        --let var_decl' = Syn_var_decl (var_id, reg_id) var_ty
+                        r_decls <- runExceptT $ exam_redef ((decls ++ [var_decl]), omits)
                         case r_decls of
                           Left err_exc -> return $ Left err_exc
                           Right ((decls', omits'), err_decl) ->
                             (case tokens' of
-                               [] -> return $ Right (((Ty_env [], (decls', omits')), []), symtbl'', [], (err ++ err_decl ++ [Parse_error errmsg]))
+                               [] -> return $ Right (((Ty_env [], (decls', omits')), []), symtbl', [], (err ++ err_decl ++ [Parse_error errmsg]))
                                Tk_smcl:ts' -> do
-                                 r_body' <- runExceptT $ parse_fun_body symtbl'' (decls', omits') ts'
+                                 r_body' <- runExceptT $ parse_fun_body symtbl' (decls', omits') ts'
                                  return (case r_body' of
                                            Left err_exc -> Left err_exc
-                                           Right (((env1, (decls'', omits'')), stmts), stbl, tokens'', err_cont) -> Right (((env1, (decls'', omits'')), stmts), stbl, tokens'', err')
+                                           Right (((env1, (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) -> Right (((env1, (decls'', omits'')), stmts), symtbl'', tokens'', err')
                                              where
                                                err' = err ++ err_decl ++ err_cont
                                         )
                                _ -> do
-                                 r_body' <- runExceptT $ parse_fun_body symtbl'' (decls', omits') tokens'
+                                 r_body' <- runExceptT $ parse_fun_body symtbl' (decls', omits') tokens'
                                  return (case r_body' of
                                            Left err_exc -> Left err_exc
-                                           Right (((env1, (decls'', omits'')), stmts), stbl, tokens'', err_cont) -> Right (((env1, (decls'', omits'')), stmts), stbl, tokens'', err')
+                                           Right (((env1, (decls'', omits'')), stmts), symtbl'', tokens'', err_cont) -> Right (((env1, (decls'', omits'')), stmts), symtbl'', tokens'', err')
                                              where
                                                err' = err ++ err_decl ++ ((Parse_error errmsg):err_cont)
                                         )
@@ -1718,7 +1716,7 @@ cons_fun_tree symtbl fun tokens =
                                                                        where
                                                                          errmsg = "missing beginning L brace in the declaration of function body."
                                                                          
-                                           let ((symtbl'', reg_id), err_funreg) = sym_regist' False symtbl' Sym_cat_decl (fun_id', (Syn_fun_decl' fun_id' args0' fun_body' (env', fun_ty')))
+                                           let ((symtbl'', reg_id), err_funreg) = sym_regist' False symtbl' Sym_cat_decl (fun_id, (Syn_fun_decl' fun_id args0' fun_body' (env', fun_ty')))
                                            case sym_internalerr err_funreg of
                                              (e:es, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                where
@@ -1732,25 +1730,31 @@ cons_fun_tree symtbl fun tokens =
                                                                          {- _ -> (case sym_regist' False stbl Sym_cat_decl (id, arg) of
                                                                                  ((stbl', reg_id), err_reg) -> (stbl', (errs ++ err_reg))
                                                                               ) -}
-                                                                         _ -> (case sym_regist_var_decl stbl (id, arg) of
-                                                                                 ((stbl', Nothing), err_reg) -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as)
-                                                                                   where
-                                                                                     errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                 ((stbl', Just (((key, id'), a@(Sym_attrib {sym_attr_entity = arg'})), (Sym_cat_decl, h))), err_reg)
-                                                                                   | id' == id ->
-                                                                                     (case sym_internalerr err_reg of
-                                                                                        (e:_, _) -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as ++ [arg'])
-                                                                                          where
-                                                                                            errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                        _ -> (case arg' of
-                                                                                                Syn_arg_decl (id'', key') _ | (id'' == id) && (key' == key) -> ((stbl', errs ++ err_reg), as ++ [arg'])
-                                                                                                _ -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as ++ [arg'])
-                                                                                                  where
-                                                                                                    errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                             )
-                                                                                     )
-                                                                                 ((stbl', Just ((_, a@(Sym_attrib {sym_attr_entity = arg'})), _)), err_reg) ->
-                                                                                   ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as ++ [arg'])
+                                                                         _ -> (case arg of
+                                                                                 Syn_arg_decl (id, _) _ ->
+                                                                                   (case sym_regist_var_decl stbl (id, arg) of
+                                                                                      ((stbl', Nothing), err_reg) -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as)
+                                                                                        where
+                                                                                          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                      ((stbl', Just (((key, id'), a@(Sym_attrib {sym_attr_entity = arg'})), (Sym_cat_decl, h))), err_reg)
+                                                                                        | id' == id ->
+                                                                                          (case sym_internalerr err_reg of
+                                                                                             (e:_, _) -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as)
+                                                                                               where
+                                                                                                 errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                             _ -> (case arg' of
+                                                                                                     Syn_arg_decl (id'', key') _
+                                                                                                       | (id'' == id) && (key' == key) -> ((stbl', errs ++ err_reg), as ++ [arg'])
+                                                                                                     _ -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as)
+                                                                                                       where
+                                                                                                         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                  )
+                                                                                          )
+                                                                                      ((stbl', Just _), err_reg) -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as ++ [arg])
+                                                                                        where
+                                                                                          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                   )
+                                                                                 _ -> ((stbl, errs ++ [Internal_error errmsg]), as)
                                                                                    where
                                                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                               )
