@@ -1717,7 +1717,7 @@ cons_fun_tree symtbl fun tokens =
                                              _ -> do
                                                let lv_before = sym_crnt_level $ sym_scope_right (sym_categorize symtbl'' Sym_cat_decl)
                                                let ((new_scope , errs_argreg), args'') =
-                                                     Prelude.foldl (\((stbl, errs), as) -> \arg@(Syn_arg_decl (id, _) _) ->
+                                                     Prelude.foldl (\((stbl, errs), as) -> \arg ->
                                                                        case sym_internalerr errs of
                                                                          (e:_, _) -> ((stbl, errs), as)
                                                                          {- _ -> (case sym_regist False stbl Sym_cat_decl (id, arg) of
@@ -1725,28 +1725,51 @@ cons_fun_tree symtbl fun tokens =
                                                                               ) -}
                                                                          _ -> (case arg of
                                                                                  Syn_arg_decl (id, _) _ ->
-                                                                                   (case sym_regist_var_decl stbl (id, arg) of
-                                                                                      ((stbl', Nothing), err_reg) -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as)
+                                                                                   (case sym_lkup_var_decl stbl (1, id) of
+                                                                                      (r_redef_chk, err_redef_chk) ->
+                                                                                        (case sym_internalerr err_redef_chk of
+                                                                                           (e:_, _) -> ((stbl, (errs ++ err_redef_chk) ++ [Internal_error errmsg]), as)
+                                                                                             where
+                                                                                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                           _ -> (case r_redef_chk of
+                                                                                                   Nothing -> regist_arg stbl arg
+                                                                                                   Just (_, stbl') -> ((stbl', errs ++ err_redef_chk ++ [Internal_error errmsg]), as)
+                                                                                                     where
+                                                                                                       errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                )
+                                                                                        )
                                                                                         where
-                                                                                          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                      ((stbl', Just (((key, id'), a@(Sym_attrib {sym_attr_entity = arg'})), (Sym_cat_decl, h))), err_reg)
-                                                                                        | id' == id ->
-                                                                                          (case sym_internalerr err_reg of
-                                                                                             (e:_, _) -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as)
-                                                                                               where
-                                                                                                 errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                             _ -> (case arg' of
-                                                                                                     Syn_arg_decl (id'', key') _
-                                                                                                       | (id'' == id) && (key' == key) -> ((stbl', errs ++ err_reg), as ++ [arg'])
-                                                                                                     _ -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as)
-                                                                                                       where
-                                                                                                         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                                  )
-                                                                                          )
-                                                                                      ((stbl', Just _), err_reg) -> ((stbl', (errs ++ err_reg) ++ [Internal_error errmsg]), as ++ [arg])
-                                                                                        where
-                                                                                          errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                          regist_arg :: Symtbl -> Syntree_node -> ((Symtbl, [Error_codes]), [Syntree_node])
+                                                                                          regist_arg symtbl arg@(Syn_arg_decl (id, _) _) =
+                                                                                            case sym_regist_var_decl stbl (id, arg) of
+                                                                                              ((symtbl', Nothing), err_reg) -> ((symtbl', errs' ++ [Internal_error errmsg]), as)
+                                                                                                where
+                                                                                                  errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                  errs' = errs ++ err_redef_chk ++ err_reg
+                                                                                              ((symtbl', Just (((key, id'), a@(Sym_attrib {sym_attr_entity = arg'})), (Sym_cat_decl, h))), err_reg)
+                                                                                                | id' == id -> (case sym_internalerr err_reg of
+                                                                                                                  (e:_, _) -> ((symtbl', errs' ++ [Internal_error errmsg]), as)
+                                                                                                                    where
+                                                                                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                                  _ -> (case arg' of
+                                                                                                                          Syn_arg_decl (id'', key') _
+                                                                                                                            | (id'' == id) && (key' == key) -> ((symtbl', errs'), as ++ [arg'])
+                                                                                                                          _ -> ((symtbl', errs' ++ [Internal_error errmsg]), as)
+                                                                                                                            where
+                                                                                                                              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                                       )
+                                                                                                               )
+                                                                                                where
+                                                                                                  errs' = errs ++ err_redef_chk ++ err_reg
+                                                                                              ((symtbl', Just _), err_reg) -> ((symtbl', errs' ++ [Internal_error errmsg]), as)
+                                                                                                where
+                                                                                                  errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                                                  errs' = errs ++ err_redef_chk ++ err_reg
+                                                                                          regist_arg symtbl _ = ((symtbl, errs ++ err_redef_chk ++ [Internal_error errmsg]), as)
+                                                                                            where
+                                                                                              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                                                    )
+                                                                                 
                                                                                  _ -> ((stbl, errs ++ [Internal_error errmsg]), as)
                                                                                    where
                                                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
