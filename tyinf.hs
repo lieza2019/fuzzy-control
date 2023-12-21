@@ -317,7 +317,7 @@ sym_find symtbl cat (scope_id, entry_id) =
   )
 
 type Sym_handle = (Sym_category, (Sym_tbl, Sym_tbl))
-sym_lookup :: Symtbl -> (Sym_category, Syntree_node -> Bool) -> String -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
+{- sym_lookup :: Symtbl -> (Sym_category, Syntree_node -> Bool) -> String -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
 sym_lookup symtbl (cat, declp) ident =
   ras_trace "in sym_lookup" (
   let ((left, stbl), last_id) = sym_categorize' symtbl cat
@@ -344,16 +344,46 @@ sym_lookup symtbl (cat, declp) ident =
                                                            where
                                                              errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                                      (Nothing, err) -> (Nothing, err)
+  ) -}
+sym_lookup :: Symtbl -> (Sym_category, (Integer, Syntree_node -> Bool)) -> String -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
+sym_lookup symtbl (cat, (depth, declp)) ident =
+  ras_trace "in sym_lookup" (
+  let ((left, stbl), last_id) = sym_categorize' symtbl cat
+  in
+    if (depth > 0) || (depth < 0) then
+      case sym_search stbl ident of
+        (Nothing, err) -> (Nothing, err)
+        (Just (attr, h@(past, remains)), err) -> if declp (sym_attr_entity attr) then (Just ((attr, (cat, h)), symtbl), err)
+                                                 else
+                                                   let remains' = case remains of
+                                                                    Scope_add (_, _, _, Sym_empty) ps -> ps
+                                                                    Scope_add (_, _, _, Sym_add s Sym_empty) ps -> ps
+                                                                    Scope_add (id, lv, anon_idents, Sym_add s ss) ps -> Scope_add (id, lv, anon_idents, ss) ps
+                                                   in
+                                                     case sym_lookup (sym_update symtbl cat ((left, remains'), last_id)) (cat, (depth - 1, declp)) ident of
+                                                       (Just ((attr, (cat', (past', remains''))), _), err) | cat' == cat -> (Just ((attr, (cat', (past'', remains''))), symtbl'), err)
+                                                         where
+                                                           past'' = sym_combine past past'
+                                                           symtbl' = sym_update symtbl cat ((left, sym_combine past'' remains''), last_id)
+                                                       (Just ((attr, (cat', (past', remains''))), _), err) -> (Just ((attr, (cat', (past'', remains''))), symtbl'), err')
+                                                         where
+                                                           past'' = sym_combine past past'
+                                                           symtbl' = sym_update symtbl cat ((left, sym_combine past'' remains''), last_id)
+                                                           err' = err ++ [Internal_error errmsg]
+                                                             where
+                                                               errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                       (Nothing, err) -> (Nothing, err)
+    else (Nothing, [])  -- for the case of (depth == 0)
   )
 
-sym_lkup_tydef_decl :: Symtbl -> String -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
-sym_lkup_tydef_decl symtbl ident =
+sym_lkup_tydef_decl :: Symtbl -> (Integer, String) -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
+sym_lkup_tydef_decl symtbl (scp_depth, ident) =
   ras_trace "in sym_lkup_tydef_decl" (
   let declp a = case a of
                   Syn_tydef_decl _ _ -> True
                   _ -> False
   in
-    case sym_lookup symtbl (Sym_cat_typedef, declp) ident of
+    case sym_lookup symtbl (Sym_cat_typedef, (-1, declp)) ident of
       r@(Just ((_, (_, _)), symtbl'), err) | verify symtbl symtbl' -> r
         where
           verify :: Symtbl -> Symtbl -> Bool
@@ -364,15 +394,14 @@ sym_lkup_tydef_decl symtbl ident =
       (Nothing, err) -> (Nothing, err)
   )
 
-sym_lkup_fun_decl :: Symtbl -> String -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
-sym_lkup_fun_decl symtbl ident =
+sym_lkup_fun_decl :: Symtbl -> (Integer, String) -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
+sym_lkup_fun_decl symtbl (scp_depth, ident) =
   ras_trace "in sym_lkup_fun_decl" (
   let declp a = case a of
                   Syn_fun_decl' _ _ _ _ -> True
                   _ -> False
-      
   in
-    case sym_lookup symtbl (Sym_cat_decl, declp) ident of
+    case sym_lookup symtbl (Sym_cat_decl, (scp_depth, declp)) ident of
       r@(Just ((_, (_, _)), symtbl'), err) | verify symtbl symtbl' -> r
         where
           verify :: Symtbl -> Symtbl -> Bool
@@ -380,7 +409,7 @@ sym_lkup_fun_decl symtbl ident =
       (r@(Just ((_, (_, _)), symtbl')), err) -> (r, err ++ [Internal_error errmsg])
         where
           errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-      (Nothing, err) -> (case sym_lookup symtbl (Sym_cat_func, declp) ident of
+      (Nothing, err) -> (case sym_lookup symtbl (Sym_cat_func, (-1, declp)) ident of
                            (r'@(Just ((_, (_, _)), symtbl'')), err') | verify' symtbl symtbl'' -> (r', err ++ err')
                              where
                                verify' :: Symtbl -> Symtbl -> Bool
@@ -392,14 +421,14 @@ sym_lkup_fun_decl symtbl ident =
                         )
   )
 
-sym_lkup_rec_decl :: Symtbl -> String -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
-sym_lkup_rec_decl symtbl ident =
+sym_lkup_rec_decl :: Symtbl -> (Integer, String) -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
+sym_lkup_rec_decl symtbl (scp_depth, ident) =
   ras_trace "in sym_lkup_rec_decl" (
   let declp a = case a of
                   Syn_rec_decl _ _ -> True
                   _ -> False
   in
-    case sym_lookup symtbl (Sym_cat_record, declp) ident of
+    case sym_lookup symtbl (Sym_cat_record, (-1, declp)) ident of
       r@(Just ((_, (_, _)), symtbl'), err) | verify symtbl symtbl' -> r
         where
           verify :: Symtbl -> Symtbl -> Bool
@@ -410,14 +439,14 @@ sym_lkup_rec_decl symtbl ident =
       (Nothing, err) -> (Nothing, err)
   )
 
-sym_lkup_var_decl :: Symtbl -> String -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
-sym_lkup_var_decl symtbl ident =
+sym_lkup_var_decl :: Symtbl -> (Integer, String) -> (Maybe ((Sym_attrib, (Sym_category, (Sym_tbl, Sym_tbl))), Symtbl), [Error_codes])
+sym_lkup_var_decl symtbl (scp_depth, ident) =
   ras_trace "in sym_lkup_var_decl" (
   let declp a = case a of
                   Syn_var_decl _ _ -> True
                   _ -> False
   in
-    case sym_lookup symtbl (Sym_cat_decl, declp) ident of
+    case sym_lookup symtbl (Sym_cat_decl, (scp_depth, declp)) ident of
       r@(Just ((_, (_, _)), symtbl'), err) | verify symtbl symtbl' -> r
         where
           verify :: Symtbl -> Symtbl -> Bool
@@ -544,7 +573,7 @@ sym_regist_var_decl symtbl (ident, entity) =
         in
           case sym_internalerr errs_reg of
             (e:_, _) -> ((symtbl', Nothing), errs_reg)
-            _ -> (case sym_lkup_var_decl symtbl' ident of
+            _ -> (case sym_lkup_var_decl symtbl' (1, ident) of
                     (Nothing, errs_vfy) -> ((symtbl', Nothing), errs)
                       where
                         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -1915,7 +1944,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                              err = [Parse_error "missing closing right parenthesis."]
                          Tk_R_par:ts -> return $ Right ((fun_app, symtbl, tokens), [])
                          _ -> do
-                           let (r_lk, err_lok) = sym_lkup_fun_decl symtbl fun_id
+                           let (r_lk, err_lok) = sym_lkup_fun_decl symtbl (-1, fun_id)
                            case r_lk of
                              Just ((Sym_attrib {sym_attr_entity = Syn_fun_decl' ident params (Syn_scope (decls, body)) (env, ty)}, h), symtbl')
                                | ident == fun_id -> (case sym_internalerr err_lok of
@@ -2511,7 +2540,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                           
                           _ -> do
                             let var = Syn_var ident Ty_abs
-                            case sym_lkup_var_decl symtbl ident of
+                            case sym_lkup_var_decl symtbl (-1, ident) of
                               (Just ((Sym_attrib {sym_attr_entity = v}, (h@(Sym_cat_decl, _))), symtbl'), err) ->
                                 (case sym_internalerr err of
                                    (e:es, err') -> return $ Left (Error_Excep Excep_assert_failed errmsg)
@@ -3204,7 +3233,7 @@ ty_merge_env env_1 env_2 =
 
 ty_chk_var_decl :: Symtbl -> (String, Type) -> ExceptT [Error_codes] IO (((String, Type), (Maybe Type, Maybe Type)), Symtbl, [Error_codes])
 ty_chk_var_decl symtbl (v_id, v_ty) =
-  case sym_lkup_var_decl symtbl v_id of
+  case sym_lkup_var_decl symtbl (-1, v_id) of
     (_, err_lok) | (fst . sym_internalerr) err_lok /= [] -> throwE ((Internal_error errmsg):err_lok)
       where
         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
@@ -4201,7 +4230,7 @@ ty_inf symtbl expr =
     
     --Syn_expr_call _ _ _ -> ty_inf_expr symtbl expr
     Syn_expr_call fun_id args ty -> do
-      case sym_lkup_fun_decl symtbl fun_id of
+      case sym_lkup_fun_decl symtbl (-1, fun_id) of
         --Nothing -> throwE ((Ty_env [], expr), symtbl, [Undefined_symbol errmsg])
         (Nothing, err_lok) -> throwE ((Ty_env [], expr), symtbl, (err_lok ++ [Undefined_symbol errmsg]))
           where
