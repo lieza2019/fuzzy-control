@@ -497,42 +497,8 @@ cmp_entity (Sym_entry {sym_attr = attr}) entity =
                         )
     _ -> False
 
-{- sym_regist :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> (Symtbl, [Error_codes])
-sym_regist ovwt symtbl cat (ident, entity) =
-  ras_trace "in sym_regist" (
-  let reg_sym (sym_tbl, last_id) (ident, sym) =
-        case sym_tbl of
-          Scope_empty -> ((Scope_add ((0, last_id + 1), 0, Symtbl_anon_ident {sym_anon_var = 1, sym_anon_record = 1}, (Sym_add sym Sym_empty)) Scope_empty), last_id + 1, [])
-          Scope_add (id, lv, anon_idents, syms) scps -> (case syms of
-                                                           Sym_empty -> ((Scope_add (id, lv, anon_idents, (Sym_add sym Sym_empty)) scps), last_id, [])
-                                                           Sym_add _ _ -> (case walk_on_scope syms (ident, (sym_attr_entity . sym_attr) sym) of
-                                                                             Just e -> if (not ovwt) then (sym_tbl, last_id, [Symbol_redefinition errmsg])
-                                                                                       else ((Scope_add (id, lv, anon_idents, (Sym_add sym syms)) scps), last_id, [])
-                                                                               where
-                                                                                 errmsg = "symbol table error, failed to register, " ++
-                                                                                          "for detection of pre registered object with same identifier as " ++ ident
-                                                                             Nothing -> ((Scope_add (id, lv, anon_idents, (Sym_add sym syms)) scps), last_id, [])
-                                                                          )
-                                                             where
-                                                               walk_on_scope :: Symtbl_cluster -> (String, Syntree_node) -> Maybe Symtbl_node
-                                                               walk_on_scope sym_cluster (ident, entity) =
-                                                                 ras_trace "in walk_on_scope" (
-                                                                 case sym_cluster of
-                                                                   Sym_add sym syms -> if (((sym_ident sym) == ident) && (cmp_entity sym entity)) then Just sym
-                                                                                       else walk_on_scope syms (ident, entity)
-                                                                   Sym_empty -> Nothing
-                                                                 )
-                                                        )
-  in
-    let ((left, stbl), last_id) = sym_categorize' symtbl cat
-    in
-      let (stbl', last_id', err) =
-            reg_sym (stbl, last_id + 1) (ident, Sym_entry {sym_key = last_id + 1, sym_ident = ident, sym_attr = Sym_attrib {sym_attr_geometry = (-1, -1), sym_attr_entity = entity}})
-      in
-        ((sym_update symtbl cat ((left, stbl'), last_id')), err)
-  ) -}
-sym_regist' :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> ((Symtbl, (Integer, Integer)), [Error_codes])
-sym_regist' ovrid symtbl cat (ident, entity) =
+sym_regist :: Bool -> Symtbl -> Sym_category -> (String, Syntree_node) -> ((Symtbl, (Integer, Integer)), [Error_codes])
+sym_regist ovrid symtbl cat (ident, entity) =
   ras_trace "in sym_regist" (
   let reg_sym (sym_tbl, last_id) (ident, sym) =
         case sym_tbl of
@@ -574,7 +540,7 @@ sym_regist_var_decl symtbl (ident, entity) =
   case entity of
     Syn_var_decl (ident', (-1, -1)) _
       | ident' == ident ->
-        let ((symtbl', key@(key_scp, key_ent)), errs_reg) = sym_regist' False symtbl Sym_cat_decl (ident, entity)
+        let ((symtbl', key@(key_scp, key_ent)), errs_reg) = sym_regist False symtbl Sym_cat_decl (ident, entity)
         in
           case sym_internalerr errs_reg of
             (e:_, _) -> ((symtbl', Nothing), errs_reg)
@@ -1628,9 +1594,7 @@ parse_fun_body symtbl (decls, omits) tokens = do
                             )
                       
                       ((Just var_decl@(Syn_var_decl (var_id, key) var_ty), symtbl', tokens'), err) -> do
-                        --putStrLn $ var_id ++ " >>>>>"
-                        --let ((symtbl'', reg_id), err_reg) = sym_regist' False symtbl' Sym_cat_decl (var_id, var_decl)
-                        --putStrLn $ var_id ++ " <<<<<" ++ (show err_reg)
+                        --let ((symtbl'', reg_id), err_reg) = sym_regist False symtbl' Sym_cat_decl (var_id, var_decl)
                         --let var_decl' = Syn_var_decl (var_id, reg_id) var_ty
                         r_decls <- runExceptT $ exam_redef ((decls ++ [var_decl]), omits)
                         case r_decls of
@@ -1716,7 +1680,7 @@ cons_fun_tree symtbl fun tokens =
                                                                        where
                                                                          errmsg = "missing beginning L brace in the declaration of function body."
                                                                          
-                                           let ((symtbl'', reg_id), err_funreg) = sym_regist' False symtbl' Sym_cat_decl (fun_id, (Syn_fun_decl' fun_id args0' fun_body' (env', fun_ty')))
+                                           let ((symtbl'', reg_id), err_funreg) = sym_regist False symtbl' Sym_cat_decl (fun_id, (Syn_fun_decl' fun_id args0' fun_body' (env', fun_ty')))
                                            case sym_internalerr err_funreg of
                                              (e:es, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                                where
@@ -1727,7 +1691,7 @@ cons_fun_tree symtbl fun tokens =
                                                      Prelude.foldl (\((stbl, errs), as) -> \arg@(Syn_arg_decl (id, _) _) ->
                                                                        case sym_internalerr errs of
                                                                          (e:_, _) -> ((stbl, errs), as)
-                                                                         {- _ -> (case sym_regist' False stbl Sym_cat_decl (id, arg) of
+                                                                         {- _ -> (case sym_regist False stbl Sym_cat_decl (id, arg) of
                                                                                  ((stbl', reg_id), err_reg) -> (stbl', (errs ++ err_reg))
                                                                               ) -}
                                                                          _ -> (case arg of
@@ -1808,7 +1772,7 @@ cons_fun_tree symtbl fun tokens =
                                                                    do
                                                                      let ((prev_scope', _), err_funreg') =
                                                                            if (sym_crnt_level (sym_scope_right $ sym_categorize prev_scope Sym_cat_decl)) == 1 then
-                                                                             sym_regist' False prev_scope Sym_cat_func (fun_id', fun'')
+                                                                             sym_regist False prev_scope Sym_cat_func (fun_id', fun'')
                                                                            else
                                                                              ((prev_scope, (-1, -1)), [])
                                                                      case sym_internalerr err_funreg' of
@@ -2517,7 +2481,6 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
         
         (Tk_ident ident):ts -> do
           r <- lift (do 
-                        --putStrLn $ ident ++ " >>>>>"
                         case ts of
                           Tk_L_par:ts' -> do
                             let fun_app = Syn_expr_call ident [] Ty_abs
@@ -2555,7 +2518,6 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                      where
                                        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                    ([], err') -> do
-                                     putStrLn $ ident ++ " >>>>> " ++ (show v)
                                      (case v of
                                         Syn_var_decl (ident', key@(key_scp, key_ent)) v_ty
                                           | (ident' == ident) && ((key_scp /= -1) && (key_ent /= -1)) -> do
@@ -2621,9 +2583,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                                              
                                                              Nothing -> do
                                                                {- ((symtbl'', reg_id), err_reg) <- do
-                                                                                --putStrLn $ ident ++ " >>>>> "
-                                                                                let r0@((_, _), err0) = sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
-                                                                                --putStrLn $ ident ++ " <<<<< " ++ (show err0)
+                                                                                let r0@((_, _), err0) = sym_regist False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
                                                                                 return r0 -}
                                                                let ((symtbl'', r_reg), err_reg) = sym_regist_var_decl symtbl' (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
                                                                case sym_internalerr err_reg of
@@ -2677,7 +2637,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                       Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
                                       Right (var'@(Syn_var ident' v_ty'), symtbl')
                                         | ident' == ident -> do
-                                            --((symtbl'', reg_id), err_reg) <- return $ sym_regist' False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
+                                            --((symtbl'', reg_id), err_reg) <- return $ sym_regist False symtbl' Sym_cat_decl (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
                                             let ((symtbl'', r_reg), err_reg) = sym_regist_var_decl symtbl' (ident, Syn_var_decl (ident, (-1, -1)) v_ty')
                                             case sym_internalerr err_reg of
                                               (e:_, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
@@ -3250,7 +3210,7 @@ ty_chk_var_decl symtbl (v_id, v_ty) =
         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
     
     (Nothing, err_lok) ->
-      --let ((symtbl', reg_id), err_reg) = sym_regist' False symtbl Sym_cat_decl (v_id, Syn_var_decl (v_id, (-1, -1)) v_ty)
+      --let ((symtbl', reg_id), err_reg) = sym_regist False symtbl Sym_cat_decl (v_id, Syn_var_decl (v_id, (-1, -1)) v_ty)
       let ((symtbl', r_reg), err_reg) = sym_regist_var_decl symtbl (v_id, Syn_var_decl (v_id, (-1, -1)) v_ty)
       in
         case (fst . sym_internalerr) err_reg of
