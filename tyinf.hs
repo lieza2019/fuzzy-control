@@ -1,3 +1,4 @@
+-- ***** for debugging
 {- syntax definitions
    unary_operation := ++ int_var | -- int_var | - int_real_var
    
@@ -1919,9 +1920,14 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                       case r2 of
                                         Left err_exc -> return $ Left err_exc
                                         Right ((Just subexpr2, symtbl', tokens''), err) ->
-                                          (case combine subexpr1 ope' subexpr2 of
+                                          (case combine (subexpr1, ope', subexpr2) of
                                              Left exc -> return $ Left exc
-                                             Right expr' -> return $ Right ((Just expr', symtbl', tokens''), err)
+                                             --Right expr' -> return $ Right ((Just expr', symtbl', tokens''), err)
+                                             Right expr' -> do
+                                               r_inf <- runExceptT $ ty_inf symtbl' expr'
+                                               case r_inf of
+                                                 Left ((env, expr''), symtbl'', err_inf) -> return $ Right ((Just expr'', symtbl'', tokens''), err ++ err_inf)
+                                                 Right ((env, expr''), symtbl'', err_inf) -> return $ Right ((Just expr'', symtbl'', tokens''), err ++ err_inf)
                                           )
                                         Right ((Nothing, symtbl', tokens''), err) -> return $ Right ((Just subexpr1, symtbl', tokens''), err)
                                   )
@@ -1941,7 +1947,8 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                (Tk_cross:ts) -> (Just Ope_add, ts)
                                (Tk_asgn:ts) -> (Just Ope_asgn, ts)
                                _ -> (Nothing, tokens)
-          combine expr1 op expr2 =
+          combine :: (Syntree_node, Operation, Syntree_node) -> Either Error_Excep Syntree_node
+          combine (expr1, op, expr2) =
             case expr2 of
               Syn_expr_par _ _ -> Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
               Syn_val _ _ -> Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
@@ -1949,7 +1956,7 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
               Syn_expr_call _ _ _ -> Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
               Syn_expr_una _ _ _ -> Right $ Syn_expr_bin op (expr1, expr2) Ty_abs
               Syn_expr_bin op2 (expr21, expr22) ty2 -> if is_gte_op op op2 then
-                                                         case combine expr1 op expr21 of
+                                                         case combine (expr1, op, expr21) of
                                                            Right expr21' -> Right $ Syn_expr_bin op2 (expr21', expr22) Ty_abs
                                                            Left exc -> Left exc
                                                        else
@@ -3422,9 +3429,13 @@ ty_inf_var symtbl ((v_id, v_ty), expr) =
                                                                             Just ty_prom -> ty_prom
                                                                             Nothing -> ty_decl
                                                                          )
-                                                      ) -> if mod_ty == v_ty'' then return ((env'', expr'), symtbl'', err')
-                                                           else
-                                                             return ((env'', expr'), symtbl'', err' ++ [Type_constraint_mismatched errmsg_decl])
+                                                      ) ->
+                                          do
+                                            -- ***** for debugging
+                                            -- lift $ putStrLn ("(ident, v_ty_decl', v_ty_decl) = " ++ "(" ++ v_id ++ ", " ++ (show v_ty_decl') ++ ", " ++ (show v_ty_decl) ++ ")")
+                                            if mod_ty == v_ty'' then return ((env'', expr'), symtbl'', err')
+                                              else
+                                              return ((env'', expr'), symtbl'', err' ++ [Type_constraint_mismatched errmsg_decl])
                         where
                           env'' = case mod_ty_prom of
                                     Just ty_prom -> Ty_env (([(v_id, mod_ty)], ([(v_id, (mod_ty_decl, ty_prom))], [])):e_bin')
@@ -3451,7 +3462,9 @@ ty_inf_expr symtbl expr =
                                 else let errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
                                      in
                                        throwE ((Ty_env [], expr), symtbl, [Internal_error errmsg])
+    
     Syn_var v_id v_ty -> ty_inf_var symtbl ((v_id, v_ty), expr)
+    
     
     Syn_expr_asgn expr_l expr_r ty -> do
       ((env_r, expr_r_inf), symtbl_r, err_r) <- ty_inf symtbl expr_r
@@ -3459,7 +3472,8 @@ ty_inf_expr symtbl expr =
       let err = err_r ++ err_l
       
       lift $ (do
-                 putStrLn $ "(l-ty, r-ty): " ++ "(" ++ (show $ syn_node_typeof expr_l_inf) ++ ", " ++ (show $ syn_node_typeof expr_r_inf) ++ ")"
+                 -- ***** for debugging
+                 --putStrLn $ "(l-ty, r-ty): " ++ "(" ++ (show $ syn_node_typeof expr_l_inf) ++ ", " ++ (show $ syn_node_typeof expr_r_inf) ++ ")"
                  return $ Left ((env_l, expr_l_inf), symtbl_rl, err_l)
              )
       
@@ -3527,7 +3541,8 @@ ty_inf_expr symtbl expr =
                           where
                             errmsg = "ill unification detected in type reconstruction."
                             err'' = err ++ [Type_constraint_mismatched errmsg]
-                    putStrLn $ show u_asgn
+                    -- ***** for debugging
+                    -- putStrLn $ show u_asgn
                     return $ Right r'
                   case r of
                     Left r' -> throwE r'
