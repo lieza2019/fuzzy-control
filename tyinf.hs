@@ -2746,7 +2746,15 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                     )
           case r of
             Left err -> throwE err
-            Right r' -> return r'
+            Right ((expr, symtbl', ts'), err_expr) ->
+              case expr of
+                Nothing -> return ((expr, symtbl', ts'), err_expr)
+                Just expr' -> lift (do
+                                       r_inf <- runExceptT $ ty_inf symtbl' expr'
+                                       case r_inf of
+                                         Left ((env, expr''), symtbl'', err_inf) -> return ((Just expr'', symtbl'', ts'), err_expr ++ err_inf)
+                                         Right ((env, expr''), symtbl'', err_inf) -> return ((Just expr'', symtbl'', ts'), err_expr ++ err_inf)
+                                   )
         
         {- _ -> return ((Nothing, symtbl, tokens), [err])
           where
