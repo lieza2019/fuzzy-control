@@ -1,4 +1,5 @@
 -- ***** for debugging
+
 {- syntax definitions
    unary_operation := ++ int_var | -- int_var | - int_real_var
    
@@ -2524,43 +2525,40 @@ cons_ptree symtbl tokens (fun_declp, var_declp, comp_parsp, par_contp) =
                                             r_cur <- runExceptT $ ty_curve symtbl' var_decl
                                             case r_cur of
                                               Left [Internal_error errmsg] -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                              Right (var_decl', symtbl'_cur) ->
-                                                (case sym_lkup_var_decl symtbl'_cur (1, var_id) of
-                                                   (r_redef_chk, err_redef_chk) ->
-                                                     (case sym_internalerr err_redef_chk of
-                                                        (e:_, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                                          where
-                                                            errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                        _ -> (case r_redef_chk of
-                                                                Nothing -> 
-                                                                  (case sym_regist_var_decl symtbl'_cur (var_id, var_decl') of
-                                                                     ((symtbl'', Nothing), err_reg) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                                                       where
-                                                                         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                     ((symtbl'', Just (((key, var_id'), a@(Sym_attrib {sym_attr_entity = var_decl''@(Syn_var_decl (var_id'', key') var_ty')})), h)),
-                                                                      err_reg) | ((var_id == var_id) && (var_id'' == var_id')) && (key' == key) ->
-                                                                                 (case sym_internalerr err_reg of
-                                                                                    --(e:_, _) -> return $ Left errs'
-                                                                                    (e:_, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                                                                      where
-                                                                                        errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                                    _ -> return $ Right ((Just var_decl'', symtbl'', tokens'), errs')
-                                                                                 )
-                                                                       where
-                                                                         errs' = errs ++ err_redef_chk ++ err_reg
-                                                                     ((symtbl'', Just _), err_reg) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
-                                                                       where
-                                                                         errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
-                                                                         errs' = errs ++ err_redef_chk ++ err_reg
-                                                                  )
-                                                                
-                                                                (Just (_, symtbl'')) -> return $ Right ((Just var_decl, symtbl'', tokens'), errs' ++ [Symbol_redefinition errmsg])
-                                                                  where
-                                                                    errmsg = "Redefinition of " ++ var_id ++ " in variables declaration."
-                                                                    errs' = errs ++ err_redef_chk
-                                                             )
-                                                     )
-                                                )
+                                              Right (var_decl', symtbl'_cur) -> do
+                                                let (r_redef_chk, err_redef_chk) = sym_lkup_var_decl symtbl'_cur (1, var_id)
+                                                case sym_internalerr err_redef_chk of
+                                                  (e:_, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                    where
+                                                      errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                  _ -> (case r_redef_chk of
+                                                          Nothing -> 
+                                                            (case sym_regist_var_decl symtbl'_cur (var_id, var_decl') of
+                                                               ((symtbl'', Nothing), err_reg) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                                 where
+                                                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                               ((symtbl'', Just (((key, var_id'), a@(Sym_attrib {sym_attr_entity = var_decl''@(Syn_var_decl (var_id'', key') var_ty')})), h)),
+                                                                err_reg) | ((var_id' == var_id) && (var_id'' == var_id')) && (key' == key) ->
+                                                                           (case sym_internalerr err_reg of
+                                                                              --(e:_, _) -> return $ Left errs'
+                                                                              (e:_, _) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                                                where
+                                                                                  errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                              _ -> return $ Right ((Just var_decl'', symtbl'', tokens'), errs')
+                                                                           )
+                                                                 where
+                                                                   errs' = errs ++ err_redef_chk ++ err_reg
+                                                               ((symtbl'', Just _), err_reg) -> return $ Left (Error_Excep Excep_assert_failed errmsg)
+                                                                 where
+                                                                   errmsg = __FILE__ ++ ":" ++ (show (__LINE__ :: Int))
+                                                                   errs' = errs ++ err_redef_chk ++ err_reg
+                                                            )
+                                                          
+                                                          (Just (_, symtbl'')) -> return $ Right ((Just var_decl, symtbl'', tokens'), errs' ++ [Symbol_redefinition errmsg])
+                                                            where
+                                                              errmsg = "Redefinition of " ++ var_id ++ " in variables declaration."
+                                                              errs' = errs ++ err_redef_chk
+                                                       )
                                           
                                           Right ((_, symtbl', tokens'), errs) -> return $ Right ((Nothing, symtbl', tokens'), errs)
                                       _ -> return $ Right ((Nothing, symtbl, ts), [err])
